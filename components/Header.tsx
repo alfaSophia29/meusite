@@ -23,6 +23,18 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ currentUser, onNavigate, unreadNotificationsCount, cartItemCount, onOpenCart, onToggleMenu }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,18 +64,24 @@ const Header: React.FC<HeaderProps> = ({ currentUser, onNavigate, unreadNotifica
         </div>
 
         {currentUser && (
-          <form onSubmit={handleSearchSubmit} className="hidden lg:flex flex-1 max-w-md mx-8 relative group">
-            <div className="relative w-full text-gray-400 focus-within:text-brand transition-colors">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <MagnifyingGlassIcon className="h-4 w-4" />
+          <form onSubmit={handleSearchSubmit} className="hidden lg:flex flex-1 max-w-lg mx-8 relative group">
+            <div className="relative w-full group/input">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none group-focus-within/input:text-brand transition-colors text-gray-400">
+                <MagnifyingGlassIcon className="h-5 w-5" />
               </div>
               <input
+                ref={searchInputRef}
                 type="text"
-                className="block w-full pl-9 pr-4 py-2 border border-gray-100 dark:border-white/10 rounded-xl bg-gray-50 dark:bg-white/5 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand text-sm transition-all shadow-inner dark:text-white"
-                placeholder="Buscar na rede..."
+                className="block w-full pl-11 pr-12 py-2.5 border border-transparent dark:border-white/5 rounded-2xl bg-gray-100/80 dark:bg-white/5 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white dark:focus:bg-zinc-900 text-sm font-medium transition-all shadow-sm dark:text-white"
+                placeholder="Pesquisar algo incrível..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
+              <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
+                <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-200/50 dark:bg-white/10 border dark:border-white/10 text-[10px] font-bold text-gray-500 dark:text-gray-400">
+                  <span className="text-[12px]">⌘</span> K
+                </div>
+              </div>
             </div>
           </form>
         )}
@@ -103,14 +121,29 @@ const Header: React.FC<HeaderProps> = ({ currentUser, onNavigate, unreadNotifica
       </header>
 
       {isMobileSearchOpen && (
-        <div className="fixed inset-0 z-[110] bg-white dark:bg-darkbg animate-fade-in lg:hidden">
-          <div className="flex items-center p-4 border-b border-gray-100 dark:border-white/5">
-            <button onClick={() => setIsMobileSearchOpen(false)} className="p-2 text-gray-500 dark:text-gray-400 mr-2">
-              <ArrowLeftIcon className="h-6 w-6" />
+        <div className="fixed inset-0 z-[110] bg-white dark:bg-[#0a0a0a] animate-fade-in lg:hidden flex flex-col">
+          <div className="flex items-center p-4 gap-4 border-b border-gray-100 dark:border-white/5 bg-white/90 dark:bg-black/90 backdrop-blur-xl">
+            <button onClick={() => setIsMobileSearchOpen(false)} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10 rounded-full transition-colors active:scale-90">
+              <ArrowLeftIcon className="h-6 w-6 dark:text-white" />
             </button>
-            <form onSubmit={handleSearchSubmit} className="flex-1">
-              <input autoFocus type="text" placeholder="Buscar na rede..." className="w-full bg-transparent text-base font-bold outline-none dark:text-white" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <form onSubmit={handleSearchSubmit} className="flex-1 relative">
+              <MagnifyingGlassIcon className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-brand" />
+              <input 
+                autoFocus 
+                type="text" 
+                placeholder="O que você procura?" 
+                className="w-full bg-transparent pl-8 text-[18px] font-bold outline-none dark:text-white placeholder-gray-400" 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+              />
             </form>
+          </div>
+          
+          <div className="flex-1 p-6">
+            <p className="text-[12px] font-black text-gray-400 dark:text-gray-600 uppercase tracking-[0.2em] mb-4">Buscas Recentes</p>
+            <div className="flex flex-col gap-4 italic text-gray-500 dark:text-gray-400 text-sm">
+                Ainda não há buscas recentes para exibir.
+            </div>
           </div>
         </div>
       )}

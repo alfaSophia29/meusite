@@ -214,8 +214,9 @@ const PostCard: React.FC<PostCardProps> = ({
   
   const displayContent = useMemo(() => {
     if (!post?.content) return '';
-    if (hasBg || isTextExpanded || post.content.length <= TEXT_LIMIT) return post.content;
-    return post.content.substring(0, TEXT_LIMIT) + '...';
+    const limit = hasBg ? 500 : TEXT_LIMIT;
+    if (isTextExpanded || post.content.length <= limit) return post.content;
+    return post.content.substring(0, limit) + '...';
   }, [post?.content, isTextExpanded, hasBg]);
 
   useEffect(() => {
@@ -481,12 +482,20 @@ const PostCard: React.FC<PostCardProps> = ({
                         </button>
                      </div>
                   )}
-                  {!hasBg && !isTextExpanded && post.content && post.content.length > TEXT_LIMIT && (
+                  {!isTextExpanded && post.content && post.content.length > (hasBg ? 500 : TEXT_LIMIT) && (
                     <button 
                       onClick={(e) => { e.stopPropagation(); setIsTextExpanded(true); }}
-                      className="text-brand hover:underline mt-1 inline-block text-[15px]"
+                      className={`${hasBg ? 'text-white/90 underline-offset-4' : 'text-brand'} hover:underline mt-1 inline-block text-[15px] font-bold`}
                     >
-                      Mostrar mais
+                      {t('show_more') || 'Mostrar mais'}
+                    </button>
+                  )}
+                  {isTextExpanded && post.content && post.content.length > (hasBg ? 500 : TEXT_LIMIT) && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setIsTextExpanded(false); }}
+                      className={`${hasBg ? 'text-white/90 underline-offset-4' : 'text-brand'} hover:underline mt-2 block text-[15px] font-bold mx-auto md:mx-0`}
+                    >
+                      {t('show_less') || 'Mostrar menos'}
                     </button>
                   )}
                 </div>
