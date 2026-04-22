@@ -1,7 +1,19 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+const getAI = () => {
+    if (!aiInstance) {
+        const key = process.env.GEMINI_API_KEY;
+        if (!key) {
+            console.warn("GEMINI_API_KEY não definida. A tradução automática será desativada.");
+            return null;
+        }
+        aiInstance = new GoogleGenAI({ apiKey: key });
+    }
+    return aiInstance;
+};
 
 /**
  * Tradução AI - Utiliza Gemini para traduzir textos e detectar idiomas
@@ -11,6 +23,9 @@ export const translateText = async (
     targetLanguage: string = 'Português'
 ): Promise<string> => {
     if (!text || text.trim().length === 0) return '';
+    
+    const ai = getAI();
+    if (!ai) return text;
     
     try {
         const response = await ai.models.generateContent({

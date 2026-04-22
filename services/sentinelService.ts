@@ -1,7 +1,19 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+const getAI = () => {
+    if (!aiInstance) {
+        const key = process.env.GEMINI_API_KEY;
+        if (!key) {
+            console.warn("GEMINI_API_KEY não definida para Sentinel.");
+            return null;
+        }
+        aiInstance = new GoogleGenAI({ apiKey: key });
+    }
+    return aiInstance;
+};
 
 export interface SentinelResult {
     allowed: boolean;
@@ -17,6 +29,9 @@ export const checkContentSecurity = async (
     content: string, 
     type: 'post' | 'comment' | 'product' | 'message'
 ): Promise<SentinelResult> => {
+    const ai = getAI();
+    if (!ai) return { allowed: true };
+
     try {
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
@@ -62,6 +77,9 @@ export const checkImageSecurity = async (
     base64Image: string,
     mimeType: string
 ): Promise<SentinelResult> => {
+    const ai = getAI();
+    if (!ai) return { allowed: true };
+
     try {
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",

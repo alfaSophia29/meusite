@@ -1,8 +1,8 @@
 
-const CACHE_NAME = 'cyberphone-cache-v3';
+const CACHE_NAME = 'cyberphone-cache-v10';
 const urlsToCache = [
   '/',
-  '/index.html'
+  '/index.html?v=100'
 ];
 
 self.addEventListener('install', (event) => {

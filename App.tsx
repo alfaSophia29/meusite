@@ -47,6 +47,11 @@ import SavedPostsPage from './components/SavedPostsPage';
 import OfflinePage from './components/OfflinePage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
 
+import { DialogProvider } from './services/DialogContext';
+
+console.log("[BOOT] App.tsx Iniciado");
+
+
 const THEME_MAP: Record<GroupTheme, { primary: string, hover: string, light: string }> = {
   blue: { primary: '#2563eb', hover: '#1d4ed8', light: '#eff6ff' },
   green: { primary: '#10b981', hover: '#059669', light: '#ecfdf5' },
@@ -72,10 +77,11 @@ const App: React.FC = () => {
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
     const [walletConfig, setWalletConfig] = useState<{ isOpen: boolean, mode: 'deposit' | 'withdraw' }>({ isOpen: false, mode: 'deposit' });
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false); 
     const [initError, setInitError] = useState<string | null>(null);
-    const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [isOfflineModeEnabled, setIsOfflineModeEnabled] = useState(false);
+    const [isOnline, setIsOnline] = useState(true); // Forçar true para evitar bloqueio offline errôneo
+    const [isOfflineModeEnabled, setIsOfflineModeEnabled] = useState(true); // Permitir offline por padrão
+
     
     const lastNotificationIdRef = useRef<string | null>(null);
     const lastMessageCountRef = useRef(0);
@@ -360,42 +366,6 @@ const App: React.FC = () => {
         };
     }, [currentUser, refreshCurrentUser]);
 
-    if (isLoading) {
-        return (
-            <div className="h-screen w-full flex flex-col items-center justify-center bg-gray-50 dark:bg-[#0a0c10]">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-6 shadow-[0_0_15px_rgba(37,99,235,0.3)]"></div>
-                <div className="flex flex-col items-center gap-2">
-                   <h1 className="text-xl font-black uppercase text-gray-900 dark:text-white tracking-tighter">CyBerPhone</h1>
-                   <p className="text-[9px] font-bold uppercase text-gray-400 tracking-[0.3em] animate-pulse">A inicializar o CyBerPhone 1.0.0</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (!isOnline && !isOfflineModeEnabled) {
-        return <OfflinePage 
-          onRetry={() => {
-            if (navigator.onLine) {
-                setIsOnline(true);
-                setIsOfflineModeEnabled(false);
-                if (currentUser) refreshCurrentUser();
-            }
-          }} 
-          onContinueOffline={() => setIsOfflineModeEnabled(true)}
-        />;
-    }
-
-    if (initError) {
-        return (
-            <div className="h-screen w-full flex flex-col items-center justify-center bg-white dark:bg-[#0a0c10] p-6 text-center">
-                <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mb-6" />
-                <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white">Erro de Inicialização</h2>
-                <p className="text-gray-500 text-sm mb-8 font-medium">{initError}</p>
-                <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Recarregar App</button>
-            </div>
-        );
-    }
-
     const renderPage = () => {
         // PERMITIR PÁGINAS PÚBLICAS MESMO SEM USUÁRIO
         if (currentPage === 'terms') return <LegalPage type="terms" onBack={() => handleNavigate(currentUser ? 'settings' : 'auth')} />;
@@ -445,51 +415,112 @@ const App: React.FC = () => {
         }
     };
 
-    return (
-        <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-[#0a0c10] text-gray-900 dark:text-gray-100 transition-colors duration-300">
-            {!isOnline && isOfflineModeEnabled && (
-                <div className="bg-orange-500 text-white text-[10px] font-black py-2 px-4 flex items-center justify-between fixed top-0 left-0 w-full z-[1000] animate-pulse uppercase tracking-widest shadow-xl">
-                    <div className="flex items-center gap-2">
-                        <WifiIcon className="h-4 w-4" />
-                        <span>Modo Offline: Usando dados locais de cache</span>
+    const renderContent = () => {
+        if (isLoading) {
+            return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-gray-50 dark:bg-[#0a0c10] p-6">
+                    <div className="absolute top-4 right-4 flex gap-2">
+                        <button 
+                            onClick={() => setIsLoading(false)}
+                            className="text-[8px] font-black uppercase text-gray-400 hover:text-blue-600 transition-colors"
+                        >
+                            Pular Carregamento
+                        </button>
+                        <button 
+                            onClick={() => { localStorage.clear(); window.location.reload(); }}
+                            className="text-[8px] font-black uppercase text-red-400 hover:text-red-600 transition-colors"
+                        >
+                            Resetar Cache
+                        </button>
                     </div>
-                    <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">Reconectar</button>
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-6 shadow-[0_0_15px_rgba(37,99,235,0.3)]"></div>
+                    <div className="flex flex-col items-center gap-2">
+                       <h1 className="text-xl font-black uppercase text-gray-900 dark:text-white tracking-tighter">CyBerPhone</h1>
+                       <p className="text-[9px] font-bold uppercase text-gray-400 tracking-[0.3em] animate-pulse">A inicializar o CyBerPhone 1.0.0</p>
+                    </div>
+                    <div className="mt-8 text-[8px] text-gray-400 uppercase font-medium">
+                        Se demorar mais de 10 segundos, tente Resetar o Cache.
+                    </div>
                 </div>
-            )}
-            {currentUser && currentPage !== 'admin' && (
-                <Header 
-                  currentUser={currentUser} 
-                  onNavigate={handleNavigate} 
-                  unreadNotificationsCount={unreadNotificationsCount} 
-                  cartItemCount={cartItems.length} 
-                  onOpenCart={() => setIsCartModalOpen(true)} 
-                  onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
-                />
-            )}
-            <div className="flex flex-1 relative">
-                {currentUser && currentPage !== 'admin' && (
-                  <Footer 
-                    currentUser={currentUser} 
-                    onNavigate={handleNavigate} 
-                    activePage={currentPage} 
-                    onLogout={handleLogout} 
-                    isMenuOpen={isMenuOpen}
-                    onCloseMenu={() => setIsMenuOpen(false)}
-                  />
-                )}
-                <main className={`flex-grow ${currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8' : ''} transition-all ${currentUser && currentPage !== 'admin' ? 'md:ml-64 px-0 md:px-8' : ''} overflow-x-hidden`}>
-                    <div className="max-w-7xl mx-auto min-h-[calc(100vh-140px)]">
-                        {renderPage()}
+            );
+        }
+
+        if (!isOnline && !isOfflineModeEnabled) {
+            return <OfflinePage 
+              onRetry={() => {
+                if (navigator.onLine) {
+                    setIsOnline(true);
+                    setIsOfflineModeEnabled(false);
+                    if (currentUser) refreshCurrentUser();
+                }
+              }} 
+              onContinueOffline={() => setIsOfflineModeEnabled(true)}
+            />;
+        }
+
+        if (initError) {
+            return (
+                <div className="h-screen w-full flex flex-col items-center justify-center bg-white dark:bg-[#0a0c10] p-6 text-center">
+                    <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mb-6" />
+                    <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white">Erro de Inicialização</h2>
+                    <p className="text-gray-500 text-sm mb-8 font-medium">{initError}</p>
+                    <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Recarregar App</button>
+                </div>
+            );
+        }
+
+        return (
+            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-[#0a0c10] text-gray-900 dark:text-gray-100 transition-colors duration-300">
+                {!isOnline && isOfflineModeEnabled && (
+                    <div className="bg-orange-500 text-white text-[10px] font-black py-2 px-4 flex items-center justify-between fixed top-0 left-0 w-full z-[1000] animate-pulse uppercase tracking-widest shadow-xl">
+                        <div className="flex items-center gap-2">
+                            <WifiIcon className="h-4 w-4" />
+                            <span>Modo Offline: Usando dados locais de cache</span>
+                        </div>
+                        <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">Reconectar</button>
                     </div>
-                </main>
+                )}
+                {currentUser && currentPage !== 'admin' && (
+                    <Header 
+                      currentUser={currentUser} 
+                      onNavigate={handleNavigate} 
+                      unreadNotificationsCount={unreadNotificationsCount} 
+                      cartItemCount={cartItems.length} 
+                      onOpenCart={() => setIsCartModalOpen(true)} 
+                      onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
+                    />
+                )}
+                <div className="flex flex-1 relative">
+                    {currentUser && currentPage !== 'admin' && (
+                      <Footer 
+                        currentUser={currentUser} 
+                        onNavigate={handleNavigate} 
+                        activePage={currentPage} 
+                        onLogout={handleLogout} 
+                        isMenuOpen={isMenuOpen}
+                        onCloseMenu={() => setIsMenuOpen(false)}
+                      />
+                    )}
+                    <main className={`flex-grow ${currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8' : ''} transition-all ${currentUser && currentPage !== 'admin' ? 'md:ml-64 px-0 md:px-8' : ''} overflow-x-hidden`}>
+                        <div className="max-w-7xl mx-auto min-h-[calc(100vh-140px)]">
+                            {renderPage()}
+                        </div>
+                    </main>
+                </div>
+                {currentUser && (
+                  <>
+                    <CartModal isOpen={isCartModalOpen} onClose={() => setIsCartModalOpen(false)} currentUser={currentUser} onCartUpdate={() => setCartItems(getCart())} refreshUser={refreshCurrentUser} />
+                    <WalletModal isOpen={walletConfig.isOpen} mode={walletConfig.mode} onClose={() => setWalletConfig({ ...walletConfig, isOpen: false })} currentUser={currentUser} refreshUser={refreshCurrentUser} />
+                  </>
+                )}
             </div>
-            {currentUser && (
-              <>
-                <CartModal isOpen={isCartModalOpen} onClose={() => setIsCartModalOpen(false)} currentUser={currentUser} onCartUpdate={() => setCartItems(getCart())} refreshUser={refreshCurrentUser} />
-                <WalletModal isOpen={walletConfig.isOpen} mode={walletConfig.mode} onClose={() => setWalletConfig({ ...walletConfig, isOpen: false })} currentUser={currentUser} refreshUser={refreshCurrentUser} />
-              </>
-            )}
-        </div>
+        );
+    };
+
+    return (
+        <DialogProvider>
+            {renderContent()}
+        </DialogProvider>
     );
 };
 
