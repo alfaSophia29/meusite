@@ -63,8 +63,21 @@ const LegalPage: React.FC<LegalPageProps> = ({ type, onBack }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0c10] py-12 px-4 font-sans">
-      <div className="max-w-3xl mx-auto bg-white dark:bg-[#12161f] rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-white/5 overflow-hidden">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0c10] font-sans flex flex-col items-center justify-center overflow-y-auto"
+         style={{ 
+           paddingTop: 'var(--safe-top)', 
+           paddingBottom: 'var(--safe-bottom)',
+           paddingLeft: 'var(--safe-left)',
+           paddingRight: 'var(--safe-right)'
+         }}>
+      
+      {/* Decorative Background for Desktop */}
+      <div className="hidden lg:block fixed inset-0 z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/5 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/5 rounded-full blur-[120px]" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-3xl bg-white dark:bg-[#12161f] rounded-none md:rounded-[2.5rem] shadow-none md:shadow-2xl border-0 md:border md:border-gray-100 md:dark:border-white/5 overflow-hidden min-h-screen md:min-h-0 flex flex-col transition-all duration-500">
         <div className="p-8 md:p-12">
           <button 
             onClick={onBack}

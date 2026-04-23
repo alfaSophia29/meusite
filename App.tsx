@@ -81,6 +81,33 @@ const App: React.FC = () => {
     const [initError, setInitError] = useState<string | null>(null);
     const [isOnline, setIsOnline] = useState(true); 
     const [isOfflineModeEnabled, setIsOfflineModeEnabled] = useState(true); 
+    const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+    // --- LÓGICA DE PWA (INSTALL PROMPT) ---
+    useEffect(() => {
+        const handleBeforeInstallPrompt = (e: any) => {
+            // Previne o mini-infobar padrão do Chrome
+            e.preventDefault();
+            // Salva o evento para ser disparado depois
+            setDeferredPrompt(e);
+            console.log("[PWA] Prompt de instalação interceptado");
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        };
+    }, []);
+
+    const handleInstallApp = useCallback(async () => {
+        if (!deferredPrompt) return;
+        
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`[PWA] Usuário escolheu: ${outcome}`);
+        setDeferredPrompt(null);
+    }, [deferredPrompt]);
 
     
     const lastNotificationIdRef = useRef<string | null>(null);
@@ -410,7 +437,19 @@ const App: React.FC = () => {
             case 'search-results': return <SearchResultsPage currentUser={currentUser} query={pageParams.query} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'notifications': return <NotificationsPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'live': return <LiveStreamViewer currentUser={currentUser} postId={pageParams.postId} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
-            case 'settings': return <SettingsPage currentUser={currentUser} onNavigate={handleNavigate} darkMode={darkMode} toggleTheme={toggleTheme} refreshUser={refreshCurrentUser} onLogout={handleLogout} onDeleteAccount={handleLogout} appTheme={appTheme} onThemeChange={changeAppTheme} />;
+            case 'settings': return <SettingsPage 
+              currentUser={currentUser} 
+              onNavigate={handleNavigate} 
+              darkMode={darkMode} 
+              toggleTheme={toggleTheme} 
+              refreshUser={refreshCurrentUser} 
+              onLogout={handleLogout} 
+              onDeleteAccount={handleLogout} 
+              appTheme={appTheme} 
+              onThemeChange={changeAppTheme} 
+              canInstallPWA={!!deferredPrompt}
+              onInstallPWA={handleInstallApp}
+            />;
             case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} onAddToCart={(pid, qty, color) => {
                 addToCart(pid, qty, color);
                 setCartItems(getCart());
@@ -502,7 +541,7 @@ const App: React.FC = () => {
                       onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
                     />
                 )}
-                <div className="flex flex-1 relative">
+                <div className="flex flex-1 relative w-full items-stretch">
                     {currentUser && currentPage !== 'admin' && (
                       <Footer 
                         currentUser={currentUser} 
@@ -513,8 +552,8 @@ const App: React.FC = () => {
                         onCloseMenu={() => setIsMenuOpen(false)}
                       />
                     )}
-                    <main className={`flex-grow ${currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8' : ''} transition-all ${currentUser && currentPage !== 'admin' ? 'md:ml-64 px-0 md:px-8' : ''} overflow-x-hidden`}>
-                        <div className="max-w-7xl mx-auto min-h-[calc(100vh-140px)]">
+                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} transition-all overflow-x-hidden`}>
+                        <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
                             {renderPage()}
                         </div>
                     </main>

@@ -25,6 +25,7 @@ import {
   LifebuoyIcon,
   LanguageIcon,
   GlobeAltIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -38,6 +39,8 @@ interface SettingsPageProps {
   onDeleteAccount: () => void;
   appTheme: GroupTheme;
   onThemeChange: (theme: GroupTheme) => void;
+  canInstallPWA?: boolean;
+  onInstallPWA?: () => void;
 }
 
 const THEMES: { id: GroupTheme; label: string; color: string }[] = [
@@ -53,7 +56,19 @@ const LANGUAGES = [
     { id: 'es', label: 'Español (ES)', flag: '🇪🇸' }
 ];
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser, onNavigate, darkMode, toggleTheme, refreshUser, onLogout, onDeleteAccount, appTheme, onThemeChange }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ 
+  currentUser, 
+  onNavigate, 
+  darkMode, 
+  toggleTheme, 
+  refreshUser, 
+  onLogout, 
+  onDeleteAccount, 
+  appTheme, 
+  onThemeChange,
+  canInstallPWA,
+  onInstallPWA
+}) => {
   const { t, i18n } = useTranslation();
   const { showAlert } = useDialog();
   const [view, setView] = useState<'main' | 'edit-profile' | 'appearance' | 'language'>('main');
@@ -433,6 +448,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser, onNavigate, da
     );
   }
 
+  const systemItems = [
+    { label: 'Ajuda e Suporte', desc: 'Abrir tickets e resolver problemas', icon: LifebuoyIcon, onClick: () => onNavigate('support') }
+  ];
+
+  if (canInstallPWA && onInstallPWA) {
+    systemItems.push({ 
+        label: 'Instalar Aplicativo', 
+        desc: 'Adicionar à tela de início', 
+        icon: ArrowDownTrayIcon, 
+        onClick: onInstallPWA 
+    });
+  }
+
+  systemItems.push({ label: 'Sair da Conta', desc: 'Desconectar dispositivo', icon: ArrowRightOnRectangleIcon, onClick: onLogout });
+
   const sections = [
     {
       title: 'Identidade Digital',
@@ -444,10 +474,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ currentUser, onNavigate, da
     },
     {
       title: 'Sistema & Segurança',
-      items: [
-        { label: 'Ajuda e Suporte', desc: 'Abrir tickets e resolver problemas', icon: LifebuoyIcon, onClick: () => onNavigate('support') },
-        { label: 'Sair da Conta', desc: 'Desconectar dispositivo', icon: ArrowRightOnRectangleIcon, onClick: onLogout }
-      ]
+      items: systemItems
     }
   ];
 

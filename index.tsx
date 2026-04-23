@@ -38,11 +38,18 @@ try {
   `;
 }
 
-// Service worker disabled temporarily for debugging startup issues
-/*
-if ('serviceWorker' in navigator) {
+// Service worker registration for PWA
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW error:', err));
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log('[PWA] ServiceWorker registrado com sucesso:', registration.scope);
+      })
+      .catch(err => {
+        console.error('[PWA] Erro ao registrar ServiceWorker:', err);
+      });
   });
+} else if ('serviceWorker' in navigator && !import.meta.env.PROD) {
+  // Opcional: registrar em dev também para testes, mas geralmente evitamos cache agressivo em dev
+  console.log("[PWA] Service Worker detectado, mas desativado em modo de desenvolvimento.");
 }
-*/

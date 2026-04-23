@@ -237,8 +237,21 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-darkbg flex flex-col items-center justify-center p-6 sm:p-12 overflow-y-auto">
-      <div className="w-full max-w-lg">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0c10] flex flex-col items-center justify-center font-sans overflow-y-auto"
+         style={{ 
+           paddingTop: 'var(--safe-top)', 
+           paddingBottom: 'var(--safe-bottom)',
+           paddingLeft: 'var(--safe-left)',
+           paddingRight: 'var(--safe-right)'
+         }}>
+      
+      {/* Decorative Background for Desktop */}
+      <div className="hidden lg:block fixed inset-0 z-0">
+        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-600/5 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/5 rounded-full blur-[120px]" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-lg bg-white dark:bg-[#12161f] rounded-none md:rounded-[2.5rem] shadow-none md:shadow-2xl border-0 md:border md:border-gray-100 md:dark:border-white/5 p-6 sm:p-12 min-h-screen md:min-h-0 flex flex-col justify-center transition-all duration-500">
         {forceUpdate && (
           <div className="mb-8 p-6 bg-red-600/10 border border-red-600/20 rounded-3xl animate-pulse">
             <h3 className="text-red-500 font-black uppercase text-xs tracking-widest mb-2 flex items-center gap-2">
