@@ -416,39 +416,42 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
            </div>
 
            {!commentsDisabled && (
-              <div className="p-4 border-t border-gray-100 dark:border-white/5 bg-white/50 dark:bg-black/50 backdrop-blur-md">
-                 <form onSubmit={handleSendComment} className="flex gap-4">
-                    <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-10 h-10 rounded-full object-cover shrink-0" />
-                    <div className="flex-1">
-                       {replyingTo && (
-                          <div className="flex items-center justify-between bg-brand/10 p-2.5 rounded-2xl mb-3 animate-fade-in border border-brand/20">
-                             <p className="text-[12px] text-brand font-bold uppercase tracking-wider">Respondendo a <span className="font-black text-brand">@{replyingTo.userName}</span></p>
-                             <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-brand/20 rounded-full text-brand transition-colors"><XMarkIcon className="h-4 w-4"/></button>
-                          </div>
-                       )}
-                       <textarea 
-                        ref={inputRef}
-                        value={commentText}
-                        onChange={e => setCommentText(e.target.value)}
-                        placeholder={replyingTo ? "Sua resposta..." : "O que você acha disso?"}
-                        className="w-full bg-transparent dark:text-white outline-none resize-none text-[17px] md:text-[19px] placeholder-gray-500 py-1 min-h-[60px]"
-                        onInput={(e) => {
-                          const target = e.target as HTMLTextAreaElement;
-                          target.style.height = 'auto';
-                          target.style.height = `${target.scrollHeight}px`;
-                        }}
-                       />
-                       <div className="mt-2 flex justify-end">
-                          <button 
-                            type="submit" 
-                            disabled={!commentText.trim()}
-                            className="bg-brand text-white px-7 py-2.5 rounded-full font-black text-sm disabled:opacity-30 transition-all active:scale-90 shadow-lg shadow-brand/20 uppercase tracking-widest"
-                          >
-                            {replyingTo ? 'Responder' : 'Publicar'}
-                          </button>
+              <div className="p-4 border-t border-gray-100 dark:border-white/5 bg-white/80 dark:bg-black/80 backdrop-blur-xl sticky bottom-0 z-50">
+                 <div className="max-w-2xl mx-auto">
+                    {replyingTo && (
+                       <div className="flex items-center justify-between bg-brand/10 p-2 rounded-2xl mb-3 animate-fade-in border border-brand/20 backdrop-blur-md">
+                          <p className="text-[11px] text-brand font-black uppercase tracking-[0.1em] px-2 flex items-center gap-2">
+                             <ChatBubbleOvalLeftIcon className="h-3 w-3" />
+                             Respondendo a @{replyingTo.userName}
+                          </p>
+                          <button onClick={() => setReplyingTo(null)} className="p-1.5 hover:bg-brand/20 rounded-full text-brand transition-all"><XMarkIcon className="h-4 w-4"/></button>
                        </div>
-                    </div>
-                 </form>
+                    )}
+                    <form onSubmit={handleSendComment} className="flex items-end gap-3">
+                       <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-100 dark:border-white/10 hidden sm:block" />
+                       <div className="flex-1 bg-gray-100 dark:bg-white/5 rounded-[24px] px-4 py-2 flex flex-col border border-transparent focus-within:border-brand/30 transition-all shadow-sm">
+                          <textarea 
+                           ref={inputRef}
+                           value={commentText}
+                           onChange={e => setCommentText(e.target.value)}
+                           placeholder={replyingTo ? "Sua resposta..." : "Adicione seu comentário..."}
+                           className="w-full bg-transparent dark:text-white outline-none resize-none text-[15px] md:text-[17px] placeholder-gray-400 py-1 min-h-[40px] max-h-[150px] font-medium"
+                           onInput={(e) => {
+                             const target = e.target as HTMLTextAreaElement;
+                             target.style.height = 'auto';
+                             target.style.height = `${Math.min(target.scrollHeight, 150)}px`;
+                           }}
+                          />
+                       </div>
+                       <button 
+                         type="submit" 
+                         disabled={!commentText.trim()}
+                         className="bg-brand text-white p-3 rounded-full font-black text-sm disabled:opacity-30 transition-all active:scale-90 shadow-lg shadow-brand/30 shrink-0"
+                       >
+                         <PaperAirplaneIcon className="h-5 w-5 -rotate-45 -mt-0.5 ml-0.5" />
+                       </button>
+                    </form>
+                 </div>
               </div>
            )}
 
