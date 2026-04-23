@@ -1,16 +1,17 @@
 
-const CACHE_NAME = 'cyberphone-cache-v10';
-const urlsToCache = [
+const CACHE_NAME = 'cyberphone-v2';
+const STATIC_ASSETS = [
   '/',
-  '/index.html?v=100'
+  '/manifest.json',
+  '/icon-192x192.png',
+  '/icon-512x512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
@@ -23,7 +24,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Estratégia de Rede-Primeiro (Network First) para garantir que mudanças no manifest/index.html sejam pegas
+// Estratégia de Rede-Primeiro com Fallback de Cache para ser instalável
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
@@ -36,7 +37,9 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request).catch(() => {
       return caches.match(event.request).then(response => {
         if (response) return response;
-        if (event.request.mode === 'navigate') return caches.match('/index.html');
+        if (event.request.mode === 'navigate') {
+            return caches.match('/');
+        }
       });
     })
   );
