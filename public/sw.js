@@ -2,15 +2,18 @@
 const CACHE_NAME = 'cyberphone-v2';
 const STATIC_ASSETS = [
   '/',
+  '/index.html',
   '/manifest.json',
-  '/?standalone=true',
   '/icon-192x192.png',
   '/icon-512x512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) => {
+      console.log('[SW] Pre-caching offline page');
+      return cache.addAll(STATIC_ASSETS);
+    })
   );
   self.skipWaiting();
 });
@@ -25,23 +28,28 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Estratégia de Rede-Primeiro com Fallback de Cache para ser instalável
+// Estratégia Stale-While-Revalidate para ativos estáticos, Network-First para documentos
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
-  // Ignorar extensões e firebase
-  if (event.request.url.startsWith('chrome-extension://') || 
-      event.request.url.includes('googleapis.com') || 
-      event.request.url.includes('firebase.io')) return;
+  const url = new URL(event.request.url);
 
+  // Ignorar Firebase e Chrome Extensions
+  if (url.origin.includes('google') || url.origin.includes('firebase') || url.protocol === 'chrome-extension:') return;
+
+  // SPA Navigation: Sempre tenta rede, cai no index.html do cache
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/index.html') || caches.match('/'))
+    );
+    return;
+  }
+
+  // Assets estáticos: Cache-first/Stale-while-revalidate
   event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request).then(response => {
-        if (response) return response;
-        if (event.request.mode === 'navigate') {
-            return caches.match('/');
-        }
-      });
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) return cachedResponse;
+      return fetch(event.request);
     })
   );
 });

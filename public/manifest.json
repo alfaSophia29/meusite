@@ -21,11 +21,29 @@
       "purpose": "any"
     }
   ],
-  "start_url": "/?standalone=true",
-  "id": "/?standalone=true",
+  "description": "A próxima geração da rede social CyBerPhone. Conectando mentes e transformando o futuro.",
+  "start_url": "/",
+  "id": "cyberphone-pwa-v1",
   "scope": "/",
-  "display": "fullscreen",
+  "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#0a0c10",
-  "background_color": "#0a0c10"
+  "background_color": "#0a0c10",
+  "categories": ["social", "business", "lifestyle"],
+  "screenshots": [
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "CyBerPhone Social Feed"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "CyBerPhone Mobile View"
+    }
+  ]
 }
