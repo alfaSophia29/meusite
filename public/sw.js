@@ -23,45 +23,21 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Estratégia de Rede-Primeiro (Network First) para garantir que mudanças no manifest/index.html sejam pegas
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-
-  // Ignorar requisições do Chrome Extension para evitar erros de console
-  if (event.request.url.startsWith('chrome-extension://')) return;
-
-  // Ignorar requisições para domínios do Google/Firebase para evitar problemas de conectividade (Firestore Offline)
-  if (event.request.url.includes('googleapis.com') || event.request.url.includes('firebase.io')) return;
+  
+  // Ignorar extensões e firebase
+  if (event.request.url.startsWith('chrome-extension://') || 
+      event.request.url.includes('googleapis.com') || 
+      event.request.url.includes('firebase.io')) return;
 
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cachedResponse = await cache.match(event.request);
-      
-      const fetchPromise = fetch(event.request, { 
-        credentials: event.request.mode === 'navigate' ? 'include' : 'same-origin' 
-      }).then(networkResponse => {
-        // Cache apenas se for sucesso e não for uma API externa que possa falhar (como supabase placeholder)
-        if (networkResponse.ok && event.request.url.startsWith(self.location.origin)) {
-          cache.put(event.request, networkResponse.clone());
-        }
-        return networkResponse;
-      }).catch((err) => {
-        // If we have a cached response, use it
-        if (cachedResponse) return cachedResponse;
-        
-        // Se for navegação e falhar, retornar index.html (SPA Fallback)
-        if (event.request.mode === 'navigate') {
-            return cache.match('/index.html');
-        }
-
-        // Return a custom error response or null to avoid "Failed to fetch" breaking app logic violently
-        // Returning undefined here makes the browser throw "Failed to fetch", which is caught by app logic usually
-        // But logging it might help debugging
-        // console.warn('Fetch failed for:', event.request.url);
-        throw err;
+    fetch(event.request).catch(() => {
+      return caches.match(event.request).then(response => {
+        if (response) return response;
+        if (event.request.mode === 'navigate') return caches.match('/index.html');
       });
-
-      // Retorna cache primeiro se existir (Stale-While-Revalidate)
-      return cachedResponse || fetchPromise;
     })
   );
 });
