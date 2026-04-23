@@ -541,7 +541,7 @@ const App: React.FC = () => {
                       onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
                     />
                 )}
-                <div className="flex flex-1 relative">
+                <div className="flex flex-1 relative w-full items-stretch">
                     {currentUser && currentPage !== 'admin' && (
                       <Footer 
                         currentUser={currentUser} 
@@ -552,8 +552,8 @@ const App: React.FC = () => {
                         onCloseMenu={() => setIsMenuOpen(false)}
                       />
                     )}
-                    <main className={`flex-grow ${currentUser && currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} transition-all overflow-x-hidden`}>
-                        <div className={`mx-auto ${currentUser ? 'max-w-7xl min-h-[calc(100vh-140px)]' : 'w-full h-screen'}`}>
+                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} transition-all overflow-x-hidden`}>
+                        <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
                             {renderPage()}
                         </div>
                     </main>
