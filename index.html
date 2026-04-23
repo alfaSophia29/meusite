@@ -12,8 +12,30 @@
     <meta name="apple-mobile-web-app-title" content="CyberPhone">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#0a0c10">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
     <link rel="apple-touch-icon" href="/icon-192x192.png">
+    
+    <script>
+      // Deteção de PWA e Status do Service Worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('[PWA] SW Registered at scope:', reg.scope);
+          }).catch(err => {
+            console.error('[PWA] SW Registration Failed:', err);
+          });
+        });
+      }
+
+      // Escuta o evento de instalação para Debug
+      window.addEventListener('beforeinstallprompt', (e) => {
+        console.log('[PWA] beforeinstallprompt disparado! O app é instalável.');
+      });
+
+      window.addEventListener('appinstalled', (evt) => {
+        console.log('[PWA] App instalado com sucesso!');
+      });
+    </script>
     
     <script>
       // Polyfill para evitar erros de ambiente (process is not defined)
