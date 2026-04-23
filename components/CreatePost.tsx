@@ -2,7 +2,8 @@
 import React, { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Post, PostType, User } from '../types';
-import { addPost, updatePost, uploadFile, generateUUID, getPostById, safeJsonStringify } from '../services/storageService';
+import { addPost, updatePost, uploadFile, generateUUID, getPostById } from '../services/storageService';
+import { safeJsonStringify } from '../src/lib/utils';
 import { useDialog } from '../services/DialogContext';
 import { 
   PhotoIcon, 

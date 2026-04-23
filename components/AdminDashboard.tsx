@@ -12,6 +12,7 @@ import {
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
   subscribeToAdminSupportTickets
 } from '../services/storageService';
+import { safeJsonStringify } from '../src/lib/utils';
 import { 
   BanknotesIcon, UserGroupIcon, ShieldCheckIcon, TrashIcon, 
   CheckBadgeIcon, ChartPieIcon, MagnifyingGlassIcon, CurrencyDollarIcon, 
@@ -136,7 +137,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       });
       setSettings(globalSettings);
     } catch (error) {
-      console.error("Erro ao carregar dados do admin:", error);
+      console.error("Erro ao carregar dados do admin:", safeJsonStringify(error));
     } finally {
       setLoading(false);
     }
@@ -975,12 +976,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                             />
                          </div>
                          <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa de Impulso / Boost (USD)</label>
+                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo de Boost (USD)</label>
                             <input 
                               type="number" 
-                              step="0.1" 
-                              value={settings.boostFee} 
-                              onChange={e => setSettings({...settings, boostFee: parseFloat(e.target.value)})}
+                              step="0.5" 
+                              value={settings.boostMinBid || settings.boostFee} 
+                              onChange={e => setSettings({...settings, boostMinBid: parseFloat(e.target.value)})}
                               className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                             />
                          </div>

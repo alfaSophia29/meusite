@@ -3,6 +3,7 @@ import { getAuth } from "firebase/auth";
 import { initializeFirestore, getDocFromServer, getDoc, doc, enableNetwork, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from '../firebase-applet-config.json';
+import { safeJsonStringify } from "../src/lib/utils";
 
 // Inicialização segura do Singleton
 export const isFirebaseConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "TODO_KEYHERE";
@@ -17,7 +18,7 @@ let app: any = null;
 try {
   app = isFirebaseConfigured ? (!getApps().length ? initializeApp(firebaseConfig) : getApp()) : null;
 } catch (error) {
-  console.error("❌ Erro ao inicializar Firebase App:", error);
+  console.error("❌ Erro ao inicializar Firebase App:", safeJsonStringify(error));
 }
 
 const auth = app ? getAuth(app) : null;

@@ -183,6 +183,7 @@ export interface Post {
   backgroundColor?: string;
   isBoosted?: boolean;
   boostExpires?: number;
+  boostBid?: number; // Valor do lance para o leilão de visibilidade
   disableComments?: boolean; // NOVO: Controle do professor
   likes: string[];
   comments: Comment[];
@@ -355,6 +356,7 @@ export interface GlobalSettings {
   minWithdrawal: number;
   maintenanceMode: boolean;
   boostFee: number;
+  boostMinBid?: number; // Lance mínimo inicial
 }
 
 export interface CartItem {

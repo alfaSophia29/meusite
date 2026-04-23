@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { User, Post, AdCampaign, PostType, Story, GroupedStory, CyberEvent, ChatConversation, Page } from '../types';
-import { getPosts, getAds, getStories, getUsers, toggleFollowUser, getEvents, getChats, joinGroup, markStoryAsViewed, safeJsonStringify } from '../services/storageService';
+import { getPosts, getAds, getStories, getUsers, toggleFollowUser, getEvents, getChats, joinGroup, markStoryAsViewed } from '../services/storageService';
+import { safeJsonStringify } from '../src/lib/utils';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import PostCard from './PostCard';
 import CreatePost from './CreatePost';

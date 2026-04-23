@@ -1,6 +1,7 @@
 
 import { User, Post, PostType, ChatConversation, AdCampaign, Store, Product, AffiliateSale, Comment, ShippingAddress, ProductType, AudioTrack, Notification, NotificationType, CartItem, ProductRating, OrderStatus, CyberEvent, Story, Transaction, ContentReport, SystemLog, GlobalSettings, TransactionType, ChatType, GroupTheme, Message, SupportTicket, SupportMessage } from '../types';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { safeJsonStringify } from '../src/lib/utils';
 import { checkContentSecurity } from './sentinelService';
 import { auth, db, storage, isFirebaseConfigured } from './firebaseClient';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
@@ -52,74 +53,8 @@ export interface FirestoreErrorInfo {
 }
 
 /**
- * Helper para evitar erros de estrutura circular no JSON.stringify
- * Versão altamente robusta que lida com objetos complexos e erros do Firebase
+ * Tratamento global de erros do Firestore
  */
-export function safeJsonStringify(obj: any) {
-  const cache = new WeakSet();
-  
-  const replacer = (key: string, value: any) => {
-    // Tratamento especial para Erros (que não serializam por padrão)
-    if (value instanceof Error) {
-      return {
-        message: value.message,
-        name: value.name,
-        code: (value as any).code,
-        stack: value.stack
-      };
-    }
-
-    if (typeof value === 'object' && value !== null) {
-      // Detecção de circularidade
-      if (cache.has(value)) {
-        return '[Circular]';
-      }
-      cache.add(value);
-      
-      // Tratamento para tipos internos do Firebase que costumam ter referências circulares ou complexas
-      const constructorName = value.constructor?.name;
-      if (constructorName === 'DocumentReference' || 
-          constructorName === 'Query' ||
-          constructorName === 'Firestore' ||
-          constructorName === 'CollectionReference' ||
-          constructorName === 'FirebaseAppImpl' ||
-          constructorName === 'FirebaseAuthImpl') {
-        return `[Firebase ${constructorName}]`;
-      }
-
-      // Se o objeto tem um link circular conhecido por classes minificadas do Firebase (como Y2 e Ka do log)
-      if (value.i && value.src && (value.i.src === value || value.src.i === value)) {
-        return '[Circular Firebase Object]';
-      }
-    }
-    return value;
-  };
-
-  try {
-    return JSON.stringify(obj, replacer);
-  } catch (err) {
-    // Se ainda falhar (ex: por causa de um .toJSON() problemático no objeto)
-    try {
-      // Fallback: remove o método toJSON se ele existir para forçar a serialização direta com replacer
-      const seen = new Set();
-      const decycle = (target: any): any => {
-        if (target === null || typeof target !== 'object') return target;
-        if (seen.has(target)) return '[Circular]';
-        seen.add(target);
-        
-        const result: any = Array.isArray(target) ? [] : {};
-        for (const k in target) {
-          result[k] = decycle(target[k]);
-        }
-        return result;
-      };
-      return JSON.stringify(decycle(obj));
-    } catch (finalErr) {
-      return `[Unstringifiable: ${obj?.constructor?.name || typeof obj}]`;
-    }
-  }
-}
-
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errMessage = error instanceof Error ? error.message : String(error);
   
@@ -482,7 +417,17 @@ export const getPosts = async (): Promise<Post[]> => {
         throw initialError;
       }
     }
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
+    const posts = snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
+    
+    // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
+    return posts.sort((a, b) => {
+      const now = Date.now();
+      const bidA = (a.isBoosted && a.boostExpires && a.boostExpires > now) ? (a.boostBid || 0) : 0;
+      const bidB = (b.isBoosted && b.boostExpires && b.boostExpires > now) ? (b.boostBid || 0) : 0;
+      
+      if (bidB !== bidA) return bidB - bidA;
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'posts');
     return [];
@@ -1988,10 +1933,8 @@ export const handleWalletTransaction = async (uid: string, amt: number, type: st
     return false;
 };
 
-export const boostPost = async (pid: string, uid: string, days: number) => {
+export const boostPost = async (pid: string, uid: string, days: number, amount: number) => {
     if (!db) return false;
-    const settings = await getGlobalSettings();
-    const fee = settings.boostFee || 0;
     
     // Check user balance
     const userRef = doc(db, 'profiles', uid);
@@ -2001,23 +1944,28 @@ export const boostPost = async (pid: string, uid: string, days: number) => {
     const userData = userDoc.data();
     const balance = userData.balance || 0;
     
-    if (balance < fee) return false;
+    if (balance < amount) return false;
     
     // Deduct balance
-    await updateDoc(userRef, { balance: balance - fee });
-    await updateDoc(doc(db, 'public_profiles', uid), { balance: balance - fee });
+    const newBalance = balance - amount;
+    await updateDoc(userRef, { balance: newBalance });
+    await updateDoc(doc(db, 'public_profiles', uid), { balance: newBalance });
     
-    // Boost post
-    await updateDoc(doc(db, 'posts', pid), { isBoosted: true, boostExpires: Date.now() + (days * 86400000) });
+    // Boost post with bid
+    await updateDoc(doc(db, 'posts', pid), { 
+      isBoosted: true, 
+      boostExpires: Date.now() + (days * 86400000),
+      boostBid: amount
+    });
     
     // Create transaction log
     const txId = generateUUID();
     await setDoc(doc(db, 'transactions', txId), {
         id: txId,
         userId: uid,
-        amount: -fee,
+        amount: -amount,
         type: 'PLATFORM_FEE',
-        description: `Boost de publicação - ${days} dias`,
+        description: `Boost de publicação (Lance: $${amount.toFixed(2)}) - ${days} dias`,
         status: 'COMPLETED',
         timestamp: Date.now()
     });

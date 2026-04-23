@@ -16,6 +16,7 @@ import {
     mapUserData,
     seedDatabase
 } from './services/storageService';
+import { safeJsonStringify } from './src/lib/utils';
 import { showNotification, requestNotificationPermission, getNotificationContent } from './services/notificationService';
 import { auth } from './services/firebaseClient';
 import Header from './components/Header';
@@ -297,7 +298,7 @@ const App: React.FC = () => {
             }
             return false;
         } catch (error) {
-            console.error("[APP] Erro de sincronização:", error);
+            console.error("[APP] Erro de sincronização:", safeJsonStringify(error));
             setInitError("Falha na sincronização local. Tente recarregar.");
             return false;
         } finally {
@@ -339,7 +340,7 @@ const App: React.FC = () => {
                                 setCurrentUser(tempUser);
                             }
                         } catch (syncErr) {
-                            console.error("[DEBUG] Erro na sincronização de perfil:", syncErr);
+                            console.error("[DEBUG] Erro na sincronização de perfil:", safeJsonStringify(syncErr));
                             const tempUser = mapUserData(firebaseUser.uid, null, firebaseUser);
                             setCurrentUser(tempUser);
                         }
@@ -351,13 +352,13 @@ const App: React.FC = () => {
                         setCurrentPage('auth');
                     }
                 } catch (fatalAuthErr) {
-                    console.error("[DEBUG] Erro fatal no listener de auth:", fatalAuthErr);
+                    console.error("[DEBUG] Erro fatal no listener de auth:", safeJsonStringify(fatalAuthErr));
                 } finally {
                     setIsLoading(false);
                     clearTimeout(failsafe);
                 }
             }, (error) => {
-                console.error("[DEBUG] Erro no observer do Firebase Auth:", error);
+                console.error("[DEBUG] Erro no observer do Firebase Auth:", safeJsonStringify(error));
                 setIsLoading(false);
                 clearTimeout(failsafe);
                 setCurrentPage('auth');
@@ -471,7 +472,7 @@ const App: React.FC = () => {
               appTheme={appTheme} 
               onThemeChange={changeAppTheme} 
               canInstallPWA={!!deferredPrompt}
-              onInstallPWA={handleInstallApp}
+              onInstallPWA={installApp}
             />;
             case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} onAddToCart={(pid, qty, color) => {
                 addToCart(pid, qty, color);
