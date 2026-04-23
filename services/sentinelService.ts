@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { safeJsonStringify } from "../src/lib/utils";
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -66,7 +67,7 @@ export const checkContentSecurity = async (
         const result = JSON.parse(response.text || '{"allowed": true}');
         return result;
     } catch (error) {
-        console.error("Erro no Sentinel AI:", error);
+        console.error("Erro no Sentinel AI:", safeJsonStringify(error));
         // Em caso de erro na API, por segurança permitimos, ou poderíamos bloquear dependendo da política.
         // Aqui vamos permitir para não travar a experiência por falhas temporárias da AI.
         return { allowed: true };
@@ -113,7 +114,7 @@ export const checkImageSecurity = async (
         const result = JSON.parse(response.text || '{"allowed": true}');
         return result;
     } catch (error) {
-        console.error("Erro no Sentinel Image Check:", error);
+        console.error("Erro no Sentinel Image Check:", safeJsonStringify(error));
         return { allowed: true };
     }
 };

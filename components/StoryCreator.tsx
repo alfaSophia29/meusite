@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { XMarkIcon, CameraIcon, PencilIcon, CheckIcon, Bars3BottomLeftIcon, Bars3Icon, Bars3BottomRightIcon, SwatchIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { User, Story } from '../types';
-import { addStory, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, safeJsonStringify } from '../services/storageService';
+import { addStory, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from '../services/storageService';
+import { safeJsonStringify } from '../src/lib/utils';
 import { useDialog } from '../services/DialogContext';
 
 interface StoryCreatorProps {

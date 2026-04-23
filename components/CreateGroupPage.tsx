@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { User, ChatConversation, ChatType, GroupTheme } from '../types';
-import { getUsers, createGroup, findUserById } from '../services/storageService';
+import { User, ChatConversation, ChatType, GroupTheme, GlobalSettings } from '../types';
+import { getUsers, createGroup, findUserById, getGlobalSettings } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { useDialog } from '../services/DialogContext';
 import { 
@@ -40,6 +40,11 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
   const [selectedTheme, setSelectedTheme] = useState<GroupTheme>('blue');
   const [isPublic, setIsPublic] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState<GlobalSettings | null>(null);
+
+  useEffect(() => {
+    getGlobalSettings().then(setSettings);
+  }, []);
   
   // Imagem
   const [groupImageFile, setGroupImageFile] = useState<File | null>(null);
@@ -91,9 +96,15 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
     // Para grupos privados, exigir membros? Depende. Vamos deixar opcional, pode criar grupo sozinho.
     // if (selectedMembers.length === 0) { ... }
 
+    const fee = settings?.groupCreationFee || 0;
+    if (fee > (currentUser.balance || 0)) {
+      showAlert(`Saldo insuficiente para pagar a taxa de criação de grupo ($${fee.toFixed(2)}).`, { type: 'error' });
+      return;
+    }
+
     setLoading(true);
     try {
-      await createGroup(
+      const success = await createGroup(
           groupName.trim(), 
           selectedMembers, 
           currentUser.id, 
@@ -102,7 +113,12 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
           groupImageFile || undefined,
           isPublic
       );
-      onNavigate('chat');
+      if (success) {
+        onNavigate('chat');
+        showAlert("Comunidade criada com sucesso!", { type: 'success' });
+      } else {
+        showAlert("Erro ao criar comunidade. Verifique seu saldo ou conexão.", { type: 'error' });
+      }
     } catch (error) {
       console.error(error);
       showError("Erro ao criar grupo.");

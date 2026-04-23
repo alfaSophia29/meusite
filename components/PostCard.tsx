@@ -420,6 +420,15 @@ const PostCard: React.FC<PostCardProps> = ({
                       <PinIconSolid className="h-3 w-3" />
                     </>
                   )}
+                  {isPostBoosted && (
+                    <>
+                      <span>·</span>
+                      <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400">
+                        <BoltIcon className="h-3 w-3" />
+                        <span>Patrocinado</span>
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

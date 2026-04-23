@@ -28,27 +28,40 @@ const BOOST_PACKS = [
 const BoostPostModal: React.FC<BoostPostModalProps> = ({ post, currentUser, onClose, onSuccess }) => {
   const { showError, showConfirm } = useDialog();
   const [selectedPackId, setSelectedPackId] = useState(BOOST_PACKS[1].id);
+  const [bidAmount, setBidAmount] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState<GlobalSettings | null>(null);
 
   useEffect(() => {
-    getGlobalSettings().then(setSettings);
+    getGlobalSettings().then(s => {
+      setSettings(s);
+      if (s?.boostMinBid) {
+        setBidAmount(s.boostMinBid);
+      } else {
+        setBidAmount(10); // Valor padrão se não houver nas configs
+      }
+    });
   }, []);
 
   const selectedPack = useMemo(() => BOOST_PACKS.find(p => p.id === selectedPackId)!, [selectedPackId]);
 
   const handleBoost = async () => {
     if (!settings) return;
-    const fee = settings.boostFee || 0;
+    const minBid = settings.boostMinBid || 5;
     
-    if ((currentUser.balance || 0) < fee) {
-      showError(`Saldo insuficiente. O impulso custa $${fee.toFixed(2)} e seu saldo é $${(currentUser.balance || 0).toFixed(2)}`);
+    if (bidAmount < minBid) {
+      showError(`O lance mínimo para impulsionar é $${minBid.toFixed(2)}`);
       return;
     }
 
-    if (await showConfirm(`Confirmar impulsionamento por $${fee.toFixed(2)}?`)) {
+    if ((currentUser.balance || 0) < bidAmount) {
+      showError(`Saldo insuficiente. Você tem $${(currentUser.balance || 0).toFixed(2)}`);
+      return;
+    }
+
+    if (await showConfirm(`Confirmar impulsionamento por $${bidAmount.toFixed(2)}? Quanto maior o lance, mais seu post aparece no topo.`)) {
       setLoading(true);
-      const success = await boostPost(post.id, currentUser.id, selectedPack.days);
+      const success = await boostPost(post.id, currentUser.id, selectedPack.days, bidAmount);
       if (success) {
         onSuccess();
         onClose();
@@ -59,75 +72,86 @@ const BoostPostModal: React.FC<BoostPostModalProps> = ({ post, currentUser, onCl
     }
   };
 
-  const fee = settings?.boostFee || 0;
-
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 overflow-hidden">
+    <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+      <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-3xl sm:rounded-[2.5rem] p-4 sm:p-8 shadow-2xl relative border border-white/10 overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[90vh]">
         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full -translate-y-12 translate-x-12 blur-3xl"></div>
         
-        <button onClick={onClose} className="absolute top-6 right-6 p-2 text-gray-400 hover:text-red-500 transition-colors">
+        <button onClick={onClose} className="absolute top-4 sm:top-6 right-4 sm:right-6 p-2 text-gray-400 hover:text-red-500 transition-colors z-10">
           <XMarkIcon className="h-6 w-6" />
         </button>
 
-        <div className="mb-8 flex items-center gap-4">
-           <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 dark:shadow-none">
-              <RocketLaunchIcon className="h-8 w-8" />
-           </div>
-           <div>
-              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter">Impulsionar Post</h3>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Destaque seu conteúdo na rede</p>
-           </div>
+        <div className="overflow-y-auto pr-1 flex-1 custom-scrollbar">
+          <div className="mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4">
+            <div className="p-2 sm:p-3 bg-blue-600 text-white rounded-xl sm:rounded-2xl shadow-lg shadow-blue-200 dark:shadow-none">
+                <RocketLaunchIcon className="h-6 w-6 sm:h-8 sm:w-8" />
+            </div>
+            <div>
+                <h3 className="text-lg sm:text-xl font-black dark:text-white uppercase tracking-tighter">Leilão de Boost</h3>
+                <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">Quem dá mais, aparece mais no topo</p>
+            </div>
+          </div>
+
+          <div className="mb-6 p-3 sm:p-4 bg-gray-50 dark:bg-white/5 rounded-2xl flex items-center gap-3 sm:gap-4 border border-gray-100 dark:border-white/5">
+            {post.imageUrl ? (
+              <img src={post.imageUrl} className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl object-cover shadow-sm" />
+            ) : (
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center text-blue-600">
+                  <BoltIcon className="h-6 w-6 sm:h-8 sm:w-8" />
+              </div>
+            )}
+            <p className="text-xs sm:text-sm font-medium dark:text-gray-200 line-clamp-2 italic text-gray-600">"{post.content || 'Publicação de Mídia'}"</p>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bg-blue-600/5 dark:bg-blue-600/10 p-5 rounded-3xl border border-blue-600/20">
+              <label className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-3 block">Seu Lance de Visibilidade ($)</label>
+              <div className="flex flex-col gap-4">
+                <input 
+                  type="number" 
+                  min={settings?.boostMinBid || 5}
+                  value={isNaN(bidAmount) ? '' : bidAmount}
+                  onChange={(e) => setBidAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-white dark:bg-zinc-900 border-2 border-blue-600/30 rounded-2xl p-4 text-2xl font-black text-blue-600 outline-none focus:ring-4 focus:ring-blue-600/20 transition-all text-center"
+                  placeholder="0.00"
+                />
+                <div className="flex justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tight px-1">
+                  <span>Mínimo: ${ (settings?.boostMinBid || 5).toFixed(2) }</span>
+                  <span>Seu Saldo: ${ (currentUser.balance || 0).toFixed(2) }</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Duração do Destaque</label>
+              <div className="flex flex-col gap-2 shadow-sm rounded-3xl overflow-hidden">
+                {BOOST_PACKS.map(pack => (
+                  <button 
+                    key={pack.id}
+                    onClick={() => setSelectedPackId(pack.id)}
+                    className={`p-4 transition-all flex items-center justify-between border-b last:border-b-0 dark:border-white/5 ${selectedPackId === pack.id ? 'bg-blue-600 text-white' : 'bg-gray-50 dark:bg-zinc-900 text-gray-500 hover:bg-gray-100'}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <BoltIcon className={`h-4 w-4 ${selectedPackId === pack.id ? 'text-white' : 'text-blue-600'}`} />
+                      <p className="font-black text-xs uppercase">{pack.label} - {pack.days} Dias</p>
+                    </div>
+                    {selectedPackId === pack.id && <SparklesIcon className="h-4 w-4 text-blue-200" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="mb-10 p-4 bg-gray-50 dark:bg-white/5 rounded-2xl flex items-center gap-4 border border-gray-100 dark:border-white/5">
-           {post.imageUrl ? (
-             <img src={post.imageUrl} className="w-16 h-16 rounded-xl object-cover shadow-sm" />
-           ) : (
-             <div className="w-16 h-16 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600">
-                <BoltIcon className="h-8 w-8" />
-             </div>
-           )}
-           <p className="text-sm font-medium dark:text-gray-200 line-clamp-2 italic">"{post.content || 'Publicação de Mídia'}"</p>
-        </div>
-
-        <div className="space-y-4">
-           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Escolha seu Plano de Alcance</label>
-           <div className="grid grid-cols-1 gap-3">
-              {BOOST_PACKS.map(pack => (
-                <button 
-                  key={pack.id}
-                  onClick={() => setSelectedPackId(pack.id)}
-                  className={`relative p-5 rounded-3xl border-2 transition-all flex items-center justify-between group ${selectedPackId === pack.id ? 'border-blue-600 bg-blue-50 dark:bg-blue-600/10 shadow-xl' : 'border-gray-50 dark:border-white/5 hover:border-gray-200'}`}
-                >
-                   {pack.recommended && (
-                     <span className="absolute -top-3 left-6 bg-blue-600 text-white text-[8px] font-black px-3 py-1 rounded-full shadow-lg flex items-center gap-1 uppercase tracking-widest">
-                       <SparklesIcon className="h-2 w-2" /> Recomendado
-                     </span>
-                   )}
-                   <div className="flex items-center gap-4">
-                      <div className={`p-3 rounded-xl ${selectedPackId === pack.id ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-white/5 text-gray-400'}`}>
-                         <UserGroupIcon className="h-5 w-5" />
-                      </div>
-                      <div className="text-left">
-                         <p className="font-black text-sm dark:text-white uppercase">{pack.label}</p>
-                         <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{pack.days} Dias • {pack.reach} Reach</p>
-                      </div>
-                   </div>
-                   <p className="text-lg font-black text-blue-600 uppercase">${fee > 0 ? fee.toFixed(2) : 'Grátis'}</p>
-                </button>
-              ))}
-           </div>
-        </div>
-
-        <div className="mt-10 pt-6 border-t dark:border-white/5">
+        <div className="mt-4 sm:mt-6 pt-4 border-t dark:border-white/5">
            <button 
              onClick={handleBoost}
              disabled={loading}
-             className={`w-full py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${loading ? 'bg-gray-200 text-gray-400' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+             className={`w-full py-4 sm:py-5 rounded-2xl sm:rounded-[2rem] font-black text-xs uppercase shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 ${loading ? 'bg-gray-200 text-gray-400' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
            >
-              {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent animate-spin rounded-full"></div> : <><BoltIcon className="h-5 w-5" /> Ativar Impulsionamento Agora</>}
+              {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent animate-spin rounded-full"></div> : <><BoltIcon className="h-5 w-5" /> Ativar Lance Agora</>}
            </button>
+           <p className="text-[8px] text-center text-gray-400 font-bold uppercase mt-3 tracking-tighter">Quanto maior o lance, maior a prioridade no Feed global</p>
         </div>
       </div>
     </div>

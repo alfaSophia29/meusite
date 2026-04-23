@@ -12,6 +12,7 @@ import {
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
   subscribeToAdminSupportTickets
 } from '../services/storageService';
+import { safeJsonStringify } from '../src/lib/utils';
 import { 
   BanknotesIcon, UserGroupIcon, ShieldCheckIcon, TrashIcon, 
   CheckBadgeIcon, ChartPieIcon, MagnifyingGlassIcon, CurrencyDollarIcon, 
@@ -136,7 +137,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       });
       setSettings(globalSettings);
     } catch (error) {
-      console.error("Erro ao carregar dados do admin:", error);
+      console.error("Erro ao carregar dados do admin:", safeJsonStringify(error));
     } finally {
       setLoading(false);
     }
@@ -952,37 +953,99 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                          <WrenchScrewdriverIcon className="h-6 w-6 text-gray-400" /> Parâmetros Globais
                       </h3>
                       <form onSubmit={handleSaveSettings} className="space-y-6">
-                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa da Plataforma (0.0 - 1.0)</label>
-                            <input 
-                              type="number" 
-                              step="0.01" 
-                              min="0" 
-                              max="1" 
-                              value={settings.platformTax} 
-                              onChange={e => setSettings({...settings, platformTax: parseFloat(e.target.value)})}
-                              className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
-                            />
-                         </div>
-                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Saque Mínimo (USD)</label>
-                            <input 
-                              type="number" 
-                              step="1" 
-                              value={settings.minWithdrawal} 
-                              onChange={e => setSettings({...settings, minWithdrawal: parseFloat(e.target.value)})}
-                              className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
-                            />
-                         </div>
-                         <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa de Impulso / Boost (USD)</label>
-                            <input 
-                              type="number" 
-                              step="0.1" 
-                              value={settings.boostFee} 
-                              onChange={e => setSettings({...settings, boostFee: parseFloat(e.target.value)})}
-                              className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
-                            />
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa da Plataforma (0.0 - 1.0)</label>
+                               <input 
+                                 type="number" 
+                                 step="0.01" 
+                                 min="0" 
+                                 max="1" 
+                                 value={isNaN(settings.platformTax) ? '' : settings.platformTax} 
+                                 onChange={e => setSettings({...settings, platformTax: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Saque Mínimo (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="1" 
+                                 value={isNaN(settings.minWithdrawal) ? '' : settings.minWithdrawal} 
+                                 onChange={e => setSettings({...settings, minWithdrawal: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo de Boost (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="0.5" 
+                                 value={isNaN(settings.boostMinBid || settings.boostFee) ? '' : (settings.boostMinBid || settings.boostFee)} 
+                                 onChange={e => setSettings({...settings, boostMinBid: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Mínimo Anúncio (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="0.1" 
+                                 value={isNaN(settings.adMinBudget!) ? '' : settings.adMinBudget} 
+                                 onChange={e => setSettings({...settings, adMinBudget: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Custo por 1k Alcance (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="0.1" 
+                                 value={isNaN(settings.adReachCost!) ? '' : settings.adReachCost} 
+                                 onChange={e => setSettings({...settings, adReachCost: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa de Verificação (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="1" 
+                                 value={isNaN(settings.verificationFee!) ? '' : settings.verificationFee} 
+                                 onChange={e => setSettings({...settings, verificationFee: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Criação de Grupo (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="1" 
+                                 value={isNaN(settings.groupCreationFee!) ? '' : settings.groupCreationFee} 
+                                 onChange={e => setSettings({...settings, groupCreationFee: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Criação de Loja (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="1" 
+                                 value={isNaN(settings.storeCreationFee!) ? '' : settings.storeCreationFee} 
+                                 onChange={e => setSettings({...settings, storeCreationFee: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo Produto (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="1" 
+                                 value={isNaN(settings.positioningMinBid!) ? '' : settings.positioningMinBid} 
+                                 onChange={e => setSettings({...settings, positioningMinBid: parseFloat(e.target.value) || 0})}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
                          </div>
                          <div className="flex items-center gap-4 p-4 bg-black/20 rounded-2xl border border-white/5">
                             <input 

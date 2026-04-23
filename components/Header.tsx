@@ -106,9 +106,9 @@ const Header: React.FC<HeaderProps> = ({
             {shouldShowInstall && (
               <button 
                 onClick={onInstallApp}
-                className="hidden sm:flex items-center gap-1.5 bg-brand/10 hover:bg-brand/20 text-brand px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all animate-pulse"
+                className="flex items-center gap-1.5 bg-brand/10 hover:bg-brand/20 text-brand px-2.5 md:px-3 py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-tighter transition-all animate-pulse"
               >
-                Instalar App
+                Instalar
               </button>
             )}
             <button onClick={() => setIsMobileSearchOpen(true)} className="lg:hidden p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl">

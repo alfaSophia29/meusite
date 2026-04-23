@@ -67,11 +67,19 @@ const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, refreshUse
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const COST_PER_1K_REACH = 0.50; 
+  const [settings, setSettings] = useState<GlobalSettings | null>(null);
+
+  useEffect(() => {
+    getGlobalSettings().then(setSettings);
+  }, []);
+
+  const costPer1kReach = settings?.adReachCost || 0.50;
+  const minDailyBudget = settings?.adMinBudget || 0.20;
+
   const calculatedTotalBudget = useMemo(() => {
-    const costPerDay = (dailyReachGoal / 1000) * COST_PER_1K_REACH;
-    return Math.max(costPerDay * durationDays, durationDays * MIN_DAILY_AD_BUDGET_USD);
-  }, [dailyReachGoal, durationDays]);
+    const costPerDay = (dailyReachGoal / 1000) * costPer1kReach;
+    return Math.max(costPerDay * durationDays, durationDays * minDailyBudget);
+  }, [dailyReachGoal, durationDays, costPer1kReach, minDailyBudget]);
 
   const hasBalance = (currentUser.balance || 0) >= calculatedTotalBudget;
   const followerCount = currentUser.followers?.length || 0;
