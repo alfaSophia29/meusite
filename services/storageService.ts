@@ -1560,8 +1560,45 @@ export const getStores = async () => {
 };
 
 export const createStore = async (store: Store) => {
-    if (!db) return;
+    if (!db) return false;
+
+    // Store Creation Fee Check
+    try {
+        const settings = await getGlobalSettings();
+        const fee = settings.storeCreationFee || 0;
+        if (fee > 0) {
+            const userRef = doc(db, 'profiles', store.professorId);
+            const userDoc = await getDoc(userRef);
+            if (!userDoc.exists()) return false;
+            
+            const userData = userDoc.data();
+            const balance = userData.balance || 0;
+            
+            if (balance < fee) return false;
+            
+            // Deduct
+            const newBalance = balance - fee;
+            await updateDoc(userRef, { balance: newBalance });
+            await updateDoc(doc(db, 'public_profiles', store.professorId), { balance: newBalance });
+            
+            // Log
+            const txId = generateUUID();
+            await setDoc(doc(db, 'transactions', txId), {
+                id: txId,
+                userId: store.professorId,
+                amount: -fee,
+                type: 'PLATFORM_FEE',
+                description: `Criação de Loja: ${store.brandName}`,
+                status: 'COMPLETED',
+                timestamp: Date.now()
+            });
+        }
+    } catch (e) {
+        console.error("Store fee error:", e);
+    }
+
     await setDoc(doc(db, 'stores', store.id), store);
+    return true;
 };
 
 export const updateStore = async (store: Store) => {
@@ -1973,8 +2010,81 @@ export const boostPost = async (pid: string, uid: string, days: number, amount: 
     return true;
 };
 
+export const processVerificationPayment = async (uid: string) => {
+    if (!db) return false;
+    const settings = await getGlobalSettings();
+    const fee = settings.verificationFee || 0;
+    
+    if (fee <= 0) return true; // No fee set
+
+    const userRef = doc(db, 'profiles', uid);
+    const userDoc = await getDoc(userRef);
+    if (!userDoc.exists()) return false;
+    
+    const userData = userDoc.data();
+    const balance = userData.balance || 0;
+    
+    if (balance < fee) return false;
+    
+    // Deduct balance
+    const newBalance = balance - fee;
+    await updateDoc(userRef, { balance: newBalance });
+    await updateDoc(doc(db, 'public_profiles', uid), { balance: newBalance });
+    
+    // Add transaction
+    const txId = generateUUID();
+    await setDoc(doc(db, 'transactions', txId), {
+        id: txId,
+        userId: uid,
+        amount: -fee,
+        type: 'PLATFORM_FEE',
+        description: `Taxa de Verificação de Identidade (Selo Azul)`,
+        status: 'COMPLETED',
+        timestamp: Date.now()
+    });
+    
+    return true;
+};
+
 export const createGroup = async (name: string, members: string[], adminId: string, description?: string, theme?: GroupTheme, imageFile?: File, isPublic?: boolean) => {
-    if (!db) return;
+    if (!db) return false;
+    
+    // Check for group creation fee
+    try {
+        const settings = await getGlobalSettings();
+        const fee = settings.groupCreationFee || 0;
+        
+        if (fee > 0) {
+            const userRef = doc(db, 'profiles', adminId);
+            const userDoc = await getDoc(userRef);
+            if (!userDoc.exists()) return false;
+            
+            const userData = userDoc.data();
+            const balance = userData.balance || 0;
+            
+            if (balance < fee) return false;
+            
+            // Deduct balance
+            const newBalance = balance - fee;
+            await updateDoc(userRef, { balance: newBalance });
+            await updateDoc(doc(db, 'public_profiles', adminId), { balance: newBalance });
+            
+            // Add transaction
+            const txId = generateUUID();
+            await setDoc(doc(db, 'transactions', txId), {
+                id: txId,
+                userId: adminId,
+                amount: -fee,
+                type: 'PLATFORM_FEE',
+                description: `Criação de Comunidade: ${name}`,
+                status: 'COMPLETED',
+                timestamp: Date.now()
+            });
+        }
+    } catch (e) {
+        console.error("Error checking group fee:", e);
+    }
+
     const id = generateUUID();
     let image = '';
     if (imageFile) image = await uploadFile(imageFile, 'groups');
@@ -1991,6 +2101,7 @@ export const createGroup = async (name: string, members: string[], adminId: stri
         theme: theme || 'blue',
         timestamp: Date.now()
     });
+    return true;
 };
 
 export const getSupportTickets = async (uid: string) => {

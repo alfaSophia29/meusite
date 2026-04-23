@@ -357,6 +357,12 @@ export interface GlobalSettings {
   maintenanceMode: boolean;
   boostFee: number;
   boostMinBid?: number; // Lance mínimo inicial
+  adMinBudget?: number;
+  adReachCost?: number;
+  verificationFee?: number;
+  groupCreationFee?: number;
+  storeCreationFee?: number;
+  positioningMinBid?: number;
 }
 
 export interface CartItem {

@@ -110,8 +110,8 @@ const BoostPostModal: React.FC<BoostPostModalProps> = ({ post, currentUser, onCl
                 <input 
                   type="number" 
                   min={settings?.boostMinBid || 5}
-                  value={bidAmount}
-                  onChange={(e) => setBidAmount(Number(e.target.value))}
+                  value={isNaN(bidAmount) ? '' : bidAmount}
+                  onChange={(e) => setBidAmount(parseFloat(e.target.value) || 0)}
                   className="w-full bg-white dark:bg-zinc-900 border-2 border-blue-600/30 rounded-2xl p-4 text-2xl font-black text-blue-600 outline-none focus:ring-4 focus:ring-blue-600/20 transition-all text-center"
                   placeholder="0.00"
                 />

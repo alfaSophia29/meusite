@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User } from '../types';
-import { uploadFile, updateUserData, checkFieldUniqueness } from '../services/storageService';
+import { User, GlobalSettings } from '../types';
+import { uploadFile, updateUserData, checkFieldUniqueness, getGlobalSettings, processVerificationPayment } from '../services/storageService';
 import { auditIdentityDocument } from '../services/geminiService';
 import { 
   IdentificationIcon, 
@@ -22,6 +22,11 @@ interface IDVerificationProps {
 
 const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLogout, forceUpdate }) => {
   const [step, setStep] = useState<'intro' | 'uploads' | 'pending'>(forceUpdate ? 'uploads' : 'intro');
+  const [settings, setSettings] = useState<GlobalSettings | null>(null);
+
+  React.useEffect(() => {
+    getGlobalSettings().then(setSettings);
+  }, []);
   const [frontImage, setFrontImage] = useState<File | null>(null);
   const [backImage, setBackImage] = useState<File | null>(null);
   const [selfieImage, setSelfieImage] = useState<File | null>(null);
@@ -195,6 +200,12 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
            throw new Error(`Este documento (ID: ${documentNumber}) já está cadastrado em outra conta CyberPhone. Não é permitido duplicidade de contas.`);
         }
 
+        // 3. Process Fee
+        const paymentOk = await processVerificationPayment(user.id);
+        if (!paymentOk) {
+          throw new Error(`Saldo insuficiente para pagar a taxa de verificação ($${settings?.verificationFee || 20}). Recarregue sua carteira.`);
+        }
+
         // Automatic Approval
         await updateUserData(user.id, {
           idVerificationStatus: 'APPROVED',
@@ -285,6 +296,20 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
             </div>
 
             <div className="space-y-4">
+              {settings?.verificationFee && settings.verificationFee > 0 && (
+                <div className="bg-brand/5 border border-brand/20 p-5 rounded-2xl flex items-center justify-between">
+                   <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 bg-brand/10 rounded-xl flex items-center justify-center">
+                         <IdentificationIcon className="h-6 w-6 text-brand" />
+                      </div>
+                      <div>
+                         <h4 className="text-xs font-black dark:text-white uppercase tracking-tight">Taxa de Verificação</h4>
+                         <p className="text-[10px] text-gray-500 font-medium">Cobrança única para o selo de autenticidade.</p>
+                      </div>
+                   </div>
+                   <span className="text-xl font-black text-brand">${settings.verificationFee.toFixed(2)}</span>
+                </div>
+              )}
               {[
                 { title: 'Identidade ou CNH', desc: 'Frente e verso do seu documento oficial.' },
                 { title: 'Foto de Rosto (Selfie)', desc: 'Uma foto segurando o documento ou apenas seu rosto.' },
