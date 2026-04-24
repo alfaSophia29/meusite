@@ -12,6 +12,7 @@ import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { ShoppingCartIcon, CheckIcon, PlusIcon, StarIcon, ShoppingBagIcon, MagnifyingGlassIcon, FunnelIcon, Squares2X2Icon, BookOpenIcon, VideoCameraIcon, AcademicCapIcon, TruckIcon, LinkIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, BoltIcon, BuildingStorefrontIcon, RocketLaunchIcon, ShareIcon } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
+import { getAoaExchangeRate } from '../services/currencyService';
 import ProductDetailModal from './ProductDetailModal';
 import ShareModal from './ShareModal';
 
@@ -29,11 +30,12 @@ const ProductCard: React.FC<{
   product: Product; 
   currentUser: User;
   brandColor?: string;
+  exchangeRate: number;
   onSelect: (p: Product) => void; 
   onShare: (p: Product) => void;
   onAddToCart: (productId: string, quantity: number, selectedColor?: string) => void;
   onOpenCart: () => void;
-}> = ({ product, currentUser, onSelect, onShare }) => {
+}> = ({ product, currentUser, exchangeRate, onSelect, onShare }) => {
   const { showAlert } = useDialog();
   const displayDiscount = product.discountPercentage || (product.originalPrice ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100) : 0);
   const displayOriginalPrice = product.originalPrice || (displayDiscount > 0 ? product.price / (1 - displayDiscount / 100) : product.price);
@@ -78,11 +80,14 @@ const ProductCard: React.FC<{
         </h4>
         
         <div className="mt-auto">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-lg font-bold text-[#ff4747]">R$ {product.price.toFixed(2)}</span>
-            {displayOriginalPrice > product.price && (
-               <span className="text-[10px] text-gray-400 line-through">R$ {displayOriginalPrice.toFixed(2)}</span>
-            )}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-bold text-[#ff4747]">${product.price.toFixed(2)}</span>
+              {displayOriginalPrice > product.price && (
+                 <span className="text-[10px] text-gray-400 line-through">${displayOriginalPrice.toFixed(2)}</span>
+              )}
+            </div>
+            <span className="text-[9px] font-black text-green-600 uppercase">≈ {(product.price * exchangeRate).toLocaleString()} KZ</span>
           </div>
           
           <div className="flex items-center gap-2 mt-1">
@@ -111,6 +116,16 @@ const ProductCard: React.FC<{
 };
 
 export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, storeId: propStoreId, productId: propProductId, onAddToCart, onOpenCart }) => {
+  const [exchangeRate, setExchangeRate] = useState(930);
+
+  useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
+
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -418,6 +433,7 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
                   <ProductCard 
                     product={product} 
                     currentUser={currentUser} 
+                    exchangeRate={exchangeRate}
                     onSelect={setSelectedProduct}
                     onShare={(p) => setShareContent({
                       title: `Confira este produto: ${p.name}`,
@@ -477,6 +493,7 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
                  key={product.id} 
                  product={product} 
                  currentUser={currentUser} 
+                 exchangeRate={exchangeRate}
                  onSelect={setSelectedProduct}
                  onShare={(p) => setShareContent({
                    title: `Confira este produto: ${p.name}`,

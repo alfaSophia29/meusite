@@ -43,6 +43,7 @@ import {
 import Logo from './Logo';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { getAoaExchangeRate } from '../services/currencyService';
 
 type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization';
 
@@ -90,6 +91,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], revenue: 0
   });
   const [loading, setLoading] = useState(true);
+  const [exchangeRate, setExchangeRate] = useState(930);
+  
+  useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
   const [currentTicket, setCurrentTicket] = useState<SupportTicket | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [chatFile, setChatFile] = useState<File | null>(null);

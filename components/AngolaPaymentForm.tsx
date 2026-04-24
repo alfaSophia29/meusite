@@ -13,6 +13,7 @@ import {
   CheckCircleIcon
 } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
+import { getAoaExchangeRate } from '../services/currencyService';
 
 interface AngolaPaymentFormProps {
   amount?: number;
@@ -21,11 +22,19 @@ interface AngolaPaymentFormProps {
   onCancel: () => void;
 }
 
-const EXCHANGE_RATE = 930; // 1 USD = 930 KZ (Exemplo)
-
 const AngolaPaymentForm: React.FC<AngolaPaymentFormProps> = ({ amount: initialAmount = 10, mode: initialMode = 'deposit', onConfirm, onCancel }) => {
   const { showSuccess, showAlert } = useDialog();
+  const [exchangeRate, setExchangeRate] = useState(930);
   const [mode, setMode] = useState<'deposit' | 'withdraw'>(initialMode);
+
+  React.useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
+
   const [method, setMethod] = useState<'mcx' | 'iban' | 'unitel'>('mcx');
   const [amountUsd, setAmountUsd] = useState(initialAmount);
   const [phone, setPhone] = useState('');
@@ -34,7 +43,7 @@ const AngolaPaymentForm: React.FC<AngolaPaymentFormProps> = ({ amount: initialAm
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'confirmation'>('form');
 
-  const amountKz = amountUsd * EXCHANGE_RATE;
+  const amountKz = amountUsd * exchangeRate;
 
   const handleAction = (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +72,7 @@ const AngolaPaymentForm: React.FC<AngolaPaymentFormProps> = ({ amount: initialAm
         iban, 
         fullName,
         currency: 'KZ',
-        exchangeRate: EXCHANGE_RATE,
+        exchangeRate,
         amountKz
       });
       setLoading(false);
@@ -100,7 +109,7 @@ const AngolaPaymentForm: React.FC<AngolaPaymentFormProps> = ({ amount: initialAm
            </div>
            <div className="flex justify-between items-center">
               <span className="text-[10px] font-black text-gray-400 uppercase">Taxa de Câmbio</span>
-              <span className="text-[10px] font-black dark:text-white">1 USD = {EXCHANGE_RATE} KZ</span>
+              <span className="text-[10px] font-black dark:text-white">1 USD = {exchangeRate} KZ</span>
            </div>
         </div>
 

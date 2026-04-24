@@ -4,6 +4,7 @@ import { Product, User, ProductType, Page } from '../types';
 import { findUserById, findStoreById } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { useDialog } from '../services/DialogContext';
+import { getAoaExchangeRate } from '../services/currencyService';
 import { 
   XMarkIcon, 
   ShoppingCartIcon, 
@@ -54,8 +55,17 @@ const ReviewItem: React.FC<{ rating: any }> = ({ rating }) => {
 
 const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, currentUser, onClose, onAddToCart, onNavigate, onShare }) => {
   const { showAlert } = useDialog();
+  const [exchangeRate, setExchangeRate] = useState(930);
   const [owner, setOwner] = useState<User | null>(null);
   
+  useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
+
   useEffect(() => {
     const loadOwner = async () => {
       const store = await findStoreById(product.storeId);
@@ -143,11 +153,14 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
             <div className="py-4 border-y border-gray-100 flex items-center justify-between">
                <div>
                   <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Preço unitário</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-4xl md:text-5xl font-black text-gray-900 tracking-tighter">R$ {product.price.toFixed(2)}</span>
-                    {product.originalPrice && product.originalPrice > product.price && (
-                       <span className="text-sm md:text-lg text-gray-400 font-bold line-through italic">R$ {product.originalPrice.toFixed(2)}</span>
-                    )}
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl md:text-5xl font-black text-gray-900 tracking-tighter">${product.price.toFixed(2)}</span>
+                      {product.originalPrice && product.originalPrice > product.price && (
+                         <span className="text-sm md:text-lg text-gray-400 font-bold line-through italic">${product.originalPrice.toFixed(2)}</span>
+                      )}
+                    </div>
+                    <p className="text-sm font-black text-green-600 uppercase">≈ {(product.price * exchangeRate).toLocaleString()} KZ</p>
                   </div>
                </div>
                {(product.discountPercentage || (product.originalPrice && product.originalPrice > product.price)) && (

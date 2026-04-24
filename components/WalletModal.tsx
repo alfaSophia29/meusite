@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { User } from '../types';
 import { handleWalletTransaction, getGlobalSettings } from '../services/storageService';
 import { useDialog } from '../services/DialogContext';
+import { getAoaExchangeRate } from '../services/currencyService';
 import CryptomusPaymentForm from './CryptomusPaymentForm';
 import AngolaPaymentForm from './AngolaPaymentForm';
 import { XMarkIcon, ShieldCheckIcon, BanknotesIcon, GlobeAltIcon, CalculatorIcon, MapPinIcon } from '@heroicons/react/24/solid';
@@ -15,12 +16,11 @@ interface WalletModalProps {
   refreshUser: () => void;
 }
 
-const EXCHANGE_RATE = 930;
-
 const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, currentUser, refreshUser }) => {
   const { showAlert, showConfirm } = useDialog();
   const [taxPercentage, setTaxPercentage] = useState(0.1); // Default 10%
   const [walletRegion, setWalletRegion] = useState<'global' | 'angola'>('global');
+  const [exchangeRate, setExchangeRate] = useState(930);
 
   React.useEffect(() => {
     const fetchSettings = async () => {
@@ -29,7 +29,12 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
         setTaxPercentage(settings.platformTax / 100);
       }
     };
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
     fetchSettings();
+    fetchRate();
   }, []);
   
   if (!isOpen) return null;
@@ -121,7 +126,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
                    ${(currentUser.balance || 0).toFixed(2)}
                  </p>
                  <p className="text-[10px] xs:text-xs font-bold text-green-600">
-                    ≈ {((currentUser.balance || 0) * EXCHANGE_RATE).toLocaleString()} KZ
+                    ≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ
                  </p>
               </div>
            </div>
