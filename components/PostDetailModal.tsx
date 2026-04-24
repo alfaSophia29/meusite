@@ -352,10 +352,10 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                     />
                     <div className="flex flex-col">
                        <h4 className="font-bold text-[16px] dark:text-white group-hover:underline leading-tight">
-                          {post.isAnonymous ? 'Anônimo' : `${author.firstName} ${author.lastName}`}
+                          {post.isAnonymous ? 'Anônimo' : (author ? `${author.firstName} ${author.lastName}` : post.authorName || 'Usuário')}
                        </h4>
                        <p className="text-gray-500 text-[14px]">
-                          {post.isAnonymous ? '@anonimo' : `@${author.firstName?.toLowerCase()}${author.lastName?.toLowerCase()}`}
+                          {post.isAnonymous ? '@anonimo' : `@${(author?.firstName || 'user').toLowerCase()}${(author?.lastName || '').toLowerCase()}`}
                        </p>
                     </div>
                  </div>
@@ -398,12 +398,12 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                  )}
 
                  {post.reel?.videoUrl && (
-                    <div className="mt-4 rounded-3xl overflow-hidden border border-gray-100 dark:border-white/10 bg-black shadow-xl aspect-video flex items-center justify-center">
+                    <div className="mt-4 rounded-3xl overflow-hidden border border-gray-100 dark:border-white/10 bg-black shadow-xl flex items-center justify-center relative">
                        <video 
                          src={post.reel.videoUrl} 
-                         className="w-full h-full object-contain" 
+                         className="w-full h-auto max-h-[75vh]" 
                          controls 
-                         autoPlay
+                         playsInline
                        />
                     </div>
                  )}
@@ -449,7 +449,12 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
               </div>
            </div>
 
-           {!commentsDisabled && (
+            {commentsDisabled ? (
+               <div className="p-8 text-center bg-gray-100/50 dark:bg-white/5 rounded-[2.5rem] m-4 border-2 border-dashed border-gray-200 dark:border-white/10 shadow-inner">
+                  <LockClosedIcon className="h-10 w-10 text-gray-400/50 mx-auto mb-3" />
+                  <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest leading-relaxed px-4">Esta publicação não permite novas respostas.</p>
+               </div>
+            ) : (
               <div className="p-4 border-t border-gray-100 dark:border-white/5 bg-white/80 dark:bg-black/80 backdrop-blur-xl sticky bottom-0 z-50">
                  <div className="max-w-2xl mx-auto">
                     {replyingTo && (
@@ -463,13 +468,13 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                     )}
                     <form onSubmit={handleSendComment} className="flex items-end gap-3">
                        <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-100 dark:border-white/10 hidden sm:block" />
-                       <div className="flex-1 bg-gray-100 dark:bg-white/5 rounded-[24px] px-4 py-2 flex flex-col border border-transparent focus-within:border-brand/30 transition-all shadow-sm">
+                       <div className="flex-1 bg-gray-100 dark:bg-white/5 rounded-[28px] px-4 py-2 flex flex-col border-2 border-transparent focus-within:border-brand/40 transition-all shadow-sm outline-none ring-0">
                           <textarea 
                            ref={inputRef}
                            value={commentText}
                            onChange={e => setCommentText(e.target.value)}
                            placeholder={replyingTo ? "Sua resposta..." : "Adicione seu comentário..."}
-                           className="w-full bg-transparent dark:text-white outline-none resize-none text-[15px] md:text-[17px] placeholder-gray-400 py-1 min-h-[40px] max-h-[150px] font-medium"
+                           className="w-full bg-transparent dark:text-white outline-none border-none focus:ring-0 rounded-2xl resize-none text-[15px] md:text-[17px] placeholder-gray-400 py-1 min-h-[40px] max-h-[150px] font-medium appearance-none shadow-none"
                            onInput={(e) => {
                              const target = e.target as HTMLTextAreaElement;
                              target.style.height = 'auto';

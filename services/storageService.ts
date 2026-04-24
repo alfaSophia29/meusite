@@ -867,11 +867,30 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
         return {
             platformTax: data.platformTax ?? 0.1,
             minWithdrawal: data.minWithdrawal ?? 50,
-            maintenanceMode: data.maintenanceMode ?? false,
-            boostFee: data.boostFee ?? 5
+            maintenanceMode: !!data.maintenanceMode,
+            boostFee: data.boostFee ?? 5,
+            boostMinBid: data.boostMinBid ?? 5,
+            adMinBudget: data.adMinBudget ?? 5,
+            adReachCost: data.adReachCost ?? 2,
+            verificationFee: data.verificationFee ?? 10,
+            groupCreationFee: data.groupCreationFee ?? 5,
+            storeCreationFee: data.storeCreationFee ?? 50,
+            positioningMinBid: data.positioningMinBid ?? 1
         } as GlobalSettings;
     }
-    return { platformTax: 0.1, minWithdrawal: 50, maintenanceMode: false, boostFee: 5 };
+    return { 
+        platformTax: 0.1, 
+        minWithdrawal: 50, 
+        maintenanceMode: false, 
+        boostFee: 5,
+        boostMinBid: 5,
+        adMinBudget: 5,
+        adReachCost: 2,
+        verificationFee: 10,
+        groupCreationFee: 5,
+        storeCreationFee: 50,
+        positioningMinBid: 1
+    };
 };
 export const getCart = () => JSON.parse(localStorage.getItem('cyberphone_cart') || '[]');
 export const getProducts = async () => {
@@ -1947,7 +1966,11 @@ export const adminProcessReport = async (id: string, status: string, adminId: st
 
 export const updateGlobalSettings = async (s: GlobalSettings) => {
     if (!db) return;
-    await setDoc(doc(db, 'settings', 'global'), s);
+    try {
+        await setDoc(doc(db, 'settings', 'global'), s, { merge: true });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'settings/global');
+    }
 };
 
 export const handleWalletTransaction = async (uid: string, amt: number, type: string) => {

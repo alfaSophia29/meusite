@@ -23,45 +23,54 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
       }
 
       if (typeof value === 'object' && value !== null) {
+        // DETECÇÃO PRECOCE DE CIRCULARIDADE
         if (cache.has(value)) {
           return '[Circular Reference]';
         }
-        cache.add(value);
         
-        // Tratamento para Erros
-        if (value instanceof Error) {
-          return {
-            ...value,
-            name: value.name,
-            message: value.message,
-            stack: value.stack
-          };
-        }
-
-        // Tratamento para tipos internos do Firebase que costumam ter referências circulares ou complexas
+        // Bloqueio de tipos internos do Firebase que costumam ter referências circulares ou complexas
+        // Estes nomes (Y2, Ka, etc) aparecem em builds de produção minificados do Firebase
         const constructorName = value.constructor?.name;
-        const isFirebaseObject = 
+        const isFirebaseInternal = 
             constructorName === 'DocumentReference' || 
             constructorName === 'Query' ||
             constructorName === 'Firestore' ||
             constructorName === 'CollectionReference' ||
             constructorName === 'FirebaseAppImpl' ||
             constructorName === 'FirebaseAuthImpl' ||
-            // Minified names common in production Firebase builds (seen in logs: Y2, Ka)
             constructorName === 'Y2' || 
             constructorName === 'Ka' ||
             constructorName === 'Za' ||
             constructorName === 'ea' ||
             constructorName === 'ua' ||
-            constructorName === 'ia';
+            constructorName === 'ia' ||
+            value._delegate ||
+            (value.i && value.src);
 
-        if (isFirebaseObject) {
-          return `[Firebase ${constructorName || 'Object'}]`;
+        if (isFirebaseInternal) {
+          return `[Firebase ${constructorName || 'Internal Object'}]`;
         }
 
-        // Se o objeto tem um link circular conhecido por classes do Firebase
-        if ((value.i && value.src) || (value._delegate)) {
-          return `[Complex External ${constructorName || 'Object'}]`;
+        cache.add(value);
+        
+        // Tratamento para Erros - NÃO use spread (...) pois pode reintroduzir circularidade
+        if (value instanceof Error) {
+          const errorObj: any = {
+            name: value.name,
+            message: value.message,
+            stack: value.stack
+          };
+          
+          // Adicionar propriedades extras com segurança (apenas primitivos ou objetos simples)
+          Object.getOwnPropertyNames(value).forEach(prop => {
+            if (['name', 'message', 'stack'].includes(prop)) return;
+            const val = (value as any)[prop];
+            if (typeof val !== 'object' || val === null) {
+              errorObj[prop] = val;
+            }
+          });
+          
+          return errorObj;
         }
       }
       return value;

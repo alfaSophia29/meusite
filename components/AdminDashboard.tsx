@@ -43,6 +43,7 @@ import {
 import Logo from './Logo';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { getAoaExchangeRate } from '../services/currencyService';
 
 type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization';
 
@@ -72,12 +73,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [settings, setSettings] = useState<GlobalSettings>({ platformTax: 0.1, minWithdrawal: 50, maintenanceMode: false, boostFee: 5 });
+  const [settings, setSettings] = useState<GlobalSettings>({ 
+    platformTax: 0.1, 
+    minWithdrawal: 50, 
+    maintenanceMode: false, 
+    boostFee: 5,
+    boostMinBid: 5,
+    adMinBudget: 5,
+    adReachCost: 2,
+    verificationFee: 10,
+    groupCreationFee: 5,
+    storeCreationFee: 50,
+    positioningMinBid: 1
+  });
   
   const [data, setData] = useState<DashboardData>({
     users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], revenue: 0
   });
   const [loading, setLoading] = useState(true);
+  const [exchangeRate, setExchangeRate] = useState(930);
+  
+  useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
   const [currentTicket, setCurrentTicket] = useState<SupportTicket | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [chatFile, setChatFile] = useState<File | null>(null);
@@ -292,11 +314,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     refresh();
   };
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateGlobalSettings(settings);
-    refresh();
-    showAlert("Parâmetros Root salvos.", { type: 'success' });
+    try {
+      await updateGlobalSettings(settings);
+      refresh();
+      showAlert("Parâmetros Root salvos.", { type: 'success' });
+    } catch (error) {
+      console.error("Erro ao salvar configurações:", error);
+      showAlert("Erro ao salvar parâmetros.", { type: 'alert' });
+    }
   };
 
   const SidebarItem = ({ id, icon: Icon, label }: { id: AdminTab, icon: any, label: string }) => {
@@ -961,7 +988,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                  step="0.01" 
                                  min="0" 
                                  max="1" 
-                                 value={isNaN(settings.platformTax) ? '' : settings.platformTax} 
+                                 value={settings.platformTax} 
                                  onChange={e => setSettings({...settings, platformTax: parseFloat(e.target.value) || 0})}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
@@ -971,7 +998,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="1" 
-                                 value={isNaN(settings.minWithdrawal) ? '' : settings.minWithdrawal} 
+                                 value={settings.minWithdrawal} 
                                  onChange={e => setSettings({...settings, minWithdrawal: parseFloat(e.target.value) || 0})}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
@@ -981,8 +1008,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="0.5" 
-                                 value={isNaN(settings.boostMinBid || settings.boostFee) ? '' : (settings.boostMinBid || settings.boostFee)} 
-                                 onChange={e => setSettings({...settings, boostMinBid: parseFloat(e.target.value) || 0})}
+                                 value={settings.boostMinBid !== undefined ? settings.boostMinBid : settings.boostFee} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, boostMinBid: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>
@@ -991,8 +1021,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="0.1" 
-                                 value={isNaN(settings.adMinBudget!) ? '' : settings.adMinBudget} 
-                                 onChange={e => setSettings({...settings, adMinBudget: parseFloat(e.target.value) || 0})}
+                                 value={settings.adMinBudget ?? ''} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, adMinBudget: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>
@@ -1001,8 +1034,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="0.1" 
-                                 value={isNaN(settings.adReachCost!) ? '' : settings.adReachCost} 
-                                 onChange={e => setSettings({...settings, adReachCost: parseFloat(e.target.value) || 0})}
+                                 value={settings.adReachCost ?? ''} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, adReachCost: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>
@@ -1011,8 +1047,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="1" 
-                                 value={isNaN(settings.verificationFee!) ? '' : settings.verificationFee} 
-                                 onChange={e => setSettings({...settings, verificationFee: parseFloat(e.target.value) || 0})}
+                                 value={settings.verificationFee ?? ''} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, verificationFee: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>
@@ -1021,8 +1060,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="1" 
-                                 value={isNaN(settings.groupCreationFee!) ? '' : settings.groupCreationFee} 
-                                 onChange={e => setSettings({...settings, groupCreationFee: parseFloat(e.target.value) || 0})}
+                                 value={settings.groupCreationFee ?? ''} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, groupCreationFee: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>
@@ -1031,8 +1073,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="1" 
-                                 value={isNaN(settings.storeCreationFee!) ? '' : settings.storeCreationFee} 
-                                 onChange={e => setSettings({...settings, storeCreationFee: parseFloat(e.target.value) || 0})}
+                                 value={settings.storeCreationFee ?? ''} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, storeCreationFee: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>
@@ -1041,8 +1086,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <input 
                                  type="number" 
                                  step="1" 
-                                 value={isNaN(settings.positioningMinBid!) ? '' : settings.positioningMinBid} 
-                                 onChange={e => setSettings({...settings, positioningMinBid: parseFloat(e.target.value) || 0})}
+                                 value={settings.positioningMinBid ?? ''} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, positioningMinBid: isNaN(val) ? 0 : val});
+                                 }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
                             </div>

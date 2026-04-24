@@ -79,6 +79,8 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [coverUrl, setCoverUrl] = useState('');
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [fontFamily, setFontFamily] = useState('font-sans');
   const [textColor, setTextColor] = useState('text-white');
   const [backgroundColor, setBackgroundColor] = useState('bg-transparent');
@@ -100,6 +102,8 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           if (p.textColor) setTextColor(p.textColor);
           if (p.backgroundColor) setBackgroundColor(p.backgroundColor);
           if (p.isAnonymous !== undefined) setIsAnonymous(p.isAnonymous);
+          if (p.reel?.coverImageUrl) setCoverUrl(p.reel.coverImageUrl);
+          if (p.reel?.videoUrl) setVideoUrl(p.reel.videoUrl);
         }
       });
     }
@@ -108,6 +112,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const videoPostInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,6 +122,8 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
       setPostType(PostType.IMAGE);
       setVideoFile(null);
       setVideoUrl('');
+      setCoverFile(null);
+      setCoverUrl('');
     }
   };
 
@@ -131,6 +138,14 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
     }
   };
 
+  const handleCoverFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setCoverFile(file);
+      setCoverUrl(URL.createObjectURL(file));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() && !imageFile && !videoFile && postType !== PostType.LIVE) return;
@@ -139,12 +154,16 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
     try {
       let finalImageUrl = '';
       let finalVideoUrl = '';
+      let finalCoverUrl = '';
 
       if (imageFile) {
         finalImageUrl = await uploadFile(imageFile, 'posts');
       }
       if (videoFile) {
         finalVideoUrl = await uploadFile(videoFile, 'reels');
+      }
+      if (coverFile) {
+        finalCoverUrl = await uploadFile(coverFile, 'covers');
       }
 
       if (postId && existingPost) {
@@ -160,11 +179,15 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           isAnonymous,
           tags: ['SOCIAL']
         };
-        if (postType === PostType.REEL) {
-           if (finalVideoUrl) {
-              updatedPost.reel = { videoUrl: finalVideoUrl, description: content };
-           } else if (!existingPost.reel) {
-              throw new Error(t('reel_video_required'));
+        if (postType === PostType.REEL || postType === PostType.VIDEO) {
+           if (finalVideoUrl || existingPost.reel) {
+              updatedPost.reel = { 
+                 videoUrl: finalVideoUrl || existingPost.reel!.videoUrl, 
+                 coverImageUrl: finalCoverUrl || existingPost.reel?.coverImageUrl,
+                 description: content 
+              };
+           } else {
+              throw new Error(t('select_video'));
            }
         }
         await updatePost(updatedPost);
@@ -196,7 +219,11 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
 
         if (postType === PostType.REEL || postType === PostType.VIDEO) {
            if (!finalVideoUrl) throw new Error(t('video_process_error'));
-           newPost.reel = { videoUrl: finalVideoUrl, description: content };
+           newPost.reel = { 
+             videoUrl: finalVideoUrl, 
+             coverImageUrl: finalCoverUrl,
+             description: content 
+           };
         }
 
         if (postType === PostType.LIVE) {
@@ -209,7 +236,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
 
         await addPost(newPost);
       }
-      setContent(''); setImageUrl(''); setImageFile(null); setVideoUrl(''); setVideoFile(null);
+      setContent(''); setImageUrl(''); setImageFile(null); setVideoUrl(''); setVideoFile(null); setCoverUrl(''); setCoverFile(null);
       setIsExpanded(false);
       onPostCreated();
     } catch (err: any) {
@@ -276,9 +303,36 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           )}
 
           {videoUrl && (
-            <div className="relative rounded-3xl overflow-hidden group">
-               <video src={videoUrl} className="w-full h-64 object-cover" controls />
-               <button type="button" onClick={() => {setVideoUrl(''); setVideoFile(null);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full text-white"><XMarkIcon className="h-5 w-5"/></button>
+            <div className="space-y-4">
+              <div className="relative rounded-3xl overflow-hidden group bg-black">
+                 <video src={videoUrl} className="w-full h-64 object-contain" controls />
+                 <button type="button" onClick={() => {setVideoUrl(''); setVideoFile(null); setCoverUrl(''); setCoverFile(null);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors"><XMarkIcon className="h-5 w-5"/></button>
+              </div>
+              
+              <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-white/5 rounded-2xl border border-dashed border-gray-200 dark:border-white/10">
+                 {coverUrl ? (
+                    <div className="relative w-20 h-28 rounded-xl overflow-hidden shadow-md shrink-0">
+                       <img src={coverUrl} className="w-full h-full object-cover" />
+                       <button type="button" onClick={() => {setCoverUrl(''); setCoverFile(null);}} className="absolute top-1 right-1 p-1 bg-black/50 rounded-full text-white">
+                          <XMarkIcon className="h-3 w-3" />
+                       </button>
+                    </div>
+                 ) : (
+                    <button 
+                      type="button" 
+                      onClick={() => coverInputRef.current?.click()}
+                      className="w-20 h-28 rounded-xl border-2 border-dashed border-gray-300 dark:border-white/10 flex flex-col items-center justify-center gap-2 hover:bg-white dark:hover:bg-white/5 transition-all group shrink-0"
+                    >
+                       <PhotoIcon className="h-6 w-6 text-gray-400 group-hover:text-blue-500" />
+                       <span className="text-[7px] font-black uppercase text-gray-400">Capa</span>
+                    </button>
+                 )}
+                 <div className="flex-1">
+                    <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase mb-1">Capa do Vídeo</p>
+                    <p className="text-[9px] text-gray-500 dark:text-gray-400 font-medium">Recomendamos uma imagem vertical para melhor destaque no feed.</p>
+                 </div>
+                 <input type="file" ref={coverInputRef} className="hidden" accept="image/*" onChange={handleCoverFile} />
+              </div>
             </div>
           )}
 

@@ -274,7 +274,12 @@ const App: React.FC = () => {
             }
 
             if (user) {
-                setCurrentUser(user);
+                setCurrentUser(prevUser => {
+                    const oldStr = safeJsonStringify(prevUser);
+                    const newStr = safeJsonStringify(user);
+                    if (oldStr === newStr) return prevUser;
+                    return user;
+                });
                 updateUserStatus(user.id, true);
                 setCartItems(getCart());
                 

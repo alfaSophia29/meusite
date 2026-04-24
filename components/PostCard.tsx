@@ -560,6 +560,7 @@ const PostCard: React.FC<PostCardProps> = ({
                       <video 
                         ref={videoRef} 
                         src={post.reel.videoUrl} 
+                        poster={post.reel.coverImageUrl}
                         className={`w-full h-full ${post.type === PostType.REEL ? 'object-cover' : 'object-contain'}`} 
                         muted={isMuted} 
                         loop={post.type === PostType.REEL}
@@ -568,6 +569,12 @@ const PostCard: React.FC<PostCardProps> = ({
                         onClick={togglePlay} 
                         onLoadedMetadata={handleTimeUpdate}
                       />
+                      
+                      {!isPlaying && post.reel.coverImageUrl && (
+                        <div className="absolute inset-0 z-0">
+                           <img src={post.reel.coverImageUrl} className="w-full h-full object-cover" alt="Cover" />
+                        </div>
+                      )}
                       
                       {/* YouTube Style Controls */}
                       <div className={`absolute inset-x-0 bottom-0 p-3 pt-10 bg-gradient-to-t from-black/95 via-black/40 to-transparent text-white transition-opacity duration-300 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}>

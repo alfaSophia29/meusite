@@ -14,6 +14,7 @@ import {
   SparklesIcon
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon as CheckCircleSolid } from '@heroicons/react/24/solid';
+import { getAoaExchangeRate } from '../services/currencyService';
 
 interface MonetizationPageProps {
   currentUser: User;
@@ -24,6 +25,15 @@ interface MonetizationPageProps {
 const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavigate, refreshUser }) => {
   const [isApplying, setIsApplying] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState(930);
+
+  React.useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
 
   const goals = currentUser.monetizationGoals || {
     followersGoal: 1000,
@@ -105,9 +115,10 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white dark:bg-[#1a1c23] p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+              <div className="bg-white dark:bg-[#1a1c23] p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer">
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Receita Estimada (Mês)</span>
                 <p className="text-3xl font-black text-gray-900 dark:text-white">$1,245.80</p>
+                <p className="text-[10px] font-bold text-green-600 mt-1 uppercase">≈ {(1245.80 * exchangeRate).toLocaleString()} KZ</p>
                 <div className="mt-4 flex items-center gap-2 text-green-500 text-[10px] font-bold">
                   <ArrowRightIcon className="h-3 w-3 -rotate-45" /> +12.5% em relação ao mês anterior
                 </div>

@@ -196,6 +196,7 @@ export interface Post {
   isAnonymous?: boolean;
   reel?: {
     videoUrl: string;
+    coverImageUrl?: string; // NOVO: Capa do vídeo
     description: string;
     audioTrackId?: string;
     aiEffectPrompt?: string;

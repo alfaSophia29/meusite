@@ -164,7 +164,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
     } finally {
         setLoading(false);
     }
-  }, [currentUser, displayLimit]);
+  }, [currentUser.id, displayLimit, t, onNavigate, refreshUser]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
