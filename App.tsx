@@ -567,18 +567,6 @@ const App: React.FC = () => {
                       onInstallApp={installApp}
                     />
                 )}
-                {showInstallHint && !currentUser && (
-                    <div className="fixed bottom-24 left-4 right-4 bg-brand text-white p-4 rounded-2xl shadow-2xl z-[200] flex items-center justify-between animate-fade-in border border-white/20">
-                        <div className="flex flex-col gap-0.5">
-                            <h4 className="font-black uppercase text-[10px] tracking-widest text-white/80">Dica CyBer</h4>
-                            <p className="text-xs font-bold leading-tight">Instale o app para ter a melhor experiência full-screen!</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                             <button onClick={installApp} className="bg-white text-brand px-3 py-1.5 rounded-xl text-[10px] font-black uppercase">Instalar</button>
-                             <button onClick={() => setShowInstallHint(false)} className="p-1 text-white/50"><ExclamationTriangleIcon className="h-4 w-4 rotate-180" /></button>
-                        </div>
-                    </div>
-                )}
                 <div className="flex flex-1 relative w-full items-stretch">
                     {currentUser && currentPage !== 'admin' && (
                       <Footer 

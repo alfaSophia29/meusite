@@ -67,7 +67,7 @@ const Header: React.FC<HeaderProps> = ({
           {currentUser && (
             <button 
               onClick={onToggleMenu}
-              className="md:hidden p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl transition-all active:scale-90"
+              className="md:hidden p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full transition-all active:scale-90"
               aria-label="Menu"
             >
               <Bars3Icon className="h-6 w-6" />
@@ -87,7 +87,7 @@ const Header: React.FC<HeaderProps> = ({
               <input
                 ref={searchInputRef}
                 type="text"
-                className="block w-full pl-11 pr-12 py-2.5 border border-gray-200 dark:border-white/5 rounded-full bg-gray-100/50 dark:bg-white/5 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand/40 focus:bg-white dark:focus:bg-zinc-900 text-sm font-medium transition-all shadow-sm dark:text-white group-focus-within:border-brand/40"
+                className="block w-full pl-11 pr-12 py-2.5 border-2 border-transparent rounded-full bg-gray-100/50 dark:bg-white/5 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand focus:bg-white dark:focus:bg-zinc-900 text-sm font-medium transition-all shadow-sm dark:text-white"
                 placeholder="Pesquisar algo incrível..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -111,10 +111,10 @@ const Header: React.FC<HeaderProps> = ({
                 Instalar
               </button>
             )}
-            <button onClick={() => setIsMobileSearchOpen(true)} className="lg:hidden p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl">
+            <button onClick={() => setIsMobileSearchOpen(true)} className="lg:hidden p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full">
               <MagnifyingGlassIcon className="h-5 w-5 md:h-6 md:w-6" />
             </button>
-            <button onClick={onOpenCart} className="p-2 rounded-xl text-gray-600 dark:text-gray-400 relative transition-colors hover:bg-gray-100 dark:hover:bg-white/5">
+            <button onClick={onOpenCart} className="p-2 rounded-full text-gray-600 dark:text-gray-400 relative transition-colors hover:bg-gray-100 dark:hover:bg-white/5">
               <ShoppingCartIcon className="h-5 w-5 md:h-6 md:w-6" />
               {cartItemCount > 0 && (
                 <span className="absolute top-1 right-1 bg-brand text-white text-[8px] font-black rounded-full h-3 w-3 md:h-4 md:w-4 flex items-center justify-center border-2 border-white dark:border-darkbg">
@@ -122,7 +122,7 @@ const Header: React.FC<HeaderProps> = ({
                 </span>
               )}
             </button>
-            <button onClick={() => onNavigate('notifications')} className="p-2 rounded-xl text-gray-600 dark:text-gray-400 relative transition-colors hover:bg-gray-100 dark:hover:bg-white/5">
+            <button onClick={() => onNavigate('notifications')} className="p-2 rounded-full text-gray-600 dark:text-gray-400 relative transition-colors hover:bg-gray-100 dark:hover:bg-white/5">
               <BellIcon className="h-5 w-5 md:h-6 md:w-6" />
               {unreadNotificationsCount > 0 && (
                 <span className="absolute top-1 right-1 bg-red-600 text-white text-[8px] font-black rounded-full h-3 w-3 md:h-4 md:w-4 flex items-center justify-center border-2 border-white dark:border-darkbg animate-pulse">
@@ -139,7 +139,7 @@ const Header: React.FC<HeaderProps> = ({
             />
           </div>
         ) : (
-          <button onClick={() => onNavigate('auth')} className="bg-brand hover:bg-brandHover text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Entrar</button>
+          <button onClick={() => onNavigate('auth')} className="bg-brand hover:bg-brandHover text-white px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all">Entrar</button>
         )}
       </header>
 
@@ -150,13 +150,13 @@ const Header: React.FC<HeaderProps> = ({
               <ArrowLeftIcon className="h-6 w-6 dark:text-white" />
             </button>
             <form onSubmit={handleSearchSubmit} className="flex-1 relative">
-              <div className="bg-gray-100 dark:bg-white/5 rounded-full px-4 py-2 flex items-center gap-2 border border-transparent focus-within:border-brand/30 transition-all">
+            <div className="bg-gray-100 dark:bg-white/5 rounded-full px-4 py-2 flex items-center gap-3 border-2 border-transparent focus-within:border-brand transition-all overflow-hidden w-full">
                 <MagnifyingGlassIcon className="h-5 w-5 text-brand shrink-0" />
                 <input 
                   autoFocus 
                   type="text" 
                   placeholder="O que você procura?" 
-                  className="w-full bg-transparent text-[16px] font-medium outline-none dark:text-white placeholder-gray-400" 
+                  className="w-full bg-transparent text-[16px] font-medium outline-none border-none ring-0 focus:ring-0 focus:outline-none dark:text-white placeholder-gray-400 rounded-full py-1" 
                   value={searchQuery} 
                   onChange={(e) => setSearchQuery(e.target.value)} 
                 />

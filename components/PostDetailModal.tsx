@@ -75,7 +75,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
   const isFollowing = currentUser.followedUsers?.includes(post.userId);
   const hasLiked = post.likes?.includes(currentUser.id);
   const hasSaved = post.saves?.includes(currentUser.id);
-  const commentsDisabled = post.disableComments && !isOwner;
+  const commentsDisabled = post.disableComments; // Enforce for everyone if blocked
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -219,18 +219,33 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     const hasCommentLiked = c.reactions?.['❤️']?.includes(currentUser.id);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
+    const commentAuthorIsAnonymous = c.userId === post.userId && post.isAnonymous;
+
     return (
       <div className={`p-4 border-b border-gray-100 dark:border-white/10 flex gap-3 group transition-all ${depth > 0 ? 'ml-10 md:ml-12 border-l' : ''}`}>
         <img 
-          src={c.profilePic || DEFAULT_PROFILE_PIC} 
+          src={commentAuthorIsAnonymous ? DEFAULT_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC)} 
           className="w-10 h-10 rounded-full object-cover shrink-0 cursor-pointer hover:scale-105 transition-transform" 
-          onClick={() => { onClose(); onNavigate('profile', { userId: c.userId }); }}
+          onClick={() => { 
+            if (commentAuthorIsAnonymous) return;
+            onClose(); 
+            onNavigate('profile', { userId: c.userId }); 
+          }}
           referrerPolicy="no-referrer"
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-0.5">
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="font-bold text-[15px] dark:text-white truncate hover:underline cursor-pointer" onClick={() => { onClose(); onNavigate('profile', { userId: c.userId }); }}>{c.userName}</span>
+              <span 
+                className={`font-bold text-[15px] dark:text-white truncate ${commentAuthorIsAnonymous ? '' : 'hover:underline cursor-pointer'}`}
+                onClick={() => { 
+                  if (commentAuthorIsAnonymous) return;
+                  onClose(); 
+                  onNavigate('profile', { userId: c.userId }); 
+                }}
+              >
+                {commentAuthorIsAnonymous ? 'Anônimo' : c.userName}
+              </span>
               <span className="text-gray-500 text-[14px]">· {new Date(c.timestamp).toLocaleDateString()}</span>
             </div>
             {(currentUser.id === c.userId || isOwner) && (
@@ -325,18 +340,26 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
         <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar">
            <div className="p-4 md:p-6">
               <div className="flex items-center justify-between mb-4">
-                 <div className="flex items-center gap-3 cursor-pointer group" onClick={() => { onClose(); onNavigate('profile', { userId: post.userId }); }}>
+                 <div className="flex items-center gap-3 cursor-pointer group" onClick={() => { 
+                    if (post.isAnonymous) return;
+                    onClose(); 
+                    onNavigate('profile', { userId: post.userId }); 
+                 }}>
                     <img 
-                      src={author.profilePicture || DEFAULT_PROFILE_PIC} 
+                      src={post.isAnonymous ? DEFAULT_PROFILE_PIC : (author.profilePicture || DEFAULT_PROFILE_PIC)} 
                       className="w-12 h-12 rounded-full object-cover border border-gray-100 dark:border-white/10 group-hover:scale-105 transition-transform" 
                       referrerPolicy="no-referrer"
                     />
                     <div className="flex flex-col">
-                       <h4 className="font-bold text-[16px] dark:text-white group-hover:underline leading-tight">{author.firstName} {author.lastName}</h4>
-                       <p className="text-gray-500 text-[14px]">@{author.firstName?.toLowerCase()}{author.lastName?.toLowerCase()}</p>
+                       <h4 className="font-bold text-[16px] dark:text-white group-hover:underline leading-tight">
+                          {post.isAnonymous ? 'Anônimo' : `${author.firstName} ${author.lastName}`}
+                       </h4>
+                       <p className="text-gray-500 text-[14px]">
+                          {post.isAnonymous ? '@anonimo' : `@${author.firstName?.toLowerCase()}${author.lastName?.toLowerCase()}`}
+                       </p>
                     </div>
                  </div>
-                 {!isOwner && (
+                 {!isOwner && !post.isAnonymous && (
                     <button 
                       onClick={handleFollow}
                       className={`px-6 py-2 rounded-full font-bold text-sm transition-all active:scale-95 ${isFollowing ? 'border border-gray-300 dark:border-white/20 text-gray-900 dark:text-white hover:bg-red-50 dark:hover:bg-red-900/10' : 'bg-brand text-white hover:opacity-90 shadow-lg shadow-brand/20'}`}
@@ -371,6 +394,17 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                  {post.imageUrl && (
                     <div className="mt-4 rounded-3xl overflow-hidden border border-gray-100 dark:border-white/10 bg-black/20 shadow-xl">
                        <img src={post.imageUrl} className="w-full h-auto object-contain max-h-[80vh]" alt="Mídia" />
+                    </div>
+                 )}
+
+                 {post.reel?.videoUrl && (
+                    <div className="mt-4 rounded-3xl overflow-hidden border border-gray-100 dark:border-white/10 bg-black shadow-xl aspect-video flex items-center justify-center">
+                       <video 
+                         src={post.reel.videoUrl} 
+                         className="w-full h-full object-contain" 
+                         controls 
+                         autoPlay
+                       />
                     </div>
                  )}
 

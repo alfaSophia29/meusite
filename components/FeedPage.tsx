@@ -233,9 +233,9 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
                   </div>
                   <button onClick={() => loadData(true)} className="bg-white/10 hover:bg-white/20 p-2.5 rounded-xl transition-all"><ArrowPathIcon className="h-5 w-5"/></button>
                 </div>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar relative z-10 snap-x">
+                <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar relative z-10 snap-x">
                   {suggestedUsers.map(u => (
-                    <div key={u.id} className="bg-white/10 backdrop-blur-md p-4 rounded-[1.8rem] min-w-[140px] flex flex-col items-center text-center border border-white/20 group hover:bg-white/20 transition-all snap-start shadow-lg">
+                    <div key={u.id} className="bg-white/10 backdrop-blur-md p-3 rounded-[1.8rem] min-w-[130px] flex flex-col items-center text-center border border-white/20 group hover:bg-white/20 transition-all snap-start shadow-lg">
                         <img src={u.profilePicture || DEFAULT_PROFILE_PIC} className="w-16 h-16 rounded-full object-cover mb-3 border-2 border-white/40 shadow-xl group-hover:scale-110 transition-transform" />
                         <p className="font-black text-xs truncate w-full mb-0.5 text-white shadow-sm">{u.firstName || 'Membro'}</p>
                         <p className="text-[9px] font-bold uppercase mb-3 tracking-wide truncate w-full shadow-sm opacity-90" style={{ color: 'var(--brand-light)' }}>{u.lastName || 'Conexão'}</p>
@@ -253,12 +253,12 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
                   <FilmIcon className="h-5 w-5 text-purple-600" />
                   <h3 className="font-black text-base dark:text-white uppercase tracking-tight">{t('trending_reels')}</h3>
               </div>
-              <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar snap-x px-1">
+              <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar snap-x px-1">
                   {item.items.map((reel: Post) => (
                     <div 
                       key={reel.id} 
                       onClick={() => onNavigate('reels-page', { startPostId: reel.id })}
-                      className="relative min-w-[130px] h-[220px] rounded-[1.2rem] overflow-hidden cursor-pointer group shadow-md snap-start border border-gray-100 dark:border-white/5"
+                      className="relative min-w-[120px] h-[200px] rounded-[1.2rem] overflow-hidden cursor-pointer group shadow-md snap-start border border-gray-100 dark:border-white/5"
                     >
                       <video src={reel.reel?.videoUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" muted />
                       <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -281,9 +281,9 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
                   <UserGroupIcon className="h-5 w-5 text-blue-600" />
                   <h3 className="font-black text-base dark:text-white uppercase tracking-tight">{t('communities')}</h3>
               </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar snap-x">
+              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar snap-x">
                   {item.items.map((group: ChatConversation) => (
-                    <div key={group.id} className="min-w-[240px] snap-start">
+                    <div key={group.id} className="min-w-[220px] snap-start">
                       <GroupDiscoveryCard group={group} onJoin={() => handleJoin(group.id)} />
                     </div>
                   ))}
@@ -313,8 +313,8 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
       </div>
 
       {/* STORIES HEADER */}
-      <div className="mb-6 overflow-x-auto no-scrollbar py-2 -mx-2 px-2 snap-x relative z-10">
-         <div className="flex items-start gap-4 px-2">
+      <div className="mb-4 overflow-x-auto no-scrollbar py-2 -mx-2 px-2 snap-x relative z-10">
+         <div className="flex items-start gap-3 px-2">
             {/* DEDICATED ADD BUTTON */}
             <div 
               onClick={() => setIsCreatingStory(true)} 

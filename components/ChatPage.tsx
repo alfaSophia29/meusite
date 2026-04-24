@@ -747,7 +747,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
               <MagnifyingGlassIcon className="h-4 w-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
               <input 
                 placeholder={t('search_placeholder')} 
-                className="w-full pl-11 pr-4 py-2.5 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-xs dark:text-white focus:ring-1 focus:ring-blue-500 transition-all"
+                className="w-full pl-11 pr-4 py-2.5 bg-gray-50 dark:bg-white/5 rounded-full outline-none border-none ring-0 focus:ring-2 focus:ring-blue-500 transition-all font-bold text-xs dark:text-white"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
               />

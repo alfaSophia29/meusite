@@ -30,6 +30,10 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
     const post = allPosts.find(p => p.id === postId);
     if (post) {
       setComments(post.comments || []);
+      // If comments are disabled for everyone, ensure we respect that
+      if (post.disableComments) {
+        setSubmitting(true); // Effectively disable submit
+      }
     }
     setLoading(false);
   };
@@ -211,7 +215,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
               <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-blue-100 dark:hover:bg-blue-800/30 rounded-full text-blue-600"><XMarkIcon className="h-4 w-4"/></button>
             </div>
           )}
-          <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-gray-50 dark:bg-white/5 p-2 rounded-xl border border-gray-200 dark:border-white/10 focus-within:ring-2 ring-blue-500/20 transition-all">
+          <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-gray-50 dark:bg-white/5 p-2 rounded-full border-2 border-transparent focus-within:border-blue-500 transition-all overflow-hidden relative">
             <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-8 h-8 rounded-full object-cover shrink-0" alt="Me" />
             <input 
               ref={inputRef}
@@ -220,7 +224,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
               onChange={(e) => setNewComment(e.target.value)}
               placeholder={replyingTo ? "Sua resposta..." : "Adicione um comentário..."}
               disabled={submitting}
-              className="flex-1 bg-transparent outline-none text-xs font-bold dark:text-white p-2"
+              className="flex-1 bg-transparent outline-none border-none ring-0 focus:ring-0 text-xs font-bold dark:text-white p-2 rounded-full"
             />
             <button 
               type="submit" 
@@ -233,6 +237,11 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
                 <PaperAirplaneIcon className="h-4 w-4" />
               )}
             </button>
+            {submitting && !newComment.trim() && (
+               <div className="absolute inset-0 bg-gray-100/50 dark:bg-black/50 backdrop-blur-[2px] flex items-center justify-center cursor-not-allowed">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Comentários Desativados</span>
+               </div>
+            )}
           </form>
         </div>
       </div>

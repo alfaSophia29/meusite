@@ -226,9 +226,9 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
 
   if (!isExpanded) {
     return (
-      <div className="bg-[#12161f] rounded-[2rem] p-6 border border-white/5 shadow-lg flex items-center gap-4 cursor-pointer hover:bg-white/5 transition-all animate-fade-in" onClick={() => setIsExpanded(true)}>
+      <div className="bg-white dark:bg-darkbg rounded-[2rem] p-6 border border-gray-200 dark:border-white/5 shadow-lg flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 transition-all animate-fade-in" onClick={() => setIsExpanded(true)}>
         <img src={currentUser.profilePicture} className="w-12 h-12 rounded-2xl object-cover" />
-        <div className="flex-1 text-gray-500 font-bold text-sm">
+        <div className="flex-1 text-gray-500 dark:text-gray-400 font-bold text-sm">
           {t('what_thinking')}
         </div>
         <div className="flex gap-2">
@@ -239,26 +239,26 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
   }
 
   return (
-    <div className="bg-[#12161f] rounded-[2.5rem] p-8 border border-white/5 shadow-2xl animate-fade-in relative z-50">
+    <div className="bg-white dark:bg-darkbg rounded-[2.5rem] p-8 border border-gray-200 dark:border-white/5 shadow-2xl animate-fade-in relative z-50">
        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
              <img src={currentUser.profilePicture} className="w-10 h-10 rounded-xl object-cover" />
              <div>
-                <p className="text-sm font-black text-white leading-none">{currentUser.firstName}</p>
-                <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mt-1">{t('member')}</p>
+                <p className="text-sm font-black text-gray-900 dark:text-white leading-none">{currentUser.firstName}</p>
+                <p className="text-[9px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mt-1">{t('member')}</p>
              </div>
           </div>
-          <button onClick={() => setIsExpanded(false)} className="p-2 text-gray-500 hover:text-white transition-colors"><XMarkIcon className="h-6 w-6"/></button>
+          <button onClick={() => setIsExpanded(false)} className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"><XMarkIcon className="h-6 w-6"/></button>
        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-           <div key={fontFamily} className={`rounded-3xl p-4 transition-all duration-500 ease-in-out ${backgroundColor} ${fontFamily} ${backgroundColor !== 'bg-transparent' ? 'shadow-inner scale-[1.02]' : ''} animate-fade-in`}>
+           <div key={fontFamily} className={`rounded-[2rem] p-5 transition-all duration-500 ease-in-out ${backgroundColor} ${fontFamily} ${backgroundColor !== 'bg-transparent' ? 'shadow-inner scale-[1.02]' : ''} animate-fade-in`}>
             <textarea 
               value={content} 
               onChange={e => setContent(e.target.value)}
               autoFocus
               style={{ fontFamily: `var(--${fontFamily})` }}
-              className={`w-full bg-transparent outline-none resize-none text-lg min-h-[120px] placeholder:text-gray-600 transition-all duration-300 ${textColor === 'text-white' && backgroundColor === 'bg-white' ? 'text-gray-900' : textColor}`}
+              className={`w-full bg-transparent outline-none border-none ring-0 resize-none text-lg min-h-[120px] placeholder:text-gray-400 dark:placeholder:text-gray-600 transition-all duration-300 rounded-[2rem] p-1 ${textColor === 'text-white' && backgroundColor === 'bg-white' ? 'text-gray-900' : (backgroundColor === 'bg-transparent' ? 'text-gray-900 dark:text-white' : textColor)}`}
               placeholder={t('say_something')}
               onFocus={(e) => {
                 const val = e.target.value;
@@ -283,10 +283,10 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           )}
 
           {/* Text Styling Controls */}
-          <div className="flex flex-col gap-6 bg-white/5 p-6 rounded-3xl border border-white/5 shadow-inner">
+          <div className="flex flex-col gap-6 bg-gray-50 dark:bg-white/5 p-6 rounded-[2rem] border border-gray-200 dark:border-white/5 shadow-inner">
              <div className="flex flex-wrap items-center gap-6">
                 <div className="flex items-center gap-3">
-                   <div className="p-2 bg-white/5 rounded-xl">
+                   <div className="p-2 bg-white dark:bg-white/5 rounded-xl border border-gray-200 dark:border-transparent">
                       <PaintBrushIcon className="h-4 w-4 text-gray-400" />
                    </div>
                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar max-w-[200px] md:max-w-none pb-1">
@@ -302,7 +302,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
                 </div>
 
                 <div className="flex items-center gap-3">
-                   <div className="p-2 bg-white/5 rounded-xl">
+                   <div className="p-2 bg-white dark:bg-white/5 rounded-xl border border-gray-200 dark:border-transparent">
                       <SwatchIcon className="h-4 w-4 text-gray-400" />
                    </div>
                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar max-w-[200px] md:max-w-none pb-1">
@@ -318,7 +318,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
                 </div>
              </div>
 
-             <div className="flex flex-col gap-3 pt-4 border-t border-white/5">
+             <div className="flex flex-col gap-3 pt-4 border-t border-gray-200 dark:border-white/5">
                 <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">{t('typography') || 'Tipografia'}</p>
                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                    {FONTS.map(f => (
@@ -330,7 +330,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
                            setFontFamily(f.id);
                         }} 
                         style={{ fontFamily: `var(--${f.id})` }}
-                        className={`px-5 py-3 rounded-xl text-base border transition-all whitespace-nowrap transform active:scale-95 hover:scale-105 flex flex-col items-center gap-1 ${fontFamily === f.id ? 'bg-blue-600 text-white border-blue-600 shadow-xl shadow-blue-600/40 z-10 scale-105' : 'bg-white/5 text-gray-300 border-white/5 hover:bg-white/10 hover:border-white/20'}`}
+                        className={`px-5 py-3 rounded-xl text-base border transition-all whitespace-nowrap transform active:scale-95 hover:scale-105 flex flex-col items-center gap-1 ${fontFamily === f.id ? 'bg-brand text-white border-brand shadow-xl shadow-brand/40 z-10 scale-105' : 'bg-white dark:bg-white/5 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/10'}`}
                       >
                          <span>{f.label}</span>
                          {fontFamily === f.id && <div className="w-1 h-1 bg-white rounded-full animate-ping" />}
@@ -340,24 +340,24 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
              </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-white/5">
+          <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-gray-200 dark:border-white/5">
              <div className="flex gap-4">
-                <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 text-gray-400 hover:text-green-500 transition-all font-black text-[10px] uppercase">
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-green-500 transition-all font-black text-[10px] uppercase">
                    <PhotoIcon className="h-6 w-6" /> {t('photo')}
                 </button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFile} />
 
-                <button type="button" onClick={() => videoInputRef.current?.click()} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.REEL ? 'text-purple-500' : 'text-gray-400 hover:text-purple-500'}`}>
+                <button type="button" onClick={() => videoInputRef.current?.click()} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.REEL ? 'text-purple-500' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'}`}>
                    <VideoCameraIcon className="h-6 w-6" /> {t('reel')}
                 </button>
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={e => handleVideoFile(e, PostType.REEL)} />
 
-                <button type="button" onClick={() => videoPostInputRef.current?.click()} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.VIDEO ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'}`}>
+                <button type="button" onClick={() => videoPostInputRef.current?.click()} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.VIDEO ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400 hover:text-blue-500'}`}>
                    <FilmIcon className="h-6 w-6" /> {t('video')}
                 </button>
                 <input type="file" ref={videoPostInputRef} className="hidden" accept="video/*" onChange={e => handleVideoFile(e, PostType.VIDEO)} />
                 
-                <button type="button" onClick={() => {setPostType(PostType.LIVE); setContent(t('starting_live'));}} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.LIVE ? 'text-red-500' : 'text-gray-400 hover:text-red-400'}`}>
+                <button type="button" onClick={() => {setPostType(PostType.LIVE); setContent(t('starting_live'));}} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.LIVE ? 'text-red-500' : 'text-gray-500 dark:text-gray-400 hover:text-red-400'}`}>
                   <span className="flex items-center gap-2 uppercase"><SignalIcon className="h-6 w-6" /> {t('live')}</span>
                 </button>
              </div>
@@ -366,20 +366,20 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
                 <button 
                    type="button" 
                    onClick={() => setIsAnonymous(!isAnonymous)} 
-                   className={`p-3 rounded-2xl transition-all ${isAnonymous ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'bg-white/5 text-gray-500 hover:text-gray-300'}`}
+                   className={`p-3 rounded-2xl transition-all ${isAnonymous ? 'bg-brand text-white shadow-lg shadow-brand/30' : 'bg-gray-100 dark:bg-white/5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-300'}`}
                    title={t('post_anonymous')}
                 >
                    {isAnonymous ? <EyeSlashIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
                 </button>
-                <button type="button" onClick={() => setDisableComments(!disableComments)} className={`p-3 rounded-2xl transition-all ${disableComments ? 'bg-red-500 text-white' : 'bg-white/5 text-gray-500'}`} title={t('block_comments')}>
+                <button type="button" onClick={() => setDisableComments(!disableComments)} className={`p-3 rounded-2xl transition-all ${disableComments ? 'bg-red-500 text-white' : 'bg-gray-100 dark:bg-white/5 text-gray-500'}`} title={t('block_comments')}>
                   {disableComments ? <LockClosedIcon className="h-5 w-5" /> : <LockOpenIcon className="h-5 w-5" />}
                 </button>
                 <button 
-                  type="submit" 
-                  disabled={loading || (!content.trim() && !imageFile && !videoFile && postType !== PostType.LIVE)}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all flex items-center gap-2"
+                   type="submit" 
+                   disabled={loading || (!content.trim() && !imageFile && !videoFile && postType !== PostType.LIVE)}
+                   className="bg-brand hover:bg-brand-hover disabled:opacity-50 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all flex items-center gap-2"
                 >
-                  {loading ? t('sending') : <><PaperAirplaneIcon className="h-4 w-4 -rotate-45" /> {t('publish')}</>}
+                   {loading ? t('sending') : <><PaperAirplaneIcon className="h-4 w-4 -rotate-45" /> {t('publish')}</>}
                 </button>
              </div>
           </div>

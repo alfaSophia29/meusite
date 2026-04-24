@@ -41,7 +41,7 @@ const ProductCard: React.FC<{
   return (
     <div 
       onClick={() => onSelect(product)} 
-      className="bg-white dark:bg-[#1a1a1a] rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col h-full border border-transparent hover:border-[#ff4747]/30"
+      className="bg-white dark:bg-[#1a1a1a] rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col h-full border border-transparent hover:border-[#ff4747]/30"
     >
       <div className="relative aspect-square overflow-hidden bg-gray-100">
         <img 
@@ -72,7 +72,7 @@ const ProductCard: React.FC<{
         )}
       </div>
       
-      <div className="p-3 flex flex-col flex-grow">
+      <div className="p-2 flex flex-col flex-grow">
         <h4 className="text-xs md:text-sm text-gray-800 dark:text-gray-200 line-clamp-2 leading-snug mb-2 group-hover:text-[#ff4747] transition-colors">
           {product.name}
         </h4>
@@ -293,9 +293,9 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
       <div className="container mx-auto px-4 py-6 max-w-[1200px]">
       {/* Banner Carousel */}
       {!propStoreId && (
-        <div className="w-full mb-8 md:mb-12">
-          <div className="container mx-auto px-0 md:px-4 max-w-[1200px]">
-            <div className="relative group overflow-hidden md:rounded-[2.5rem] shadow-2xl md:border md:border-white/10 h-80 md:h-[480px]">
+        <div className="w-full mb-6 mt-2">
+          <div className="container mx-auto px-0 max-w-[1200px]">
+            <div className="relative group overflow-hidden md:rounded-3xl shadow-2xl h-80 md:h-[420px]">
               {banners.map((banner, index) => (
                 <div 
                   key={index}
@@ -383,8 +383,8 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
 
       {/* Featured Products Horizontal Carousel */}
       {!propStoreId && filteredProducts.length > 0 && (
-        <div className="container mx-auto px-0 md:px-4 max-w-[1200px] mb-16 relative">
-          <div className="space-y-1 mb-8 px-4 md:px-0">
+        <div className="container mx-auto px-0 max-w-[1200px] mb-8 relative">
+          <div className="space-y-1 mb-4 px-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-1 bg-[#ff4747] rounded-full"></div>
               <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#ff4747]">Em Destaque</span>
@@ -411,10 +411,10 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
 
             <div 
               ref={featuredScrollRef}
-              className="flex gap-4 overflow-x-auto no-scrollbar scroll-smooth pb-4 px-4 snap-x snap-mandatory"
+              className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar scroll-smooth pb-4 px-1 snap-x snap-mandatory"
             >
               {filteredProducts.slice(0, 10).map(product => (
-                <div key={`featured-${product.id}`} className="min-w-[calc(50%-12px)] md:min-w-[200px] snap-start">
+                <div key={`featured-${product.id}`} className="min-w-[calc(60%-12px)] md:min-w-[200px] snap-start">
                   <ProductCard 
                     product={product} 
                     currentUser={currentUser} 
@@ -471,7 +471,7 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
              <p className="text-gray-400 font-bold">Nenhum produto encontrado nesta categoria.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1 md:gap-2">
              {filteredProducts.map(product => (
                <ProductCard 
                  key={product.id} 

@@ -1588,7 +1588,7 @@ export const createStore = async (store: Store) => {
                 userId: store.professorId,
                 amount: -fee,
                 type: 'PLATFORM_FEE',
-                description: `Criação de Loja: ${store.brandName}`,
+                description: `Criação de Loja: ${store.name}`,
                 status: 'COMPLETED',
                 timestamp: Date.now()
             });

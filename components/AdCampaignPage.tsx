@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { AdCampaign, User, Page } from '../types';
-import { createAd, getAds, processAdInvestment, generateUUID } from '../services/storageService';
+import { AdCampaign, User, Page, GlobalSettings } from '../types';
+import { createAd, getAds, processAdInvestment, generateUUID, getGlobalSettings } from '../services/storageService';
 import { generateAdCopy } from '../services/geminiService';
 import { useDialog } from '../services/DialogContext';
 import { MIN_DAILY_AD_BUDGET_USD, DEFAULT_PROFILE_PIC } from '../data/constants';

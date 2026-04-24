@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { User, Store, Product, ProductType, OrderStatus, AffiliateSale } from '../types';
+import { User, Store, Product, ProductType, OrderStatus, AffiliateSale, GlobalSettings } from '../types';
 import { 
   getStores, 
   getProducts, 
@@ -14,7 +14,8 @@ import {
   fulfillDropshippingOrder,
   updateSaleTracking,
   createStore,
-  updateUser
+  updateUser,
+  getGlobalSettings
 } from '../services/storageService';
 import { sourceDropshippingProducts } from '../services/geminiService';
 import { 
@@ -126,10 +127,15 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
 
   // Confirmation Modal
   const [deleteProductTarget, setDeleteProductTarget] = useState<string | null>(null);
+  const [settings, setSettings] = useState<GlobalSettings | null>(null);
 
   const loadData = async () => {
     setLoading(true);
-    const stores = await getStores();
+    const [stores, currentSettings] = await Promise.all([
+        getStores(),
+        getGlobalSettings()
+    ]);
+    setSettings(currentSettings);
     const myStore = stores.find(s => s.professorId === currentUser.id);
     if (myStore) {
       setUserStore(myStore);
@@ -183,6 +189,15 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userStore || uploading) return;
+
+    // Positioning Bid Validation
+    if (pPositioning !== 'STANDARD' && settings?.positioningMinBid) {
+        const bid = pBidAmount ? parseFloat(pBidAmount) : 0;
+        if (bid < settings.positioningMinBid) {
+            showAlert(`O lance mínimo para posicionamento especial é de $${settings.positioningMinBid.toFixed(2)}.`, { type: 'error' });
+            return;
+        }
+    }
 
     const productData: Product = {
       id: editingProduct ? editingProduct.id : generateUUID(),
@@ -403,10 +418,19 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
             </div>
             <h2 className="text-3xl md:text-5xl font-black mb-4 tracking-tighter dark:text-white uppercase">Crie sua Loja</h2>
             <p className="text-gray-500 text-sm md:text-base font-medium max-w-xl mx-auto leading-relaxed mb-10">
-                Comece a vender seus produtos físicos ou digitais agora mesmo. É gratuito para todos os membros da CyBerPhone.
+                {settings?.storeCreationFee && settings.storeCreationFee > 0 
+                  ? `Comece a vender seus produtos físicos ou digitais agora mesmo. Taxa única de ativação: $${settings.storeCreationFee.toFixed(2)}.`
+                  : 'Comece a vender seus produtos físicos ou digitais agora mesmo. É gratuito para todos os membros da CyBerPhone.'
+                }
             </p>
             <button 
                 onClick={async () => {
+                    const fee = settings?.storeCreationFee || 0;
+                    if (fee > (currentUser.balance || 0)) {
+                        showAlert(`Saldo insuficiente para ativar a loja ($${fee.toFixed(2)}). Recarregue sua carteira.`, { type: 'error' });
+                        return;
+                    }
+
                     const newStore: Store = {
                         id: generateUUID(),
                         professorId: currentUser.id,
@@ -415,8 +439,13 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                         brandColor: BRAND_COLORS[0].hex,
                         productIds: []
                     };
-                    await createStore(newStore);
-                    loadData();
+                    const success = await createStore(newStore);
+                    if (success) {
+                        loadData();
+                        showAlert('Loja ativada com sucesso!', { type: 'success' });
+                    } else {
+                        showAlert('Erro ao ativar loja. Verifique seu saldo.', { type: 'error' });
+                    }
                 }}
                 className="px-10 py-5 bg-blue-600 text-white rounded-[2rem] font-black uppercase text-sm tracking-[0.2em] shadow-2xl hover:scale-[1.02] active:scale-95 transition-all"
             >
@@ -902,7 +931,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                              />
                              <BoltIcon className="h-4 w-4 text-orange-500 absolute right-4 top-1/2 -translate-y-1/2" />
                           </div>
-                          <p className="text-[8px] text-orange-600 font-black uppercase tracking-tighter">O produto com o maior lance aparece primeiro!</p>
+                          {settings?.positioningMinBid && settings.positioningMinBid > 0 && (
+                            <p className="text-[8px] text-orange-600 font-black uppercase tracking-tighter">Lance mínimo: ${settings.positioningMinBid.toFixed(2)}</p>
+                          )}
+                          <p className="text-[8px] text-gray-500 font-bold uppercase tracking-tighter mt-1 italic">O produto com o maior lance aparece primeiro!</p>
                        </div>
                     </div>
                   </div>
