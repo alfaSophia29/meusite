@@ -136,6 +136,12 @@ const App: React.FC = () => {
 
     const lastNotificationIdRef = useRef<string | null>(null);
     const lastMessageCountRef = useRef(0);
+    const currentUserRef = useRef<User | null>(null); // Ref para acesso estável em callbacks
+
+    // Sincroniza o ref sempre que o state mudar
+    useEffect(() => {
+        currentUserRef.current = currentUser;
+    }, [currentUser]);
 
     // --- LÓGICA DE AFILIAÇÃO (RASTREAMENTO) ---
     useEffect(() => {
@@ -217,18 +223,22 @@ const App: React.FC = () => {
         document.documentElement.style.setProperty('--brand-light', theme.light);
     }, [appTheme]);
 
-    // --- SISTEMA DE POLLING PARA NOTIFICAÇÕES (Simula Push) ---
+    // --- SISTEMA DE POLLING PARA NOTIFICAÇÕES (Otimizado: 15s e verificação de mudanças real) ---
     useEffect(() => {
         if (!currentUser) return;
 
-        const pollInterval = setInterval(async () => {
+        const pollData = async () => {
             try {
-                const notifications = await getNotificationsForUser(currentUser.id);
+                const userId = currentUserRef.current?.id;
+                if (!userId) return;
+
+                const notifications = await getNotificationsForUser(userId);
                 const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
                 
                 if (sorted.length > 0) {
                     const latest = sorted[0];
-                    setUnreadNotificationsCount(sorted.filter(n => !n.isRead).length);
+                    const unreadCount = sorted.filter(n => !n.isRead).length;
+                    setUnreadNotificationsCount(prev => prev !== unreadCount ? unreadCount : prev);
 
                     if (lastNotificationIdRef.current && latest.id !== lastNotificationIdRef.current && !latest.isRead) {
                         const actor = await findUserById(latest.actorId);
@@ -245,23 +255,26 @@ const App: React.FC = () => {
                 }
 
                 // Polling for Messages
-                const msgCount = await getUnreadMessagesCount(currentUser.id);
+                const msgCount = await getUnreadMessagesCount(userId);
                 if (msgCount > lastMessageCountRef.current) {
                     showNotification("Nova Mensagem", {
                         body: `Você tem ${msgCount} mensagens não lidas no bupo.`,
                         url: window.location.origin
                     });
                 }
-                setUnreadMessagesCount(msgCount);
+                setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
                 lastMessageCountRef.current = msgCount;
 
             } catch (err) {
                 // Silently fail on poll error
             }
-        }, 5000);
+        };
+
+        const pollInterval = setInterval(pollData, 15000); // 15 segundos agora
+        pollData(); // Execução inicial imediata
 
         return () => clearInterval(pollInterval);
-    }, [currentUser]);
+    }, [currentUser?.id]); // Depende apenas do ID
 
     const syncUserProfile = useCallback(async (userId: string, authUserReference?: any) => {
         try {
@@ -275,11 +288,31 @@ const App: React.FC = () => {
 
             if (user) {
                 setCurrentUser(prevUser => {
+                    if (!prevUser) return user;
+
+                    // Ignora diferenças triviais como lastSeen para evitar loops de heartbeat
+                    const criticalFieldsChanged = 
+                        prevUser.id !== user.id ||
+                        prevUser.email !== user.email ||
+                        prevUser.firstName !== user.firstName ||
+                        prevUser.lastName !== user.lastName ||
+                        prevUser.balance !== user.balance ||
+                        prevUser.isMonetized !== user.isMonetized ||
+                        prevUser.isAdmin !== user.isAdmin ||
+                        prevUser.isVerified !== user.isVerified ||
+                        prevUser.profilePicture !== user.profilePicture ||
+                        prevUser.userType !== user.userType ||
+                        JSON.stringify(prevUser.followedUsers) !== JSON.stringify(user.followedUsers) ||
+                        JSON.stringify(prevUser.followers) !== JSON.stringify(user.followers);
+
+                    if (!criticalFieldsChanged) return prevUser;
+                    
                     const oldStr = safeJsonStringify(prevUser);
                     const newStr = safeJsonStringify(user);
                     if (oldStr === newStr) return prevUser;
                     return user;
                 });
+                
                 updateUserStatus(user.id, true);
                 setCartItems(getCart());
                 
@@ -292,10 +325,11 @@ const App: React.FC = () => {
                 const notifications = await getNotificationsForUser(user.id);
                 const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
                 if (sorted.length > 0) lastNotificationIdRef.current = sorted[0].id;
-                setUnreadNotificationsCount(notifications.filter(n => !n.isRead).length);
+                const unreadNotifCount = notifications.filter(n => !n.isRead).length;
+                setUnreadNotificationsCount(prev => prev !== unreadNotifCount ? unreadNotifCount : prev);
                 
                 const msgCount = await getUnreadMessagesCount(user.id);
-                setUnreadMessagesCount(msgCount);
+                setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
                 lastMessageCountRef.current = msgCount;
 
                 requestNotificationPermission();
@@ -403,15 +437,16 @@ const App: React.FC = () => {
     }, []);
 
     const handleNavigate = useCallback((page: Page, params: Record<string, string> = {}) => {
-        if (page === 'notifications' && currentUser) {
-            markNotificationsAsRead(currentUser.id);
+        const u = currentUserRef.current;
+        if (page === 'notifications' && u) {
+            markNotificationsAsRead(u.id);
             refreshCurrentUser();
         }
         setCurrentPage(page);
         setPageParams(params);
         setIsMenuOpen(false);
         window.scrollTo(0, 0);
-    }, [currentUser, refreshCurrentUser]);
+    }, [refreshCurrentUser]);
 
     // --- LÓGICA DE DETECÇÃO DE CONEXÃO ---
     useEffect(() => {
