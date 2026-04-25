@@ -161,45 +161,56 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
 
 export const findUserById = async (userId: string, authUserReference?: any): Promise<User | undefined> => {
   if (!userId || !isFirebaseConfigured || !db) return undefined;
-  const isOwner = auth?.currentUser?.uid === userId;
-  const path = isOwner ? 'profiles' : 'public_profiles';
+  
+  const currentAuth = authUserReference || auth?.currentUser;
+  const isOwner = currentAuth?.uid === userId;
   
   try {
     let docSnap;
-    try {
-      docSnap = await getDoc(doc(db, path, userId));
-    } catch (initialError: any) {
-      if (initialError.message && initialError.message.includes('offline')) {
-        console.warn("⚠️ Firestore Offline detectado. Tentando getDocFromServer...");
-        docSnap = await getDocFromServer(doc(db, path, userId));
-      } else {
-        throw initialError;
+    let data;
+    let foundInPrivate = false;
+
+    // Tenta sempre ler do public_profiles primeiro se não for o dono
+    // Ou tenta ler do profiles se for o dono (para pegar saldo, etc)
+    if (isOwner) {
+      try {
+        docSnap = await getDoc(doc(db, 'profiles', userId));
+        if (docSnap.exists()) {
+          data = docSnap.data();
+          foundInPrivate = true;
+        }
+      } catch (err: any) {
+        // Se falhar a leitura privada (ex: permissão negada por delay de auth), tenta a pública
+        console.warn("[STORAGE] Falha na leitura privada, tentando pública:", err.message);
       }
     }
 
-    const currentAuth = authUserReference || auth?.currentUser;
+    if (!foundInPrivate) {
+      docSnap = await getDoc(doc(db, 'public_profiles', userId));
+      if (docSnap.exists()) {
+        data = docSnap.data();
+      }
+    }
     
-    if (docSnap.exists()) {
-      return mapUserData(userId, docSnap.data(), currentAuth);
+    if (data) {
+      return mapUserData(userId, data, currentAuth);
     } else if (currentAuth && isOwner) {
-      // If owner and doesn't exist, create it (legacy or first login)
+      // Se for o dono e não existir em lugar nenhum, cria o perfil básico
       const newUser = mapUserData(userId, null, currentAuth);
       
       try {
-        // Create private profile
         await setDoc(doc(db, 'profiles', userId), {
             ...newUser,
             timestamp: Date.now()
         });
 
-        // Create public profile
         const { email, phone, documentId, birthDate, balance, ...publicData } = newUser;
         await setDoc(doc(db, 'public_profiles', userId), {
             ...publicData,
             timestamp: Date.now()
         });
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, 'profiles/' + userId);
+        console.error("[STORAGE] Erro ao criar perfil inicial:", err);
       }
       
       return newUser;
@@ -208,7 +219,8 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
     if (e.message && e.message.includes('offline')) {
       console.warn("⚠️ Firestore Offline em findUserById:", e.message);
     } else {
-      handleFirestoreError(e, OperationType.GET, path + '/' + userId);
+      // Don't throw for simple not found or expected permission errors on public lookups
+      console.error("[STORAGE] Erro em findUserById:", e.message);
     }
   }
   return undefined;

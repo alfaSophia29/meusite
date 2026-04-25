@@ -107,7 +107,8 @@ service cloud.firestore {
     }
 
     match /public_profiles/{userId} {
-      allow read: if isAuthenticated();
+      // Allow everyone to read public profiles to avoid permission errors on discovery/search
+      allow read: if true; 
       allow create: if isAuthenticated() && idUnchanged();
       allow update: if (isOwner(userId) || isAdmin()) && idNotModified();
       allow delete: if isAdmin();

@@ -32,7 +32,6 @@ export const sourceDropshippingProducts = async (query: string): Promise<any[]> 
         }
       }
     });
-    // FIX: Using response.text property instead of method
     return JSON.parse(response.text || '[]');
   } catch (error) {
     console.error('Erro no sourcing Gemini:', error);
@@ -48,7 +47,6 @@ export const generateAdCopy = async (prompt: string): Promise<string> => {
       contents: `Gere um texto curto e persuasivo para um anúncio sobre: "${prompt}". 
       O retorno deve seguir obrigatoriamente este formato: "Título: [Seu Título] Texto: [Sua Descrição]"`,
     });
-    // FIX: Using response.text property instead of method
     return response.text || 'Título: Oferta Especial Texto: Aproveite nossas condições exclusivas.';
   } catch (error) {
     console.error('Erro ao gerar copy do anúncio:', error);
@@ -67,7 +65,6 @@ const fileToGenerativePart = async (file: File) => {
   };
 };
 
-// FUNÇÃO DE KYC RIGOROSA (AUDITORIA DE DOCUMENTO)
 export const auditIdentityDocument = async (
   frontImage: File, 
   backImage: File, 
@@ -98,63 +95,49 @@ export const auditIdentityDocument = async (
     const backPart = await fileToGenerativePart(backImage);
     const selfiePart = await fileToGenerativePart(selfieImage);
 
-    // Convert birthDate timestamp to readable date for prompt context
     const birthDateStr = new Date(userData.birthDate).toLocaleDateString('pt-BR');
 
     const prompt = `
-      ATENÇÃO: Você é um sistema de auditoria de identidade KYC (Know Your Customer) bancário EXTREMAMENTE RIGOROSO e de alta precisão.
+      SISTEMA DE VERIFICAÇÃO DE IDENTIDADE KYC.
+      O usuário está enviando seus documentos para validar sua conta CyberPhone.
       
-      Dados fornecidos pelo usuário no formulário:
-      Nome: ${userData.firstName} ${userData.lastName}
-      Data de Nascimento: ${birthDateStr}
-      Número do Documento Informado: ${userData.documentId}
+      DADOS INFORMADOS NO FORMULÁRIO:
+      - Nome Completo: ${userData.firstName} ${userData.lastName}
+      - Data de Nascimento: ${birthDateStr}
+      - Número do Documento: ${userData.documentId}
 
-      Sua tarefa é ler PROFUNDAMENTE as 3 imagens fornecidas (Frente do Documento, Verso do Documento, Selfie).
+      TAREFA:
+      1. OCR: Extraia do documento o Nome, Data Nascimento, Validade e Número Serial.
+      2. BIOMETRIA: Verifique se a Selfie corresponde ao documento.
+      3. SEGURANÇA: Verifique se o documento é físico (não é foto de tela).
 
-      PHASE 1: OCR PROFUNDO E MAPEAMENTO DE CAMPOS
-      Extraia OBRIGATORIAMENTE do documento (procure em todas as imagens, incluindo selos e marcas d'água):
-      1. Nome Completo: Localize o campo de nome principal (NOME, NAME, APELLIDOS Y NOMBRES).
-      2. Data de Nascimento: (NASC, DATE OF BIRTH, FECHA DE NACIMIENTO). (Formato YYYY-MM-DD).
-      3. Data de VALIDADE/EXPIRAÇÃO: (VAL, VALIDADE, EXPIRY, VENCIMIENTO, EXPIRAÇÃO, VÁLIDO ATÉ). Se o documento for vitalício (ex: Angola antigo ou Portugal), use "9999-12-31". (Formato YYYY-MM-DD).
-      4. Número do Documento Real: O número de série oficial do documento (CPF, NIF, RG, BI, Passaporte Nº, ID Number). Extraia APENAS números e letras, removendo pontos, traços e espaços extras.
-      5. Nacionalidade: (NACIONALIDADE, NATIONALITY, NACIONALIDAD).
-      6. Document Type: Classifique o documento (RG Brasileiro, CNH Brasileira, Passaporte, BI Angolano, Cartão de Cidadão Português, etc).
+      REGRAS:
+      - SE o documento estiver expirado (Hoje: ${new Date().toLocaleDateString('pt-BR')}), reject.
+      - SE o nome no documento for muito diferente do formulário, permita pequenas variações, mas reject se for outra pessoa.
+      - SE for vitalício, expiração = 9999-12-31.
 
-      PHASE 2: ANÁLISE TÉCNICA DE SEGURANÇA
-      Avalie minuciosamente:
-      1. Qualidade da Imagem: Verifique se os dados estão legíveis em zoom.
-      2. Sinais de Fraude: Procure por desalinhamento de fontes, cores de fundo inconsistentes ao redor do texto, reflexos de tela (indicando foto de monitor) ou falta de sombras naturais.
-      3. Verificação Biométrica: Analise as características faciais da Foto do Documento vs a Selfie. Considere idade aparente e traços fisionômicos estáveis (distância entre olhos, formato da orelha).
-      4. Procedência: O documento parece ser um cartão físico real ou papel oficial?
-
-      PHASE 3: REGRAS DE NEGÓCIO E DECISÃO
-      - Se a validade extraída for <= hoje (${new Date().toLocaleDateString('pt-BR')}), REJEITE (Documento Expirado).
-      - Se o nome ou data de nascimento não coincidirem com os dados do formulário (${userData.firstName} ${userData.lastName}, ${birthDateStr}), descreva a divergência no reason.
-      - Se detectar tentativa de "bypass" (ex: foto de cachorro, objeto, ou selfie de outra pessoa), REJEITE permanentemente.
-
-      Retorne APENAS um JSON:
+      RESPONDA APENAS EM JSON:
       {
         "approved": boolean,
-        "reason": "Explicação técnica e detalhada em português sobre a decisão.",
+        "reason": "Explicação em português",
         "extractedData": {
-          "fullName": "string",
+          "fullName": "STRING",
           "birthDate": "YYYY-MM-DD",
           "expirationDate": "YYYY-MM-DD",
-          "documentNumber": "string",
-          "documentType": "string",
-          "nationality": "string"
+          "documentNumber": "STRING (Apenas alfanuméricos)",
+          "documentType": "STRING",
+          "nationality": "STRING"
         },
         "deepAnalysis": {
           "isLegible": boolean,
           "isPhysicalDocument": boolean,
-          "faceMatchScore": number (0-100),
-          "detectedAnomalies": string[]
+          "faceMatchScore": number (0-100)
         }
       }
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', 
+      model: 'gemini-1.5-flash', 
       contents: {
         parts: [
           frontPart,
@@ -164,7 +147,7 @@ export const auditIdentityDocument = async (
         ]
       },
       config: {
-        temperature: 0,
+        temperature: 0.1,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -188,8 +171,7 @@ export const auditIdentityDocument = async (
               properties: {
                 isLegible: { type: Type.BOOLEAN },
                 isPhysicalDocument: { type: Type.BOOLEAN },
-                faceMatchScore: { type: Type.NUMBER },
-                detectedAnomalies: { type: Type.ARRAY, items: { type: Type.STRING } }
+                faceMatchScore: { type: Type.NUMBER }
               },
               required: ["isLegible", "isPhysicalDocument", "faceMatchScore"]
             }
@@ -199,27 +181,43 @@ export const auditIdentityDocument = async (
       }
     });
 
-    const textOutput = response.text || '{"approved": false, "reason": "Falha na análise automática."}';
-    const result = JSON.parse(textOutput);
-    return result;
+    try {
+      const text = response.text;
+      if (!text) {
+         // Attempt to check if response was blocked
+         const candidate = (response as any).candidates?.[0];
+         if (candidate?.finishReason === 'SAFETY') {
+            return {
+              approved: false,
+              reason: "Seus documentos foram bloqueados pelos filtros de segurança automáticos. Por favor, certifique-se de que as imagens estão nítidas e mostram o documento físico.",
+              deepAnalysis: { isLegible: true, isPhysicalDocument: true, faceMatchScore: 0, detectedAnomalies: ["Filtro de Segurança"] }
+            };
+         }
+         throw new Error("IA não retornou texto.");
+      }
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.error("Erro ao analisar resposta da IA:", response);
+      throw new Error("IA retornou dados inválidos.");
+    }
 
   } catch (error: any) {
-    console.error("Erro CRÍTICO no KYC:", error);
+    console.error("Erro no KYC:", error);
     return { 
         approved: false, 
-        reason: "Não foi possível validar seus documentos automaticamente. A imagem pode estar ilegível ou foi bloqueada pelos filtros de segurança.",
+        reason: "Falha técnica na verificação automática. Por favor, tente novamente com fotos mais nítidas e sem reflexos.",
         deepAnalysis: {
             isLegible: false,
             isPhysicalDocument: false,
             faceMatchScore: 0,
-            detectedAnomalies: ["Erro no processamento da imagem"]
+            detectedAnomalies: ["Erro de conexão ou segurança"]
         }
     };
   }
 };
 
-// Deprecated function kept for backward compatibility if needed, but updated to use new types if called
 export const verifyProfessionalDocument = async (base64File: string): Promise<{ isValid: boolean; reason: string; professionDetected?: string }> => {
-    // ... implementation if needed, otherwise simplified ...
-    return { isValid: true, reason: "Legacy check passed" };
+    return { isValid: true, reason: "Legacy process" };
 };
+
+
