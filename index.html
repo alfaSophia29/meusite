@@ -7,6 +7,7 @@
     <title>CyberPhone | Rede Social</title>
     
     <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="CyberPhone">
@@ -28,13 +29,20 @@
 
       // Auditoria básica de PWA
       window.addEventListener('load', () => {
+        const isIframe = window.self !== window.top;
+        
         if (!('serviceWorker' in navigator)) {
-          console.warn('[PWA] Service Worker não é suportado neste navegador.');
+          const msg = isIframe 
+            ? '[PWA] Service Worker não disponível dentro de iFrames (Pré-visualização). Abra em uma nova aba para testar o PWA.'
+            : '[PWA] Service Worker não é suportado neste navegador ou conexão não segura (HTTPS necessário).';
+          console.warn(msg);
+        } else {
+          console.log('[PWA] Service Worker suportado.');
         }
         
         fetch('/manifest.json')
           .then(r => {
-            if (!r.ok) console.error('[PWA] Erro ao carregar manifest.json: status ' + r.status);
+            if (!r.ok) console.error('[PWA] Erro ao carregar manifest.json: status ' + r.status + (isIframe ? ' (Pode ser bloqueado em iFrames)' : ''));
             else console.log('[PWA] manifest.json carregado com sucesso.');
           })
           .catch(e => console.error('[PWA] Erro ao buscar manifest.json:', e));

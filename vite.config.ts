@@ -19,7 +19,12 @@ export default defineConfig(({ mode }) => {
         filename: 'sw.js',
         manifestFilename: 'manifest.json',
         registerType: 'autoUpdate',
-        injectRegister: 'auto',
+        injectRegister: 'script',
+        includeAssets: ['icon-192x192.png', 'icon-512x512.png'],
+        devOptions: {
+          enabled: true,
+          type: 'module'
+        },
         manifest: {
           id: "cyberphone-pwa-v1",
           short_name: "CyberPhone",
