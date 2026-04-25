@@ -94,41 +94,39 @@ export const auditIdentityDocument = async (
     const birthDateStr = new Date(userData.birthDate).toLocaleDateString('pt-BR');
 
     const prompt = `
-      ATENÇÃO: Você é um sistema de auditoria de identidade KYC (Know Your Customer) bancário rigoroso.
+      ATENÇÃO: Você é um sistema de auditoria de identidade KYC (Know Your Customer) bancário extremamente rigoroso.
       
       Dados fornecidos pelo usuário no formulário:
       Nome: ${userData.firstName} ${userData.lastName}
       Data de Nascimento: ${birthDateStr}
-      Documento (CPF/NIF/BI): ${userData.documentId}
+      Número do Documento Informado: ${userData.documentId}
 
       Analise as 3 imagens fornecidas (Frente do Documento, Verso do Documento, Selfie).
       
-      Extraia as seguintes informações do documento (Frontal):
-      1. Nome Completo (Exatamente como está no documento).
+      Extraia OBRIGATORIAMENTE do documento:
+      1. Nome Completo (Exatamente como escrito).
       2. Data de Nascimento (Formato YYYY-MM-DD).
-      3. Data de Expiração/Validade (Formato YYYY-MM-DD). Se não houver data de expiração óbvia, tente estimar ou use "9999-12-31" para validade vitalícia.
-      4. Número do Documento (CPF, RG, NIF, BI, etc. - apenas números e letras relevantes).
+      3. Data de VALIDADE/EXPIRAÇÃO (Formato YYYY-MM-DD). Procure por "VAL", "VALIDADE", "EXPIRY", "EXP".
+      4. Número do Documento Real (Apenas números e letras, sem pontos ou traços).
 
-      Verifique RIGOROSAMENTE:
-      1. As imagens são de um documento de identidade oficial válido (RG, CNH, Passaporte)?
-      2. O documento está legível?
-      3. A foto no documento parece com a pessoa na selfie?
-      4. O nome no documento corresponde ao nome fornecido?
-      5. A data de nascimento no documento confirma que a pessoa tem mais de 18 anos?
-      6. O documento está dentro do prazo de validade? (Hoje é ${new Date().toLocaleDateString('pt-BR')})
+      REGRAS DE OURO PARA APROVAÇÃO:
+      1. O Documento DEVE ser oficial e estar legível.
+      2. A "Data de Validade" extraída DEVE ser posterior a hoje (${new Date().toLocaleDateString('pt-BR')}). Se estiver igual ou anterior, REJEITE IMEDIATAMENTE com motivo "Documento Expirado".
+      3. O "Número do Documento" extraído deve ser comparado com o informado (${userData.documentId}). Se forem muito diferentes, REJEITE.
+      4. A selfie deve confirmar que o portador é a pessoa do documento.
+      
+      Se o documento não tiver data de validade (ex: Vitalício), use "9999-12-31".
+      Se o documento estiver EXPIRADO, você DEVE retornar approved: false.
 
-      Se qualquer um desses pontos falhar gravemente ou se parecer uma imagem falsa/montagem/animal/objeto, REJEITE.
-      Se for uma criança, REJEITE IMEDIATAMENTE.
-      Se o documento estiver expirado, REJEITE com o motivo específico "Documento Expirado".
-
-      Retorne APENAS um JSON válido seguindo este formato:
+      Retorne APENAS um JSON:
       {
         "approved": boolean,
-        "reason": "Explicação curta e direta em português do motivo da aprovação ou rejeição.",
+        "reason": "Explicação clara em português.",
         "extractedData": {
           "fullName": "string",
           "birthDate": "YYYY-MM-DD",
-          "expirationDate": "YYYY-MM-DD"
+          "expirationDate": "YYYY-MM-DD",
+          "documentNumber": "string"
         }
       }
     `;

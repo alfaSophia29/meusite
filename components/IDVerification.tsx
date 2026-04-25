@@ -77,21 +77,30 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
       if (auditResult.approved && auditResult.extractedData) {
         const { expirationDate, documentNumber } = auditResult.extractedData;
         
+        // Normalize document number
+        const normalizedDocNumber = documentNumber.replace(/[^a-zA-Z0-9]/g, '');
+
+        const expiryDateObj = new Date(expirationDate);
+        const isExpired = expiryDateObj < new Date();
+
+        if (isExpired) {
+          throw new Error("Documento expirado na auto-verificação.");
+        }
+
         // Verificação de Unicidade
-        const isDocUnique = await checkFieldUniqueness('documentId', documentNumber);
-        const isSameUser = user.documentId === documentNumber;
+        const isDocUnique = await checkFieldUniqueness('documentId', normalizedDocNumber);
         
-        if (!isDocUnique && !isSameUser) {
+        if (!isDocUnique && user.documentId !== normalizedDocNumber) {
            throw new Error("Duplicidade de documentos detectada.");
         }
 
         await updateUserData(user.id, {
           idVerificationStatus: 'APPROVED',
           isVerified: true,
-          documentId: documentNumber,
+          documentId: normalizedDocNumber,
           idVerificationDocs: {
             ...user.idVerificationDocs,
-            expiresAt: new Date(expirationDate).getTime(),
+            expiresAt: expiryDateObj.getTime(),
           }
         });
         onComplete();
@@ -171,6 +180,9 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         const { fullName, birthDate, expirationDate, documentNumber } = auditResult.extractedData;
         const userFullName = `${user.firstName} ${user.lastName}`.toLowerCase();
         
+        // Normalize document number (remove non-alphanumeric)
+        const normalizedDocNumber = documentNumber.replace(/[^a-zA-Z0-9]/g, '');
+
         // Final sanity checks in code
         const nameMatches = fullName.toLowerCase().includes(user.firstName.toLowerCase()) || 
                             fullName.toLowerCase().includes(user.lastName.toLowerCase());
@@ -192,12 +204,12 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
           throw new Error("O documento enviado está expirado. Por favor, envie um documento dentro do prazo de validade.");
         }
 
-        // NOVO: Verificação de Unicidade do Documento extraído
-        const isDocUnique = await checkFieldUniqueness('documentId', documentNumber);
-        const isSameUser = user.documentId === documentNumber;
+        // NOVO: Verificação de Unicidade do Documento extraído (comparação rigorosa)
+        const isDocUnique = await checkFieldUniqueness('documentId', normalizedDocNumber);
         
-        if (!isDocUnique && !isSameUser) {
-           throw new Error(`Este documento (ID: ${documentNumber}) já está cadastrado em outra conta CyberPhone. Não é permitido duplicidade de contas.`);
+        // Se já existe e não pertence ao usuário atual, rejeita
+        if (!isDocUnique && user.documentId !== normalizedDocNumber) {
+           throw new Error(`Este documento (Número: ${normalizedDocNumber}) já está vinculado a outra conta CyberPhone. Não é permitida a duplicidade de documentos.`);
         }
 
         // 3. Process Fee
@@ -210,7 +222,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         await updateUserData(user.id, {
           idVerificationStatus: 'APPROVED',
           isVerified: true,
-          documentId: documentNumber, // Salva o ID extraído
+          documentId: normalizedDocNumber, // Salva o ID extraído
           idVerificationDocs: {
             frontUrl,
             backUrl,
