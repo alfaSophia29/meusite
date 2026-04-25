@@ -26,10 +26,28 @@
   "id": "cyberphone-pwa-v1",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "portrait",
   "theme_color": "#0a0c10",
   "background_color": "#0a0c10",
   "categories": ["social", "business", "lifestyle"],
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Feed Principal",
+      "short_name": "Feed",
+      "description": "Veja o que há de novo no CyberPhone",
+      "url": "/?page=feed",
+      "icons": [{ "src": "/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ver Reels",
+      "short_name": "Reels",
+      "description": "Assista vídeos curtos",
+      "url": "/?page=reels-page",
+      "icons": [{ "src": "/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ],
   "screenshots": [
     {
       "src": "/icon-512x512.png",

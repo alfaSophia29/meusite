@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'cyberphone-v2';
+const CACHE_NAME = 'cyberphone-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

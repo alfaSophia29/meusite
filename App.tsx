@@ -47,6 +47,7 @@ import MonetizationPage from './components/MonetizationPage';
 import SavedPostsPage from './components/SavedPostsPage';
 import OfflinePage from './components/OfflinePage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
+import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 
 import { DialogProvider } from './services/DialogContext';
 
@@ -116,22 +117,40 @@ const App: React.FC = () => {
     }, []);
 
     const installApp = useCallback(async () => {
+        // Verifica se está em um iframe
+        const isIframe = window.self !== window.top;
+        if (isIframe) {
+            alert("A instalação não é permitida dentro de pré-visualizações (iframe). Por favor, abra o aplicativo em uma nova aba usando o botão no canto superior direito para poder instalar.");
+            return;
+        }
+
         if (!deferredPrompt) {
             // Se não houver prompt (iOS ou já instalado), mostra dica
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
             if (isIOS) {
-                alert("Para instalar no iOS: Toque em 'Compartilhar' (ícone central) e selecione 'Adicionar à Tela de Início'.");
+                alert("Para instalar no iOS: Toque no ícone de 'Compartilhar' (quadrado com seta para cima no Safari) e selecione 'Adicionar à Tela de Início'.");
             } else {
-                alert("O aplicativo já está instalado ou seu navegador não suporta a instalação direta.");
+                const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+                if (isStandalone) {
+                    alert("O CyBerPhone já está instalado e rodando em seu dispositivo!");
+                } else {
+                    alert("Seu navegador atual não suporta a instalação direta via este botão. Tente usar o Google Chrome ou Samsung Internet no Android, ou verifique se já não instalou o aplicativo.");
+                }
             }
             return;
         }
 
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log(`[PWA] Usuário escolheu: ${outcome}`);
-        setDeferredPrompt(null);
-        setShowInstallButton(false);
+        try {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`[PWA] Usuário escolheu: ${outcome}`);
+            if (outcome === 'accepted') {
+                setDeferredPrompt(null);
+                setShowInstallButton(false);
+            }
+        } catch (err) {
+            console.error("[PWA] Erro ao disparar prompt:", err);
+        }
     }, [deferredPrompt]);
 
     const lastNotificationIdRef = useRef<string | null>(null);
@@ -622,6 +641,20 @@ const App: React.FC = () => {
                         <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
                             {renderPage()}
                         </div>
+                        {showInstallHint && !deferredPrompt && !(/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream) && (
+                            <div className="fixed bottom-24 left-4 right-4 md:left-auto md:right-8 md:w-80 bg-white dark:bg-zinc-900 border border-brand/20 shadow-2xl rounded-2xl p-4 z-[200] animate-fade-in">
+                                <div className="flex gap-4">
+                                    <div className="bg-brand/10 p-2 rounded-xl shrink-0">
+                                        <ArrowDownTrayIcon className="h-6 w-6 text-brand" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[11px] font-black uppercase text-gray-900 dark:text-white leading-tight mb-1">Quer o CyberPhone na sua tela?</p>
+                                        <p className="text-[10px] text-gray-500 font-medium leading-normal mb-3">Para uma experiência mais rápida, use o menu do navegador e selecione "Instalar" ou "Adicionar à tela de início".</p>
+                                        <button onClick={() => setShowInstallHint(false)} className="text-[9px] font-black uppercase text-brand hover:underline">Entendi, valeu!</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </main>
                 </div>
                 {currentUser && (

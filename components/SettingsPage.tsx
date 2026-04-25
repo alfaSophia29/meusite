@@ -453,11 +453,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   ];
 
   if (canInstallPWA && onInstallPWA) {
+    const handleInstallClick = () => {
+      const isIframe = window.self !== window.top;
+      if (isIframe) {
+        showAlert("A instalação não é permitida dentro de pré-visualizações. Abra o app em uma nova aba para instalar.", { type: 'alert' });
+        return;
+      }
+      onInstallPWA();
+    };
+    
     systemItems.push({ 
         label: 'Instalar Aplicativo', 
         desc: 'Adicionar à tela de início', 
         icon: ArrowDownTrayIcon, 
-        onClick: onInstallPWA 
+        onClick: handleInstallClick 
     });
   }
 

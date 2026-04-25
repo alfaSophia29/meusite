@@ -27,6 +27,20 @@
       window.addEventListener('appinstalled', (evt) => {
         console.log('[PWA] App instalado com sucesso pelo usuário.');
       });
+
+      // Auditoria básica de PWA
+      window.addEventListener('load', () => {
+        if (!('serviceWorker' in navigator)) {
+          console.warn('[PWA] Service Worker não é suportado neste navegador.');
+        }
+        
+        fetch('/manifest.json')
+          .then(r => {
+            if (!r.ok) console.error('[PWA] Erro ao carregar manifest.json: status ' + r.status);
+            else console.log('[PWA] manifest.json carregado com sucesso.');
+          })
+          .catch(e => console.error('[PWA] Erro ao buscar manifest.json:', e));
+      });
     </script>
     
     <script>

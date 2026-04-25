@@ -38,7 +38,16 @@ const Header: React.FC<HeaderProps> = ({
   
   // Detecta se é iOS para mostrar o botão sempre (pois no iOS o evento beforeinstallprompt não dispara)
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-  const shouldShowInstall = showInstallButton || isIOS;
+  const shouldShowInstall = (showInstallButton || isIOS) && !(window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone);
+
+  const handleInstallClick = () => {
+    const isIframe = window.self !== window.top;
+    if (isIframe) {
+      alert("A instalação não é permitida diretamente em pré-visualizações. Por favor, abra o aplicativo em uma nova aba (botão no topo) para instalar conforme seu navegador.");
+      return;
+    }
+    if (onInstallApp) onInstallApp();
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -105,10 +114,10 @@ const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-1 md:gap-4 flex-shrink-0">
             {shouldShowInstall && (
               <button 
-                onClick={onInstallApp}
+                onClick={handleInstallClick}
                 className="flex items-center gap-1.5 bg-brand/10 hover:bg-brand/20 text-brand px-2.5 md:px-3 py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-tighter transition-all animate-pulse"
               >
-                Instalar
+                Instalar App
               </button>
             )}
             <button onClick={() => setIsMobileSearchOpen(true)} className="lg:hidden p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full">
