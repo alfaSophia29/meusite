@@ -81,7 +81,15 @@ export const auditIdentityDocument = async (
     birthDate: string;
     expirationDate: string;
     documentNumber: string;
-  }
+    documentType: string;
+    nationality?: string;
+  };
+  deepAnalysis: {
+    isLegible: boolean;
+    isPhysicalDocument: boolean;
+    faceMatchScore: number;
+    detectedAnomalies?: string[];
+  };
 }> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -94,39 +102,53 @@ export const auditIdentityDocument = async (
     const birthDateStr = new Date(userData.birthDate).toLocaleDateString('pt-BR');
 
     const prompt = `
-      ATENÇÃO: Você é um sistema de auditoria de identidade KYC (Know Your Customer) bancário extremamente rigoroso.
+      ATENÇÃO: Você é um sistema de auditoria de identidade KYC (Know Your Customer) bancário EXTREMAMENTE RIGOROSO e de alta precisão.
       
       Dados fornecidos pelo usuário no formulário:
       Nome: ${userData.firstName} ${userData.lastName}
       Data de Nascimento: ${birthDateStr}
       Número do Documento Informado: ${userData.documentId}
 
-      Analise as 3 imagens fornecidas (Frente do Documento, Verso do Documento, Selfie).
-      
-      Extraia OBRIGATORIAMENTE do documento:
-      1. Nome Completo (Exatamente como escrito).
-      2. Data de Nascimento (Formato YYYY-MM-DD).
-      3. Data de VALIDADE/EXPIRAÇÃO (Formato YYYY-MM-DD). Procure por "VAL", "VALIDADE", "EXPIRY", "EXP".
-      4. Número do Documento Real (Apenas números e letras, sem pontos ou traços).
+      Sua tarefa é ler PROFUNDAMENTE as 3 imagens fornecidas (Frente do Documento, Verso do Documento, Selfie).
 
-      REGRAS DE OURO PARA APROVAÇÃO:
-      1. O Documento DEVE ser oficial e estar legível.
-      2. A "Data de Validade" extraída DEVE ser posterior a hoje (${new Date().toLocaleDateString('pt-BR')}). Se estiver igual ou anterior, REJEITE IMEDIATAMENTE com motivo "Documento Expirado".
-      3. O "Número do Documento" extraído deve ser comparado com o informado (${userData.documentId}). Se forem muito diferentes, REJEITE.
-      4. A selfie deve confirmar que o portador é a pessoa do documento.
-      
-      Se o documento não tiver data de validade (ex: Vitalício), use "9999-12-31".
-      Se o documento estiver EXPIRADO, você DEVE retornar approved: false.
+      PHASE 1: OCR PROFUNDO E MAPEAMENTO DE CAMPOS
+      Extraia OBRIGATORIAMENTE do documento (procure em todas as imagens, incluindo selos e marcas d'água):
+      1. Nome Completo: Localize o campo de nome principal (NOME, NAME, APELLIDOS Y NOMBRES).
+      2. Data de Nascimento: (NASC, DATE OF BIRTH, FECHA DE NACIMIENTO). (Formato YYYY-MM-DD).
+      3. Data de VALIDADE/EXPIRAÇÃO: (VAL, VALIDADE, EXPIRY, VENCIMIENTO, EXPIRAÇÃO, VÁLIDO ATÉ). Se o documento for vitalício (ex: Angola antigo ou Portugal), use "9999-12-31". (Formato YYYY-MM-DD).
+      4. Número do Documento Real: O número de série oficial do documento (CPF, NIF, RG, BI, Passaporte Nº, ID Number). Extraia APENAS números e letras, removendo pontos, traços e espaços extras.
+      5. Nacionalidade: (NACIONALIDADE, NATIONALITY, NACIONALIDAD).
+      6. Document Type: Classifique o documento (RG Brasileiro, CNH Brasileira, Passaporte, BI Angolano, Cartão de Cidadão Português, etc).
+
+      PHASE 2: ANÁLISE TÉCNICA DE SEGURANÇA
+      Avalie minuciosamente:
+      1. Qualidade da Imagem: Verifique se os dados estão legíveis em zoom.
+      2. Sinais de Fraude: Procure por desalinhamento de fontes, cores de fundo inconsistentes ao redor do texto, reflexos de tela (indicando foto de monitor) ou falta de sombras naturais.
+      3. Verificação Biométrica: Analise as características faciais da Foto do Documento vs a Selfie. Considere idade aparente e traços fisionômicos estáveis (distância entre olhos, formato da orelha).
+      4. Procedência: O documento parece ser um cartão físico real ou papel oficial?
+
+      PHASE 3: REGRAS DE NEGÓCIO E DECISÃO
+      - Se a validade extraída for <= hoje (${new Date().toLocaleDateString('pt-BR')}), REJEITE (Documento Expirado).
+      - Se o nome ou data de nascimento não coincidirem com os dados do formulário (${userData.firstName} ${userData.lastName}, ${birthDateStr}), descreva a divergência no reason.
+      - Se detectar tentativa de "bypass" (ex: foto de cachorro, objeto, ou selfie de outra pessoa), REJEITE permanentemente.
 
       Retorne APENAS um JSON:
       {
         "approved": boolean,
-        "reason": "Explicação clara em português.",
+        "reason": "Explicação técnica e detalhada em português sobre a decisão.",
         "extractedData": {
           "fullName": "string",
           "birthDate": "YYYY-MM-DD",
           "expirationDate": "YYYY-MM-DD",
-          "documentNumber": "string"
+          "documentNumber": "string",
+          "documentType": "string",
+          "nationality": "string"
+        },
+        "deepAnalysis": {
+          "isLegible": boolean,
+          "isPhysicalDocument": boolean,
+          "faceMatchScore": number (0-100),
+          "detectedAnomalies": string[]
         }
       }
     `;
@@ -142,7 +164,7 @@ export const auditIdentityDocument = async (
         ]
       },
       config: {
-        temperature: 0.1,
+        temperature: 0,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -155,12 +177,24 @@ export const auditIdentityDocument = async (
                 fullName: { type: Type.STRING },
                 birthDate: { type: Type.STRING },
                 expirationDate: { type: Type.STRING },
-                documentNumber: { type: Type.STRING }
+                documentNumber: { type: Type.STRING },
+                documentType: { type: Type.STRING },
+                nationality: { type: Type.STRING }
               },
-              required: ["fullName", "birthDate", "expirationDate", "documentNumber"]
+              required: ["fullName", "birthDate", "expirationDate", "documentNumber", "documentType"]
+            },
+            deepAnalysis: {
+              type: Type.OBJECT,
+              properties: {
+                isLegible: { type: Type.BOOLEAN },
+                isPhysicalDocument: { type: Type.BOOLEAN },
+                faceMatchScore: { type: Type.NUMBER },
+                detectedAnomalies: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["isLegible", "isPhysicalDocument", "faceMatchScore"]
             }
           },
-          required: ["approved", "reason", "extractedData"]
+          required: ["approved", "reason", "extractedData", "deepAnalysis"]
         }
       }
     });
@@ -173,7 +207,13 @@ export const auditIdentityDocument = async (
     console.error("Erro CRÍTICO no KYC:", error);
     return { 
         approved: false, 
-        reason: "Não foi possível validar seus documentos automaticamente. A imagem pode estar ilegível ou foi bloqueada pelos filtros de segurança. Tente novamente com fotos mais claras." 
+        reason: "Não foi possível validar seus documentos automaticamente. A imagem pode estar ilegível ou foi bloqueada pelos filtros de segurança.",
+        deepAnalysis: {
+            isLegible: false,
+            isPhysicalDocument: false,
+            faceMatchScore: 0,
+            detectedAnomalies: ["Erro no processamento da imagem"]
+        }
     };
   }
 };

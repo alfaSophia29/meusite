@@ -75,10 +75,15 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
       );
 
       if (auditResult.approved && auditResult.extractedData) {
-        const { expirationDate, documentNumber } = auditResult.extractedData;
+        const { fullName, birthDate, expirationDate, documentNumber } = auditResult.extractedData;
+        const { isPhysicalDocument, faceMatchScore } = auditResult.deepAnalysis;
         
         // Normalize document number
         const normalizedDocNumber = documentNumber.replace(/[^a-zA-Z0-9]/g, '');
+
+        if (!isPhysicalDocument || faceMatchScore < 70) {
+          throw new Error("Documento ou biometria inconsistente na auto-verificação.");
+        }
 
         const expiryDateObj = new Date(expirationDate);
         const isExpired = expiryDateObj < new Date();
@@ -178,10 +183,22 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
 
       if (auditResult.approved && auditResult.extractedData) {
         const { fullName, birthDate, expirationDate, documentNumber } = auditResult.extractedData;
+        const { isPhysicalDocument, faceMatchScore } = auditResult.deepAnalysis;
+
         const userFullName = `${user.firstName} ${user.lastName}`.toLowerCase();
         
         // Normalize document number (remove non-alphanumeric)
         const normalizedDocNumber = documentNumber.replace(/[^a-zA-Z0-9]/g, '');
+
+        // Security check: must be a physical document
+        if (!isPhysicalDocument) {
+          throw new Error("A imagem parece ser uma foto de tela ou fotocópia. Por favor, tire uma foto do documento físico original.");
+        }
+
+        // Security check: face match score must be sufficient
+        if (faceMatchScore < 70) {
+          throw new Error("A selfie fornecida não coincide suficientemente com a foto no documento. Tente tirar a foto em um local mais iluminado.");
+        }
 
         // Final sanity checks in code
         const nameMatches = fullName.toLowerCase().includes(user.firstName.toLowerCase()) || 
@@ -197,11 +214,11 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         const isExpired = expiryDateObj < new Date();
 
         if (!nameMatches) {
-          throw new Error(`O nome no documento ("${fullName}") não corresponde ao nome da conta ("${user.firstName} ${user.lastName}").`);
+          throw new Error(`O nome no documento ("${fullName}") não coincide com o nome da sua conta.`);
         }
 
         if (isExpired) {
-          throw new Error("O documento enviado está expirado. Por favor, envie um documento dentro do prazo de validade.");
+          throw new Error("O documento enviado está expirado.");
         }
 
         // NOVO: Verificação de Unicidade do Documento extraído (comparação rigorosa)
@@ -209,13 +226,13 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         
         // Se já existe e não pertence ao usuário atual, rejeita
         if (!isDocUnique && user.documentId !== normalizedDocNumber) {
-           throw new Error(`Este documento (Número: ${normalizedDocNumber}) já está vinculado a outra conta CyberPhone. Não é permitida a duplicidade de documentos.`);
+           throw new Error(`Este documento já está vinculado a outra conta.`);
         }
 
         // 3. Process Fee
         const paymentOk = await processVerificationPayment(user.id);
         if (!paymentOk) {
-          throw new Error(`Saldo insuficiente para pagar a taxa de verificação ($${settings?.verificationFee || 20}). Recarregue sua carteira.`);
+          throw new Error(`Saldo insuficiente para pagar a taxa de verificação ($${settings?.verificationFee || 20}).`);
         }
 
         // Automatic Approval
