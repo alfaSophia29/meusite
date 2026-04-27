@@ -17,6 +17,8 @@ import {
 
 interface CryptomusPaymentFormProps {
   amount?: number;
+  currency?: string;
+  exchangeRate?: number;
   mode?: 'deposit' | 'withdraw';
   onConfirm: (data: any) => void;
   onCancel: () => void;
@@ -29,7 +31,14 @@ const CRYPTO_OPTIONS = [
   { id: 'LTC', name: 'Litecoin', networks: ['Litecoin'], color: 'text-slate-500' },
 ];
 
-const CryptomusPaymentForm: React.FC<CryptomusPaymentFormProps> = ({ amount: initialAmount = 50, mode: initialMode = 'deposit', onConfirm, onCancel }) => {
+const CryptomusPaymentForm: React.FC<CryptomusPaymentFormProps> = ({ 
+  amount: initialAmount = 50, 
+  currency = 'USD',
+  exchangeRate = 1,
+  mode: initialMode = 'deposit', 
+  onConfirm, 
+  onCancel 
+}) => {
   const { showSuccess } = useDialog();
   const [mode, setMode] = useState<'deposit' | 'withdraw'>(initialMode);
   const [method, setMethod] = useState<'crypto' | 'card'>('crypto');
@@ -83,7 +92,9 @@ const CryptomusPaymentForm: React.FC<CryptomusPaymentFormProps> = ({ amount: ini
            
            <div className="flex justify-between items-center px-4 bg-blue-50 dark:bg-blue-900/10 py-2.5 xs:py-3 rounded-xl border border-blue-100 dark:border-blue-900/20">
               <span className="text-[8px] xs:text-[10px] font-black text-blue-800 dark:text-blue-300 uppercase">Rede: {selectedNetwork}</span>
-              <span className="text-[8px] xs:text-[10px] font-black text-blue-800 dark:text-blue-300 uppercase">Total: ${amount.toFixed(2)}</span>
+              <span className="text-[8px] xs:text-[10px] font-black text-blue-800 dark:text-blue-300 uppercase">
+                Total: {currency === 'USD' ? `$${amount.toFixed(2)}` : `${currency === 'AOA' ? 'KZ' : currency} ${(amount * exchangeRate).toFixed(2)}`}
+              </span>
            </div>
         </div>
 
@@ -121,16 +132,19 @@ const CryptomusPaymentForm: React.FC<CryptomusPaymentFormProps> = ({ amount: ini
       <form onSubmit={handleAction} className="space-y-4 xs:space-y-6">
         <div>
           <label className="text-[8px] xs:text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-1.5 xs:mb-2 block">
-            Valor da Operação (USD)
+            Valor da Operação ({currency})
           </label>
           <div className="relative">
-             <span className="absolute left-4 xs:left-5 top-1/2 -translate-y-1/2 text-xl xs:text-2xl font-black text-gray-300">$</span>
+             <span className="absolute left-4 xs:left-5 top-1/2 -translate-y-1/2 text-xl xs:text-2xl font-black text-gray-300">
+               {currency === 'USD' ? '$' : (currency === 'AOA' ? 'KZ' : currency)}
+             </span>
              <input 
                type="number" 
                required 
-               value={amount} 
+               value={mode === 'deposit' && initialAmount !== 50 ? (initialAmount * exchangeRate).toFixed(2) : amount} 
+               disabled={mode === 'deposit' && initialAmount !== 50}
                onChange={e => setAmount(Number(e.target.value))}
-               className="w-full pl-9 xs:pl-11 pr-5 xs:pr-6 py-4 xs:py-5 bg-gray-50 dark:bg-white/5 dark:text-white border-2 border-transparent focus:border-blue-500 rounded-[1.4rem] xs:rounded-[1.8rem] outline-none font-black text-xl xs:text-2xl transition-all shadow-inner" 
+               className="w-full pl-12 xs:pl-14 pr-5 xs:pr-6 py-4 xs:py-5 bg-gray-50 dark:bg-white/5 dark:text-white border-2 border-transparent focus:border-blue-500 rounded-[1.4rem] xs:rounded-[1.8rem] outline-none font-black text-xl xs:text-2xl transition-all shadow-inner disabled:opacity-75" 
                placeholder="0.00"
              />
           </div>

@@ -152,6 +152,29 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
            </div>
         </div>
 
+        {/* Conversor Rápido */}
+        <div className="mb-6 p-4 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[1.5rem] text-white overflow-hidden relative group">
+           <CalculatorIcon className="absolute -right-4 -bottom-4 h-24 w-24 text-white/10 group-hover:scale-110 transition-transform duration-500" />
+           <div className="relative z-10">
+              <p className="text-[8px] font-black uppercase tracking-widest text-blue-100 mb-2">Monitor de Câmbio em Tempo Real</p>
+              <div className="flex items-center justify-between gap-4">
+                 <div className="flex-1">
+                    <p className="text-[10px] font-bold text-blue-200">1 USDT (Palo)</p>
+                    <p className="text-xl font-black tracking-tighter">{exchangeRate.toLocaleString()} KZ</p>
+                 </div>
+                 <div className="h-8 w-[1px] bg-white/20" />
+                 <div className="flex-1">
+                    <p className="text-[10px] font-bold text-blue-200">1.000 KZ</p>
+                    <p className="text-xl font-black tracking-tighter">${(1000 / exchangeRate).toFixed(2)} USDT</p>
+                 </div>
+              </div>
+              <div className="mt-3 flex items-center gap-1.5">
+                 <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                 <p className="text-[7px] font-bold uppercase text-blue-100">Atualizado via API Oficial</p>
+              </div>
+           </div>
+        </div>
+
         {mode === 'withdraw' && (
           <div className="mb-6 p-4 xs:p-6 bg-blue-50 dark:bg-blue-900/10 rounded-[1.5rem] xs:rounded-[2rem] border border-blue-100 dark:border-blue-900/20">
              <div className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400">

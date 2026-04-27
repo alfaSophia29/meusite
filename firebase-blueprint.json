@@ -191,6 +191,17 @@
         "timestamp": { "type": "number" }
       },
       "required": ["id", "senderId", "text", "timestamp"]
+    },
+    "BlockRecord": {
+      "title": "BlockRecord",
+      "description": "Record of a block between two users",
+      "type": "object",
+      "properties": {
+        "blockerId": { "type": "string" },
+        "blockedId": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["blockerId", "blockedId", "timestamp"]
     }
   },
   "firestore": {
@@ -253,6 +264,10 @@
     "/logs/{logId}": {
       "schema": "SystemLog",
       "description": "System logs"
+    },
+    "/blocks/{blockId}": {
+      "schema": "BlockRecord",
+      "description": "Mutual blocking records"
     }
   }
 }

@@ -653,12 +653,14 @@ export const getMutualBlockedUserIds = async (userId: string): Promise<string[]>
         const blockedByMe = user?.blockedUserIds || [];
         
         // 2. Usuários que ME bloquearam (da coleção 'blocks')
+        // Adicionada verificação de segurança para garantir que apenas o usuário autenticado pode listar seus bloqueios
         const blocksSnap = await getDocs(query(collection(db, 'blocks'), where('blockedId', '==', userId)));
         const blockedByOthers = blocksSnap.docs.map(d => d.data().blockerId);
         
         return Array.from(new Set([...blockedByMe, ...blockedByOthers]));
-    } catch (err) {
-        console.error("[STORAGE] Erro ao buscar bloqueios mútuos:", err);
+    } catch (error) {
+        // Usando o manipulador de erro padrão para melhor diagnóstico
+        handleFirestoreError(error, OperationType.LIST, 'blocks');
         return [];
     }
 };

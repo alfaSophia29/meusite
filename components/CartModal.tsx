@@ -1,14 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { CartItem, Product, User, ShippingAddress, ProductType } from '../types';
-import { 
-  getCart, 
-  updateCartItemQuantity, 
-  removeFromCart, 
-  processProductPurchase, 
-  updateUserBalance,
-  saveUserAddress 
-} from '../services/storageService';
+import { updateUserBalance, saveUserAddress, getCart, getProducts, updateCartItemQuantity, removeFromCart, processProductPurchase } from '../services/storageService';
+import { getExchangeRates, ExchangeRates } from '../services/currencyService';
 import { XMarkIcon, PlusIcon, MinusIcon, TrashIcon, QrCodeIcon, BanknotesIcon, ShoppingBagIcon, ArrowRightIcon, MapPinIcon } from '@heroicons/react/24/outline';
 import { CheckIcon, ShieldCheckIcon, BoltIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
 import CryptomusPaymentForm from './CryptomusPaymentForm';
@@ -24,6 +18,13 @@ interface CartModalProps {
 const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onCartUpdate, refreshUser }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>({
+    USD: 1,
+    BRL: 5.25,
+    EUR: 0.93,
+    AOA: 900
+  });
+  const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'BRL' | 'EUR' | 'AOA'>('USD');
   const [view, setView] = useState<'cart' | 'shipping' | 'payment' | 'cryptomus' | 'processing' | 'success'>('cart');
   const [shippingDetails, setShippingDetails] = useState<ShippingAddress>(() => 
     currentUser.address || { address: '', city: '', state: '', zipCode: '' }
@@ -33,18 +34,25 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    if (isOpen) {
-      const cart = getCart();
-      const allProducts = JSON.parse(localStorage.getItem('cyber_products') || '[]') as Product[];
-      setCartItems(cart);
-      setProducts(allProducts);
-      setView('cart');
-      setFormError('');
-      setSelectedPayment(null);
-      if (currentUser.address) {
-        setShippingDetails(currentUser.address);
+    const fetchData = async () => {
+      if (isOpen) {
+        const cart = getCart();
+        const allProducts = await getProducts();
+        const rates = await getExchangeRates();
+        
+        setCartItems(cart);
+        setProducts(allProducts);
+        setExchangeRates(rates);
+        setView('cart');
+        setFormError('');
+        setSelectedPayment(null);
+        if (currentUser.address) {
+          setShippingDetails(currentUser.address);
+        }
       }
-    }
+    };
+    
+    fetchData();
   }, [isOpen, currentUser.address]);
 
   const syncCart = () => {
@@ -60,6 +68,19 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
   }, [cartItems, products]);
 
   const subtotal = useMemo(() => detailedCartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0), [detailedCartItems]);
+
+  const currencySymbols = {
+    USD: '$',
+    BRL: 'R$',
+    EUR: '€',
+    AOA: 'Kz'
+  };
+
+  const formatPrice = (price: number) => {
+    const rate = exchangeRates[selectedCurrency];
+    const converted = price * rate;
+    return `${currencySymbols[selectedCurrency]}${converted.toFixed(2)}`;
+  };
 
   const hasInsufficientBalance = (currentUser.balance || 0) < subtotal;
 
@@ -114,19 +135,38 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
         className="bg-white dark:bg-darkcard w-full max-w-md h-full shadow-2xl flex flex-col animate-slide-left relative" 
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-4 xs:p-6 border-b border-gray-100 dark:border-white/10 flex justify-between items-center bg-white dark:bg-darkcard sticky top-0 z-10">
-          <div className="flex items-center gap-2 xs:gap-3">
-             <div className="bg-blue-600 p-2 xs:p-2.5 rounded-xl xs:rounded-2xl shadow-lg shadow-blue-100 dark:shadow-none">
-                <ShoppingBagIcon className="h-5 w-5 xs:h-6 xs:w-6 text-white" />
-             </div>
-             <div>
-                <h2 className="text-lg xs:text-xl font-black text-gray-900 dark:text-white tracking-tighter">Minha Sacola</h2>
-                <p className="text-[8px] xs:text-[10px] text-gray-400 font-bold uppercase tracking-widest">{detailedCartItems.length} Itens</p>
-             </div>
+        <div className="p-4 xs:p-6 border-b border-gray-100 dark:border-white/10 space-y-4 bg-white dark:bg-darkcard sticky top-0 z-10">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2 xs:gap-3">
+              <div className="bg-blue-600 p-2 xs:p-2.5 rounded-xl xs:rounded-2xl shadow-lg shadow-blue-100 dark:shadow-none">
+                  <ShoppingBagIcon className="h-5 w-5 xs:h-6 xs:w-6 text-white" />
+              </div>
+              <div>
+                  <h2 className="text-lg xs:text-xl font-black text-gray-900 dark:text-white tracking-tighter">Minha Sacola</h2>
+                  <p className="text-[8px] xs:text-[10px] text-gray-400 font-bold uppercase tracking-widest">{detailedCartItems.length} Itens</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full transition-colors group">
+              <XMarkIcon className="h-6 w-6 text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-white/5 rounded-full transition-colors group">
-            <XMarkIcon className="h-6 w-6 text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white" />
-          </button>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+            <span className="text-[10px] font-black text-gray-400 uppercase mr-2 shrink-0">Câmbio:</span>
+            {(['USD', 'BRL', 'EUR', 'AOA'] as const).map((curr) => (
+              <button
+                key={curr}
+                onClick={() => setSelectedCurrency(curr)}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all border ${
+                  selectedCurrency === curr 
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-md' 
+                    : 'bg-gray-50 text-gray-500 border-gray-100 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 hover:bg-gray-100'
+                }`}
+              >
+                {curr === 'AOA' ? 'KZ' : curr}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 xs:p-6 space-y-4 custom-scrollbar">
@@ -143,7 +183,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                     <img src={item.product.imageUrls[0]} className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl object-cover" />
                     <div className="flex-1 min-w-0">
                        <p className="font-black text-xs xs:text-sm text-gray-900 dark:text-white truncate">{item.product.name}</p>
-                       <p className="text-blue-600 font-black text-sm xs:text-base">${item.product.price.toFixed(2)}</p>
+                       <p className="text-blue-600 font-black text-sm xs:text-base">{formatPrice(item.product.price)}</p>
                        <div className="flex items-center justify-between mt-1 xs:mt-2">
                           <div className="flex items-center bg-white dark:bg-white/10 rounded-lg p-0.5 xs:p-1">
                              <button onClick={() => { updateCartItemQuantity(item.productId, item.quantity - 1); syncCart(); }} className="p-1"><MinusIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3"/></button>
@@ -217,7 +257,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                      <div className="text-left">
                         <p className="font-black text-gray-900 dark:text-white text-xs xs:text-sm">Saldo CyBer</p>
                         <p className={`text-[8px] xs:text-[10px] font-black ${hasInsufficientBalance ? 'text-red-500' : 'text-gray-400'}`}>
-                          ${(currentUser.balance || 0).toFixed(2)}
+                          {formatPrice(currentUser.balance || 0)}
                         </p>
                      </div>
                   </div>
@@ -244,7 +284,13 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
           )}
 
           {view === 'cryptomus' && (
-            <CryptomusPaymentForm amount={subtotal} onConfirm={executeFinalPurchase} onCancel={() => setView('payment')} />
+            <CryptomusPaymentForm 
+              amount={subtotal} 
+              currency={selectedCurrency}
+              exchangeRate={exchangeRates[selectedCurrency]}
+              onConfirm={executeFinalPurchase} 
+              onCancel={() => setView('payment')} 
+            />
           )}
 
           {view === 'processing' && (
@@ -267,7 +313,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
           <div className="p-5 xs:p-8 border-t border-gray-100 dark:border-white/10">
             <div className="flex justify-between items-end mb-4 xs:mb-6">
                <span className="text-[8px] xs:text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</span>
-               <span className="text-2xl xs:text-3xl font-black text-gray-900 dark:text-white tracking-tighter">${subtotal.toFixed(2)}</span>
+               <span className="text-2xl xs:text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{formatPrice(subtotal)}</span>
             </div>
 
             {view === 'cart' && (
