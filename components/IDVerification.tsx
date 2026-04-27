@@ -200,21 +200,39 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
           throw new Error("A selfie fornecida não coincide suficientemente com a foto no documento. Tente tirar a foto em um local mais iluminado.");
         }
 
+        const normalize = (s: string) => 
+          s.normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .trim();
+
+        const normFullName = normalize(fullName);
+        const normFirstName = normalize(user.firstName);
+        const normLastName = normalize(user.lastName);
+        
         // Final sanity checks in code
-        const nameMatches = fullName.toLowerCase().includes(user.firstName.toLowerCase()) || 
-                            fullName.toLowerCase().includes(user.lastName.toLowerCase());
+        // We check if at least first OR last name is present in the full name from document
+        const nameMatches = normFullName.includes(normFirstName) || 
+                            normFullName.includes(normLastName);
         
         const birthDateObj = new Date(birthDate);
         const userBirthDateObj = new Date(user.birthDate);
-        const birthDateMatches = birthDateObj.getFullYear() === userBirthDateObj.getFullYear() &&
-                                 birthDateObj.getMonth() === userBirthDateObj.getMonth() &&
-                                 birthDateObj.getDate() === userBirthDateObj.getDate();
+        
+        // Tolerance for birth date (sometimes off by one day due to timezone)
+        const birthDateMatches = Math.abs(birthDateObj.getTime() - userBirthDateObj.getTime()) < 24 * 60 * 60 * 1000 ||
+                                 (birthDateObj.getFullYear() === userBirthDateObj.getFullYear() &&
+                                  birthDateObj.getMonth() === userBirthDateObj.getMonth() &&
+                                  birthDateObj.getDate() === userBirthDateObj.getDate());
 
         const expiryDateObj = new Date(expirationDate);
         const isExpired = expiryDateObj < new Date();
 
         if (!nameMatches) {
-          throw new Error(`O nome no documento ("${fullName}") não coincide com o nome da sua conta.`);
+          throw new Error(`O nome no documento ("${fullName}") não coincide com o nome da sua conta (${user.firstName} ${user.lastName}). Certifique-se de que o nome no perfil seja o mesmo do documento.`);
+        }
+
+        if (!birthDateMatches) {
+          throw new Error(`A data de nascimento no documento não coincide com a data da sua conta.`);
         }
 
         if (isExpired) {
@@ -232,7 +250,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         // 3. Process Fee
         const paymentOk = await processVerificationPayment(user.id);
         if (!paymentOk) {
-          throw new Error(`Saldo insuficiente para pagar a taxa de verificação ($${settings?.verificationFee || 20}).`);
+          throw new Error(`Saldo insuficiente para pagar a taxa de verificação ($${settings?.verificationFee || 5}). Use o botão 'Solicitar Saldo de Teste' abaixo se necessário.`);
         }
 
         // Automatic Approval
@@ -447,9 +465,27 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
             </div>
 
             {error && (
-              <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl flex gap-3 animate-shake">
-                <ExclamationTriangleIcon className="h-5 w-5 text-red-500 shrink-0" />
-                <p className="text-sm text-red-600 dark:text-red-400 font-bold">{error}</p>
+              <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl flex flex-col gap-3 animate-shake">
+                <div className="flex gap-3">
+                  <ExclamationTriangleIcon className="h-5 w-5 text-red-500 shrink-0" />
+                  <p className="text-sm text-red-600 dark:text-red-400 font-bold">{error}</p>
+                </div>
+                {error.includes("Saldo insuficiente") && (
+                  <button 
+                    onClick={async () => {
+                      const { handleWalletTransaction } = await import('../services/storageService');
+                      const success = await handleWalletTransaction(user.id, 50, 'deposit');
+                      if (success) {
+                        setError(null);
+                        alert("Bônus de $50 creditado com sucesso!");
+                        window.location.reload();
+                      }
+                    }}
+                    className="text-xs font-black text-blue-500 uppercase hover:underline text-left mt-1"
+                  >
+                    Solicitar Saldo de Teste ($50)
+                  </button>
+                )}
               </div>
             )}
 

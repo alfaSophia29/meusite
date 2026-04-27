@@ -45,6 +45,7 @@ import SupportPage from './components/SupportPage';
 import LegalPage from './components/LegalPage';
 import MonetizationPage from './components/MonetizationPage';
 import SavedPostsPage from './components/SavedPostsPage';
+import BlockedUsersPage from './components/BlockedUsersPage';
 import OfflinePage from './components/OfflinePage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
@@ -322,7 +323,8 @@ const App: React.FC = () => {
                         prevUser.profilePicture !== user.profilePicture ||
                         prevUser.userType !== user.userType ||
                         JSON.stringify(prevUser.followedUsers) !== JSON.stringify(user.followedUsers) ||
-                        JSON.stringify(prevUser.followers) !== JSON.stringify(user.followers);
+                        JSON.stringify(prevUser.followers) !== JSON.stringify(user.followers) ||
+                        JSON.stringify(prevUser.blockedUserIds) !== JSON.stringify(user.blockedUserIds);
 
                     if (!criticalFieldsChanged) return prevUser;
                     
@@ -455,6 +457,13 @@ const App: React.FC = () => {
         setIsLoading(false);
     }, []);
 
+    const refreshUnreadMessagesCount = useCallback(async () => {
+        if (!currentUser) return;
+        const msgCount = await getUnreadMessagesCount(currentUser.id);
+        setUnreadMessagesCount(msgCount);
+        lastMessageCountRef.current = msgCount;
+    }, [currentUser]);
+
     const handleNavigate = useCallback((page: Page, params: Record<string, string> = {}) => {
         const u = currentUserRef.current;
         if (page === 'notifications' && u) {
@@ -514,7 +523,7 @@ const App: React.FC = () => {
         switch (currentPage) {
             case 'feed': return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'profile': return <ProfilePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} userId={pageParams.userId} onOpenWallet={(mode) => setWalletConfig({ isOpen: true, mode })} />;
-            case 'chat': return <ChatPage currentUser={currentUser} onNavigate={handleNavigate} params={pageParams} />;
+            case 'chat': return <ChatPage currentUser={currentUser} onNavigate={handleNavigate} params={pageParams} onMessagesRead={refreshUnreadMessagesCount} refreshUser={refreshCurrentUser} />;
             case 'create-group': return <CreateGroupPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'reels-page': return <ReelsPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} startPostId={pageParams.startPostId} />;
             case 'search-results': return <SearchResultsPage currentUser={currentUser} query={pageParams.query} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
@@ -545,6 +554,7 @@ const App: React.FC = () => {
             case 'purchases': return <PurchasesPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'affiliates': return <AffiliatesPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'ads': return <AdCampaignPage currentUser={currentUser} refreshUser={refreshCurrentUser} onNavigate={handleNavigate} />;
+            case 'blocked-users': return <BlockedUsersPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             default: return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
         }
     }
@@ -635,6 +645,7 @@ const App: React.FC = () => {
                         onLogout={handleLogout} 
                         isMenuOpen={isMenuOpen}
                         onCloseMenu={() => setIsMenuOpen(false)}
+                        unreadMessagesCount={unreadMessagesCount}
                       />
                     )}
                     <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} transition-all overflow-x-hidden`}>

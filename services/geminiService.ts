@@ -11,9 +11,13 @@ export const sourceDropshippingProducts = async (query: string): Promise<any[]> 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Simule uma busca de produtos no AliExpress para dropshipping baseada na query: "${query}". 
+      contents: [{
+        parts: [{
+          text: `Simule uma busca de produtos no AliExpress para dropshipping baseada na query: "${query}". 
       Retorne um JSON de 5 produtos com: nome, descrição vendedora, preço original em USD (entre 5 e 50), 
-      e uma URL de imagem do picsum.photos baseada no tema.`,
+      e uma URL de imagem do picsum.photos baseada no tema.`
+        }]
+      }],
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -44,8 +48,12 @@ export const generateAdCopy = async (prompt: string): Promise<string> => {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Gere um texto curto e persuasivo para um anúncio sobre: "${prompt}". 
-      O retorno deve seguir obrigatoriamente este formato: "Título: [Seu Título] Texto: [Sua Descrição]"`,
+      contents: [{
+        parts: [{
+          text: `Gere um texto curto e persuasivo para um anúncio sobre: "${prompt}". 
+      O retorno deve seguir obrigatoriamente este formato: "Título: [Seu Título] Texto: [Sua Descrição]"`
+        }]
+      }],
     });
     return response.text || 'Título: Oferta Especial Texto: Aproveite nossas condições exclusivas.';
   } catch (error) {
@@ -137,15 +145,15 @@ export const auditIdentityDocument = async (
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', 
-      contents: {
+      model: 'gemini-3-flash-preview', 
+      contents: [{
         parts: [
           frontPart,
           backPart,
           selfiePart,
           { text: prompt }
         ]
-      },
+      }],
       config: {
         temperature: 0.1,
         responseMimeType: "application/json",

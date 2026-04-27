@@ -35,7 +35,7 @@ export const checkContentSecurity = async (
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-1.5-flash",
+            model: "gemini-3-flash-preview",
             contents: [{
                 parts: [{
                     text: `Analise o seguinte conteúdo de um(a) ${type} em uma rede social educacional e verifique se ele viola as diretrizes de segurança. 
@@ -75,7 +75,7 @@ export const checkImageSecurity = async (
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-1.5-flash",
+            model: "gemini-3-flash-preview",
             contents: [{
                 parts: [
                     {

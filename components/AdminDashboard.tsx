@@ -10,7 +10,7 @@ import {
   adminUpdateUser, adminDeletePost, adminProcessReport, adminDeleteProduct,
   updateGlobalSettings, updateUserBalance, getStores, deleteUser,
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
-  subscribeToAdminSupportTickets
+  subscribeToAdminSupportTickets, claimSupportTicket
 } from '../services/storageService';
 import { safeJsonStringify } from '../src/lib/utils';
 import { 
@@ -108,7 +108,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
   useEffect(() => {
     if (activeTab === 'support') {
-      const unsubscribe = subscribeToAdminSupportTickets((tickets) => {
+      const unsubscribe = subscribeToAdminSupportTickets(currentUser.id, (tickets) => {
         setData(prev => ({
           ...prev,
           tickets: tickets.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -120,7 +120,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       });
       return () => unsubscribe();
     }
-  }, [activeTab, currentTicket?.id]);
+  }, [activeTab, currentTicket?.id, currentUser.id]);
 
   useEffect(() => {
     if (activeTab === 'support' && currentTicket) {
@@ -132,17 +132,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     setLoading(true);
     try {
       const [users, posts, products, stores, ads, transactions, reports, logs, revenue, globalSettings, tickets] = await Promise.all([
-        getUsers(),
+        getUsers(currentUser),
         getPosts(),
         getProducts(),
         getStores(),
         getAds(),
-        getTransactions(),
+        getTransactions(undefined, currentUser),
         getReports(),
         getSystemLogs(),
         getPlatformRevenue(),
         getGlobalSettings(),
-        getAdminSupportTickets()
+        getAdminSupportTickets(currentUser.id)
       ]);
 
       setData({
@@ -270,6 +270,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     );
   };
 
+  const handleToggleAdmin = async (user: User) => {
+    if (currentUser.email !== 'alfaajmc@gmail.com') {
+      showAlert("Apenas o Administrador Master pode gerenciar privilégios Root.", { type: 'alert' });
+      return;
+    }
+    const confirmed = await showConfirm(user.isAdmin ? `REBAIXAMENTO: Remover privilégios ROOT de ${user.firstName}?` : `PROMOÇÃO: Tornar ${user.firstName} Administrador ROOT?`, {
+       title: 'Gestão de Privilégios',
+       type: 'alert'
+    });
+    if (confirmed) {
+      await adminUpdateUser({ ...user, isAdmin: !user.isAdmin });
+      refresh();
+    }
+  };
+
   const handleToggleVerification = async (user: User) => {
     await adminUpdateUser({ ...user, isVerified: !user.isVerified });
     refresh();
@@ -391,7 +406,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
             <SidebarItem id="monetization" icon={BanknotesIcon} label="Monetização" />
             <SidebarItem id="verifications" icon={IdentificationIcon} label="Verificações" />
             <SidebarItem id="finance" icon={BanknotesIcon} label="Tesouraria" />
-            <SidebarItem id="config" icon={WrenchScrewdriverIcon} label="Config Root" />
+            {currentUser.email === 'alfaajmc@gmail.com' && (
+              <SidebarItem id="config" icon={WrenchScrewdriverIcon} label="Config Root" />
+            )}
          </nav>
          <div className="mt-10 pt-10 border-t border-white/5">
             <button onClick={() => onNavigate('feed')} className="w-full flex items-center gap-4 px-6 py-4 text-gray-400 hover:text-white transition-all bg-white/5 rounded-2xl active:scale-95">
@@ -495,9 +512,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                      <p className="font-black text-sm text-gray-100 uppercase tracking-tighter truncate">{user.firstName} {user.lastName}</p>
                                   </div>
                                   <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest truncate">{user.email}</p>
-                                  <div className="mt-2">
-                                     <span className="px-2 py-0.5 rounded text-[8px] font-black uppercase bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                                        Membro
+                                  <div className="mt-2 flex gap-2">
+                                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${user.isAdmin ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' : 'bg-blue-600/20 text-blue-400 border-blue-500/30'}`}>
+                                        {user.isAdmin ? 'Admin Root' : 'Membro'}
                                      </span>
                                   </div>
                                </div>
@@ -513,6 +530,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                </button>
 
                                <div className="flex gap-2">
+                                  {currentUser.email === 'alfaajmc@gmail.com' && (
+                                     <button onClick={() => handleToggleAdmin(user)} className={`p-3 rounded-xl border-2 active:scale-90 transition-all ${user.isAdmin ? 'bg-purple-600 border-purple-400 text-white' : 'bg-[#1a1e26] border-white/5 text-gray-500 hover:text-purple-400 hover:border-purple-500/30'}`}>
+                                        <ShieldCheckIcon className="h-5 w-5" />
+                                     </button>
+                                  )}
                                   <button onClick={() => handleDeleteUser(user.id)} className="p-3 rounded-xl bg-white/5 border border-white/10 text-gray-500 hover:bg-red-600 hover:text-white">
                                      <TrashIcon className="h-5 w-5" />
                                   </button>
@@ -549,8 +571,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                            <div>
                                               <div className="flex items-center gap-2">
                                                  <p className="font-black text-sm text-gray-100 uppercase tracking-tighter truncate max-w-[150px]">{user.firstName} {user.lastName}</p>
-                                                 <span className="px-2 py-0.5 rounded text-[7px] font-black uppercase bg-blue-600/20 text-blue-400 border border-blue-500/30">
-                                                    Membro
+                                                 <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase border ${user.isAdmin ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' : 'bg-blue-600/20 text-blue-400 border-blue-500/30'}`}>
+                                                    {user.isAdmin ? 'Admin Root' : 'Membro'}
                                                  </span>
                                               </div>
                                               <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mt-1">{user.email}</p>
@@ -572,6 +594,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                      </td>
                                      <td className="px-8 py-6 text-right">
                                         <div className="flex items-center justify-end gap-3 min-w-[200px]">
+                                           {currentUser.email === 'alfaajmc@gmail.com' && (
+                                              <button 
+                                                onClick={() => handleToggleAdmin(user)} 
+                                                title={user.isAdmin ? "Remover Privilégio Admin" : "Tornar Administrador"}
+                                                className={`p-3.5 rounded-2xl transition-all border-2 active:scale-90 ${user.isAdmin ? 'bg-purple-600 border-purple-400 text-white shadow-[0_0_20px_rgba(147,51,234,0.4)]' : 'bg-[#1a1e26] border-white/5 text-gray-500 hover:text-purple-400 hover:border-purple-500/30'}`}
+                                              >
+                                                 <ShieldCheckIcon className="h-6 w-6" />
+                                              </button>
+                                           )}
                                            <button 
                                              onClick={() => handleToggleVerification(user)} 
                                              title={user.isVerified ? "Remover Verificado" : "Tornar Verificado"}
@@ -974,6 +1005,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
              )}
 
              {activeTab === 'config' && (
+                currentUser.email === 'alfaajmc@gmail.com' ? (
                 <div className="max-w-2xl mx-auto space-y-8 animate-fade-in">
                    <div className="bg-[#12161f] p-10 rounded-[3rem] border border-white/5 shadow-2xl">
                       <h3 className="text-xl font-black text-white uppercase tracking-tight mb-8 flex items-center gap-3">
@@ -1110,9 +1142,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                       </form>
                    </div>
                 </div>
-             )}
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-[50vh] text-center p-10 space-y-4">
+                     <ShieldExclamationIcon className="h-16 w-16 text-yellow-500 opacity-50" />
+                     <h2 className="text-2xl font-black uppercase tracking-tight">Acesso Restrito</h2>
+                     <p className="text-xs font-bold text-gray-500 uppercase tracking-widest max-w-sm">Apenas o Administrador Master tem permissão para gerenciar parâmetros globais e taxas do sistema.</p>
+                  </div>
+                )
+              )}
 
-             {activeTab === 'support' && (
+              {activeTab === 'support' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fade-in h-[calc(100vh-250px)]">
                    {/* Ticket List */}
                    <div className="lg:col-span-1 bg-[#12161f] rounded-[2.5rem] border border-white/5 overflow-hidden flex flex-col">
@@ -1133,7 +1172,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                return (
                                   <div 
                                     key={ticket.id} 
-                                    onClick={() => setCurrentTicket(ticket)}
+                                    onClick={async () => {
+                                       setCurrentTicket(ticket);
+                                       if (!ticket.assignedAdminId) {
+                                          await claimSupportTicket(ticket.id, currentUser.id);
+                                       }
+                                    }}
                                     className={`p-5 cursor-pointer transition-all hover:bg-white/[0.02] ${currentTicket?.id === ticket.id ? 'bg-blue-600/10 border-l-4 border-blue-600' : ''}`}
                                   >
                                      <div className="flex justify-between items-start mb-2">

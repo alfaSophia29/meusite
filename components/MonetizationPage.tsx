@@ -35,7 +35,7 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
     fetchRate();
   }, []);
 
-  const goals = currentUser.monetizationGoals || {
+  const goals = {
     followersGoal: 1000,
     watchHoursGoal: 4000,
     shortsViewsGoal: 10000000,
@@ -43,16 +43,17 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
     currentWatchHours: 0,
     currentShortsViews: 0,
     termsAccepted: false,
-    verificationStep: currentUser.idVerificationStatus === 'APPROVED'
+    verificationStep: currentUser.idVerificationStatus === 'APPROVED',
+    ...(currentUser.monetizationGoals || {})
   };
 
   const currentFollowers = currentUser.followers?.length || 0;
   const watchHours = goals.currentWatchHours || 0;
   const shortsViews = goals.currentShortsViews || 0;
   
-  const meetsFollowers = currentFollowers >= goals.followersGoal;
-  const meetsWatchHours = watchHours >= goals.watchHoursGoal;
-  const meetsShorts = shortsViews >= goals.shortsViewsGoal;
+  const meetsFollowers = currentFollowers >= (goals.followersGoal || 1000);
+  const meetsWatchHours = watchHours >= (goals.watchHoursGoal || 4000);
+  const meetsShorts = shortsViews >= (goals.shortsViewsGoal || 10000000);
   const meetsActivity = meetsWatchHours || meetsShorts;
   const meetsIdentity = currentUser.idVerificationStatus === 'APPROVED';
 
@@ -231,7 +232,7 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
                   <div className={`p-2 rounded-xl ${meetsFollowers ? 'bg-green-100 dark:bg-green-900/30 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'}`}>
                     <UserGroupIcon className="h-6 w-6" />
                   </div>
-                  <span className="font-black text-gray-900 dark:text-white uppercase text-sm tracking-tight">{goals.followersGoal.toLocaleString()} Seguidores</span>
+                  <span className="font-black text-gray-900 dark:text-white uppercase text-sm tracking-tight">{(goals.followersGoal || 0).toLocaleString()} Seguidores</span>
                 </div>
                 {meetsFollowers && <CheckCircleSolid className="h-6 w-6 text-green-500" />}
               </div>
@@ -242,8 +243,8 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
                 />
               </div>
               <div className="flex justify-between mt-2">
-                <span className="text-xs font-bold text-gray-400">{currentFollowers.toLocaleString()} atuais</span>
-                <span className="text-xs font-bold text-gray-400">Objetivo: {goals.followersGoal.toLocaleString()}</span>
+                <span className="text-xs font-bold text-gray-400">{(currentFollowers || 0).toLocaleString()} atuais</span>
+                <span className="text-xs font-bold text-gray-400">Objetivo: {(goals.followersGoal || 0).toLocaleString()}</span>
               </div>
             </div>
 

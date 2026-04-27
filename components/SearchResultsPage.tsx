@@ -122,11 +122,16 @@ const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ currentUser, quer
     setPostLimit(ITEMS_PER_PAGE);
     setProductLimit(ITEMS_PER_PAGE);
 
-    const allUsers = await getUsers();
-    let usersList = allUsers.filter(u => `${u.firstName} ${u.lastName}`.toLowerCase().includes(lowerQuery) || u.email.toLowerCase().includes(lowerQuery));
+    const allUsers = await getUsers(currentUser);
+    const myBlocked = currentUser.blockedUserIds || [];
 
-    const allPosts = await getPosts();
-    let postsList = allPosts.filter(p => p.content?.toLowerCase().includes(lowerQuery));
+    let usersList = allUsers.filter(u => 
+      !myBlocked.includes(u.id) && 
+      ( `${u.firstName} ${u.lastName}`.toLowerCase().includes(lowerQuery) || u.email.toLowerCase().includes(lowerQuery) )
+    );
+
+    const allPosts = await getPosts(currentUser.id);
+    let postsList = allPosts.filter(p => !myBlocked.includes(p.userId) && p.content?.toLowerCase().includes(lowerQuery));
     if (sortBy === 'newest') postsList = postsList.sort((a, b) => b.timestamp - a.timestamp);
 
     const allProducts = await getProducts();

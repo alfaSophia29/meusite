@@ -128,6 +128,20 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
                  <p className="text-[10px] xs:text-xs font-bold text-green-600">
                     ≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ
                  </p>
+                 {(currentUser.balance || 0) < 5 && (
+                   <button 
+                     onClick={async () => {
+                       const success = await handleWalletTransaction(currentUser.id, 50, 'deposit');
+                       if (success) {
+                         refreshUser();
+                         showAlert("Bônus de teste de $50 adicionado!", { type: 'success' });
+                       }
+                     }}
+                     className="mt-2 text-[10px] font-black uppercase text-blue-500 hover:underline text-left"
+                   >
+                     Solicitar Bônus de Teste ($50)
+                   </button>
+                 )}
               </div>
            </div>
            <div className="text-right flex-shrink-0">

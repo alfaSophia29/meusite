@@ -1,5 +1,5 @@
 
-export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved';
+export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users';
 
 export enum ChatType {
   PRIVATE = 'PRIVATE',
@@ -127,6 +127,7 @@ export interface User {
   userType?: 'STANDARD' | 'CREATOR';
   isSuspended?: boolean;
   verificationFileUrl?: string;
+  blockedUserIds?: string[];
   // Status Online
   isOnline?: boolean;
   lastSeen?: number;

@@ -18,7 +18,8 @@ import {
     ShieldCheckIcon,
     XMarkIcon,
     BanknotesIcon,
-    BookmarkIcon
+    BookmarkIcon,
+    NoSymbolIcon
 } from '@heroicons/react/24/outline';
 import { 
     HomeIcon as HomeIconSolid, 
@@ -34,7 +35,8 @@ import {
     RocketLaunchIcon as RocketIconSolid,
     ShieldCheckIcon as ShieldIconSolid,
     BanknotesIcon as BanknotesIconSolid,
-    BookmarkIcon as BookmarkIconSolid
+    BookmarkIcon as BookmarkIconSolid,
+    NoSymbolIcon as NoSymbolIconSolid
 } from '@heroicons/react/24/solid';
 import Logo from './Logo';
 
@@ -45,11 +47,12 @@ interface FooterProps {
   onLogout: () => void;
   isMenuOpen: boolean;
   onCloseMenu: () => void;
+  unreadMessagesCount: number;
 }
 
 const MOBILE_BOTTOM_PAGES = ['feed', 'reels-page', 'chat', 'store', 'profile'];
 
-const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate, activePage, onLogout, isMenuOpen, onCloseMenu }) => {
+const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate, activePage, onLogout, isMenuOpen, onCloseMenu, unreadMessagesCount }) => {
   const { t } = useTranslation();
   if (!currentUser) return null;
 
@@ -79,6 +82,7 @@ const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate, activePage, on
     ]},
     { section: t('nav_conta'), items: [
       { name: t('nav_messages'), page: 'chat', Icon: ChatBubbleLeftRightIcon, SolidIcon: ChatIconSolid },
+      { name: 'Bloqueados', page: 'blocked-users', Icon: NoSymbolIcon, SolidIcon: NoSymbolIconSolid },
       { name: t('nav_profile'), page: 'profile', Icon: UserCircleIcon, SolidIcon: UserIconSolid },
       { name: t('nav_settings'), page: 'settings', Icon: Cog6ToothIcon, SolidIcon: CogIconSolid },
     ]},
@@ -116,12 +120,17 @@ const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate, activePage, on
                   <button
                     key={item.page}
                     onClick={() => { onNavigate(item.page); onCloseMenu(); }}
-                    className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl font-black text-[10px] transition-all duration-300 group ${
+                    className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl font-black text-[10px] transition-all duration-300 group relative ${
                       isActive ? 'bg-brand text-white shadow-xl' : 'text-gray-500 hover:bg-brand/5 dark:hover:bg-white/5 hover:text-brand'
                     }`}
                   >
                     <IconComponent className="h-5 w-5" />
                     <span className="uppercase tracking-widest">{item.name}</span>
+                    {item.page === 'chat' && unreadMessagesCount > 0 && (
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white ring-2 ring-white dark:ring-[#0a0c10] animate-bounce">
+                        {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -147,8 +156,13 @@ const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate, activePage, on
           const isActive = activePage === item.page || (item.page === 'store' && activePage === 'manage-store');
           const IconComponent = isActive ? item.Solid : item.Icon;
           return (
-            <button key={item.page} onClick={() => onNavigate(item.page)} className={`flex-1 flex flex-col items-center justify-center transition-all ${isActive ? 'text-brand scale-125' : 'text-gray-400'}`}>
+            <button key={item.page} onClick={() => onNavigate(item.page)} className={`flex-1 flex flex-col items-center justify-center transition-all relative ${isActive ? 'text-brand scale-125' : 'text-gray-400'}`}>
               <IconComponent className="h-6 w-6" />
+              {item.page === 'chat' && unreadMessagesCount > 0 && (
+                <span className="absolute top-0 right-1/4 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white ring-2 ring-white dark:ring-[#111318]">
+                  {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                </span>
+              )}
             </button>
           );
         })}

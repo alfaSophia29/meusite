@@ -55,20 +55,21 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
     
     try {
         const [allPosts, allAds, allUsers, allStories, allChats] = await Promise.all([
-          getPosts().catch(() => []),
+          getPosts(currentUser.id).catch(() => []),
           getAds().catch(() => []),
-          getUsers().catch(() => []),
-          getStories().catch(() => []),
-          getChats().catch(() => [])
+          getUsers(currentUser).catch(() => []),
+          getStories(currentUser.id).catch(() => []),
+          getChats(currentUser.id).catch(() => [])
         ]);
 
-        // Filtrar Posts Normais e Reels - APENAS SEGUIDOS OU PRÓPRIOS
+        // Filtrar Posts Normais e Reels - APENAS SEGUIDOS OU PRÓPRIOS E NÃO BLOQUEADOS
         const myFollows = currentUser.followedUsers || [];
-        const filteredPosts = (allPosts || []).filter(p => 
-          p.userId === currentUser.id || 
-          myFollows.includes(p.userId) || 
-          p.isBoosted // Permitir posts impulsionados (anúncios)
-        );
+        const myBlocked = currentUser.blockedUserIds || [];
+
+        const filteredPosts = (allPosts || []).filter(p => {
+          if (myBlocked.includes(p.userId)) return false;
+          return p.userId === currentUser.id || myFollows.includes(p.userId) || p.isBoosted;
+        });
 
         const normalPosts = filteredPosts.filter(p => p.type !== PostType.REEL).sort((a, b) => b.timestamp - a.timestamp);
         const reelsPosts = filteredPosts.filter(p => p.type === PostType.REEL).sort((a, b) => b.timestamp - a.timestamp);
@@ -90,9 +91,11 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
           !c.participants?.includes(currentUser.id)
         );
 
-        // Group Stories by User
+        // Group Stories by User (Filtering blocked users)
         const groupedStoriesMap: Record<string, GroupedStory> = {};
-        (allStories || []).forEach((item: Story) => {
+        (allStories || [])
+          .filter(s => !myBlocked.includes(s.userId))
+          .forEach((item: Story) => {
             const storyUser = (allUsers || []).find(u => u.id === item.userId);
             
             if (!groupedStoriesMap[item.userId]) {
