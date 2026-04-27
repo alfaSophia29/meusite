@@ -20,6 +20,7 @@ import {
 import { sourceDropshippingProducts } from '../services/geminiService';
 import { 
   PlusIcon, 
+  StarIcon,
   ArchiveBoxIcon,
   TrashIcon,
   CheckBadgeIcon,
@@ -88,7 +89,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [pDesc, setPDesc] = useState('');
   const [pPrice, setPPrice] = useState('');
   const [pType, setPType] = useState<ProductType>(ProductType.DIGITAL_COURSE);
-  const [pImg, setPImg] = useState('');
+  const [pImageUrls, setPImageUrls] = useState<string[]>([]);
   const [pOriginalPrice, setPOriginalPrice] = useState('');
   const [pDiscount, setPDiscount] = useState('');
   const [pHasFreeShipping, setPHasFreeShipping] = useState(true);
@@ -173,17 +174,26 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
     setUploading(true);
     try {
-        const url = await uploadFile(file, 'products');
-        setPImg(url);
+        const newUrls: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const url = await uploadFile(files[i], 'products');
+            newUrls.push(url);
+        }
+        setPImageUrls(prev => [...prev, ...newUrls]);
     } catch (err) {
-        showAlert('Erro ao enviar imagem do produto.', { type: 'error' });
+        showAlert('Erro ao enviar imagens do produto.', { type: 'error' });
     } finally {
         setUploading(false);
     }
+  };
+
+  const removeProductImage = (index: number) => {
+    setPImageUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -207,12 +217,13 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       price: parseFloat(pPrice),
       originalPrice: pOriginalPrice ? parseFloat(pOriginalPrice) : undefined,
       discountPercentage: pDiscount ? parseFloat(pDiscount) : undefined,
-      imageUrls: [pImg || 'https://picsum.photos/400/400?random=prod'],
+      imageUrls: pImageUrls.length > 0 ? pImageUrls : ['https://picsum.photos/400/400?random=prod'],
       affiliateCommissionRate: 0.15,
       type: pType,
       ratings: editingProduct ? editingProduct.ratings : [],
-      averageRating: editingProduct ? editingProduct.averageRating : 5,
+      averageRating: editingProduct ? editingProduct.averageRating : 0,
       ratingCount: editingProduct ? editingProduct.ratingCount : 0,
+      soldCount: editingProduct ? editingProduct.soldCount : 0,
       digitalContentUrl: pType !== ProductType.PHYSICAL ? pDigitalUrl : undefined,
       isAvailableForDropshipping: pIsAvailableForDropshipping,
       dropshippingPrice: pIsAvailableForDropshipping ? parseFloat(pDropshippingPrice) : undefined,
@@ -249,7 +260,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       
       setIsAddingProduct(false);
       setEditingProduct(null);
-      setPImg(''); setPName(''); setPDesc(''); setPPrice(''); setPDigitalUrl('');
+      setPImageUrls([]); setPName(''); setPDesc(''); setPPrice(''); setPDigitalUrl('');
       setPOriginalPrice(''); setPDiscount(''); setPHasFreeShipping(true); setPShippingFee('');
       setPPositioning('STANDARD'); setPBidAmount('');
       setPStock('100'); setPWeight(''); setPDimensions('');
@@ -274,7 +285,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       setPDesc(p.description);
       setPPrice(p.price.toString());
       setPType(p.type);
-      setPImg(p.imageUrls[0]);
+      setPImageUrls(p.imageUrls || []);
       setPDigitalUrl(p.digitalContentUrl || '');
       setPIsAvailableForDropshipping(p.isAvailableForDropshipping || false);
       setPDropshippingPrice(p.dropshippingPrice?.toString() || '');
@@ -391,8 +402,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       affiliateCommissionRate: 0.1,
       type: importModal.type,
       ratings: [],
-      averageRating: 5,
+      averageRating: 0,
       ratingCount: 0,
+      soldCount: 0,
       isDropshipping: true,
       originalProductId: importModal.id,
       originalPrice: supplierCost
@@ -505,6 +517,18 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                         </div>
                     )}
                     <div className="p-6">
+                       <div className="flex items-center gap-2 mb-2">
+                          {p.ratingCount && p.ratingCount > 0 ? (
+                             <div className="flex items-center gap-1">
+                                <StarIcon className="h-3 w-3 text-yellow-400" />
+                                <span className="text-[10px] font-black text-gray-400">{p.averageRating?.toFixed(1) || '0.0'}</span>
+                             </div>
+                          ) : (
+                             <span className="text-[10px] font-black text-blue-500 uppercase">Sem Avaliações</span>
+                          )}
+                          <span className="text-[10px] text-gray-300">|</span>
+                          <span className="text-[10px] font-black text-gray-400">{p.soldCount || 0} vendidos</span>
+                       </div>
                        <h4 className="font-black text-sm dark:text-white uppercase truncate mb-1">{p.name}</h4>
                        <div className="mb-6 flex justify-between items-end">
                           <p className="text-2xl font-black text-blue-600">${p.price.toFixed(2)}</p>
@@ -1070,35 +1094,48 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                   </div>
 
                   {/* Media Upload */}
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Imagens do Produto</label>
-                     <div 
-                        onClick={() => fileInputRef.current?.click()} 
-                        className={`w-full aspect-video md:aspect-[21/9] border-2 border-dashed rounded-3xl flex flex-col items-center justify-center cursor-pointer transition-all relative overflow-hidden group ${pImg ? 'border-[#ff4747]' : 'border-gray-200 dark:border-white/10 hover:border-[#ff4747] bg-gray-50 dark:bg-white/5'}`}
-                     >
-                        {uploading ? (
-                          <div className="flex flex-col items-center gap-3">
-                            <div className="w-8 h-8 border-4 border-[#ff4747] border-t-transparent animate-spin rounded-full"></div>
-                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Enviando...</span>
-                          </div>
-                        ) : pImg ? (
-                          <>
-                            <img src={pImg} className="w-full h-full object-cover" alt="Preview" />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <p className="text-white font-black text-xs uppercase tracking-widest">Alterar Imagem</p>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-center">
-                            <div className="bg-white dark:bg-white/10 p-4 rounded-2xl shadow-sm mx-auto mb-4 w-fit">
-                                <PhotoIcon className="h-10 w-10 text-[#ff4747]" />
-                            </div>
-                            <p className="text-sm font-black dark:text-white uppercase tracking-tight">Arraste ou clique para enviar</p>
-                            <p className="text-[10px] text-gray-400 font-bold mt-1 uppercase">JPG, PNG ou WEBP (Recomendado 800x800)</p>
-                          </div>
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Galeria de Imagens (Variedades)</label>
+                     
+                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        {pImageUrls.map((url, idx) => (
+                           <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden group border dark:border-white/10">
+                              <img src={url} className="w-full h-full object-cover" alt={`Variedade ${idx + 1}`} />
+                              <button 
+                                type="button"
+                                onClick={() => removeProductImage(idx)}
+                                className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                              >
+                                 <TrashIcon className="h-4 w-4" />
+                              </button>
+                              {idx === 0 && (
+                                <div className="absolute bottom-0 left-0 w-full bg-blue-600/90 text-white text-[8px] font-black uppercase py-1 text-center">
+                                   Capa Principal
+                                </div>
+                              )}
+                           </div>
+                        ))}
+                        
+                        {pImageUrls.length < 8 && (
+                           <button 
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()} 
+                              disabled={uploading}
+                              className={`aspect-square border-2 border-dashed rounded-3xl flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-white/5 ${uploading ? 'opacity-50 cursor-not-allowed' : 'border-gray-200 dark:border-white/10 hover:border-blue-500'}`}
+                           >
+                              {uploading ? (
+                                <ArrowPathIcon className="h-6 w-6 text-blue-500 animate-spin" />
+                              ) : (
+                                <>
+                                  <PlusIcon className="h-8 w-8 text-gray-300" />
+                                  <span className="text-[10px] font-black text-gray-400 uppercase mt-2">Adicionar</span>
+                                </>
+                              )}
+                           </button>
                         )}
-                        <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
                      </div>
+                     <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="hidden" />
+                     <p className="text-[9px] text-gray-400 font-medium italic">A primeira imagem será usada como capa principal nos resultados de busca.</p>
                   </div>
 
                   {pType !== ProductType.PHYSICAL && (

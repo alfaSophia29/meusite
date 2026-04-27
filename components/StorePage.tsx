@@ -91,12 +91,16 @@ const ProductCard: React.FC<{
           </div>
           
           <div className="flex items-center gap-2 mt-1">
-            <div className="flex items-center">
-              <StarIconSolid className="h-2.5 w-2.5 text-[#ffb800]" />
-              <span className="text-[10px] font-medium text-gray-500 ml-0.5">{product.averageRating.toFixed(1)}</span>
-            </div>
+            {product.ratingCount > 0 ? (
+              <div className="flex items-center">
+                <StarIconSolid className="h-2.5 w-2.5 text-[#ffb800]" />
+                <span className="text-[10px] font-medium text-gray-500 ml-0.5">{product.averageRating.toFixed(1)}</span>
+              </div>
+            ) : (
+              <span className="text-[10px] font-bold text-blue-500">Novo</span>
+            )}
             <span className="text-[10px] text-gray-400">|</span>
-            <span className="text-[10px] text-gray-500">{product.ratingCount * 12 + 50} vendidos</span>
+            <span className="text-[10px] text-gray-500">{product.soldCount || 0} vendidos</span>
           </div>
           
           <div className="mt-2 flex items-center gap-1">

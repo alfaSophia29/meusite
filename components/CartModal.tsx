@@ -190,7 +190,13 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                              <span className="w-5 xs:w-6 text-center font-bold text-[10px] xs:text-xs">{item.quantity}</span>
                              <button onClick={() => { updateCartItemQuantity(item.productId, item.quantity + 1); syncCart(); }} className="p-1"><PlusIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3"/></button>
                           </div>
-                          <button onClick={() => { removeFromCart(item.productId); syncCart(); }}><TrashIcon className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-gray-300 hover:text-red-500"/></button>
+                          <button 
+                            onClick={() => { removeFromCart(item.productId); syncCart(); }}
+                            className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors group"
+                            title="Remover item"
+                          >
+                            <TrashIcon className="h-4 w-4 xs:h-5 xs:w-5 text-gray-400 group-hover:text-red-500 transition-colors" />
+                          </button>
                        </div>
                     </div>
                   </div>

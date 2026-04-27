@@ -235,6 +235,7 @@ export interface Product {
   ratings: ProductRating[];
   averageRating: number;
   ratingCount: number;
+  soldCount?: number;
   digitalContentUrl?: string;
   digitalDownloadInstructions?: string;
   colors?: string[];

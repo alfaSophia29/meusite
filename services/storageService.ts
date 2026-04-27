@@ -2037,6 +2037,11 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                     status: 'COMPLETED'
                 });
             }
+
+            // Increment Product Sold Count
+            await updateDoc(doc(db, 'products', item.productId), {
+                soldCount: (product.soldCount || 0) + item.quantity
+            });
         }
 
         clearCart();
@@ -2109,7 +2114,11 @@ export const createProduct = async (p: Product) => {
         throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
     }
 
-    await setDoc(doc(db, 'products', p.id), p);
+    await setDoc(doc(db, 'products', p.id), {
+        ...p,
+        soldCount: 0,
+        timestamp: Date.now()
+    });
 };
 
 export const getAffiliateSales = async (filters?: { affiliateUserId?: string, storeId?: string, buyerId?: string, sellerId?: string }) => {
