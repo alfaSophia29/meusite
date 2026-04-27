@@ -16,6 +16,7 @@ import {
   markChatMessagesAsRead,
   uploadFile,
   toggleReaction,
+  toggleBlockUser,
   formatLastSeen,
   isUserOnline
 } from '../services/storageService';
@@ -58,6 +59,8 @@ interface ChatPageProps {
   currentUser: User;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
   params?: Record<string, string>;
+  onMessagesRead?: () => void;
+  refreshUser?: () => void;
 }
  
 // Configuração expandida de Temas
@@ -74,7 +77,7 @@ const THEME_CONFIG: Record<GroupTheme, { primary: string, secondary: string, bg:
   cyan: { primary: 'bg-cyan-600', secondary: 'bg-cyan-500', bg: 'bg-[#4dd0e1]', bubble: 'bg-[#e0f7fa]', text: 'text-cyan-600' }
 };
  
-const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, onMessagesRead, refreshUser }) => {
   const { t, i18n } = useTranslation();
   const { showAlert, showConfirm } = useDialog();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
@@ -128,7 +131,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
 
   useEffect(() => {
     const loadUsers = async () => {
-      const users = await getUsers();
+      const users = await getUsers(currentUser);
       setAllUsers(users);
       // Condição: Quem eu sigo OU quem me segue
       const connections = users.filter(u => 
@@ -159,6 +162,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
           const hasUnread = updated.messages.some(m => m.senderId !== currentUser.id && !m.isRead);
           if (hasUnread) {
               markChatMessagesAsRead(selectedChat.id, currentUser.id);
+              if (onMessagesRead) onMessagesRead();
           }
           setSelectedChat(updated);
       }
@@ -176,6 +180,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
   useEffect(() => {
       if (selectedChat) {
           markChatMessagesAsRead(selectedChat.id, currentUser.id);
+          if (onMessagesRead) onMessagesRead();
       }
   }, [selectedChat?.id]);
 
@@ -411,6 +416,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
         console.error("Failed to send message", err);
         if (err.message?.includes('SENTINEL_BLOCK')) {
             showAlert(err.message.replace('SENTINEL_BLOCK: ', ''), { type: 'error', title: 'Sentinela de Segurança' });
+        } else if (err.message?.includes('BLOCK:')) {
+            showAlert(err.message.replace('BLOCK: ', ''), { type: 'alert', title: 'Chat Bloqueado' });
         } else {
             showAlert("Falha ao enviar mensagem. Tente novamente.", { type: 'error' });
         }
@@ -536,9 +543,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
       loadData();
     } catch (err: any) {
       console.error("Erro ao reagir:", err);
-      // O erro do storageService deve ser capturado aqui se o usuário tentar reagir na própria mensagem
       if (err.message === 'OWNER_REACTION_NOT_ALLOWED') {
-          // ignore or alert
+          showAlert(t('cannot_react_own_message') || "Você não pode reagir à sua própria mensagem.", { type: 'alert' });
       }
     }
   };
@@ -572,7 +578,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
     }
   };
 
-  const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '😢'];
+  const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '😢', '👍', '🙏'];
 
   const renderMessageContent = (msg: Message) => {
       if (msg.isDeleted) {
@@ -723,7 +729,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
   const activeChatInfo = selectedChat ? getChatDisplayInfo(selectedChat) : null;
 
   return (
-    <div className="fixed inset-0 top-[64px] md:top-[72px] bottom-[64px] md:bottom-0 flex bg-[#f0f2f5] dark:bg-[#0a0c10] overflow-hidden animate-fade-in">
+    <div className="flex h-[calc(100vh-128px)] md:h-[calc(100vh-72px)] bg-[#f0f2f5] dark:bg-[#0a0c10] overflow-hidden animate-fade-in">
       
       {/* SIDEBAR */}
       <div className={`
@@ -841,7 +847,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
       </div>
 
       {/* CHAT AREA */}
-      <div className={`flex-col h-full relative w-full ${selectedChat ? 'flex' : 'hidden md:flex flex-1'}`}>
+      <div className={`flex-col h-full relative flex-1 min-w-0 ${selectedChat ? 'flex' : 'hidden md:flex'}`}>
         {selectedChat && activeChatInfo ? (
           <>
             <div className={`h-16 flex items-center justify-between px-4 text-white z-30 transition-colors duration-500 ${themeStyles.primary} shadow-lg shrink-0`}>
@@ -903,9 +909,42 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
                             )}
 
                             {selectedChat.type === ChatType.PRIVATE && (
-                                <button onClick={confirmDeleteChat} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs text-red-500 rounded-xl transition-all border-t border-gray-100 dark:border-white/5 mt-1">
-                                    <TrashIcon className="h-4 w-4" /> Excluir Conversa
-                                </button>
+                                <>
+                                    <div className="border-t border-gray-100 dark:border-white/5 my-1"></div>
+                                    <button 
+                                        onClick={async () => {
+                                            const partnerId = selectedChat.participants.find(p => p !== currentUser.id);
+                                            if (partnerId) {
+                                                const isBlocked = currentUser.blockedUserIds?.includes(partnerId);
+                                                const confirmed = await showConfirm(
+                                                    isBlocked 
+                                                        ? 'Ao desbloquear, vocês poderão trocar mensagens, ver posts e receber notificações um do outro novamente.' 
+                                                        : 'Ao bloquear, este usuário não poderá te enviar mensagens, ver seus posts ou te notificar. Tudo será ocultado para ambos.',
+                                                    {
+                                                        title: isBlocked ? 'Desbloquear Usuário?' : 'Bloquear Usuário?',
+                                                        confirmText: isBlocked ? 'Desbloquear' : 'Bloquear',
+                                                        type: isBlocked ? 'confirm' : 'confirm', // 'confirm' is the correct type for showConfirm as per DialogContext but it uses it internally.
+                                                    }
+                                                );
+
+                                                if (confirmed) {
+                                                    await toggleBlockUser(currentUser.id, partnerId);
+                                                    if (refreshUser) refreshUser();
+                                                    setShowGroupMenu(false);
+                                                    showAlert(isBlocked ? "Usuário Desbloqueado." : "Usuário Bloqueado. Posts e mensagens serão ocultados.");
+                                                }
+                                            }
+                                        }} 
+                                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 flex items-center gap-2 text-xs font-bold rounded-xl transition-all ${currentUser.blockedUserIds?.includes(selectedChat.participants.find(p => p !== currentUser.id) || '') ? 'text-blue-500' : 'text-orange-600'}`}
+                                    >
+                                        <XMarkIcon className="h-4 w-4" />
+                                        {currentUser.blockedUserIds?.includes(selectedChat.participants.find(p => p !== currentUser.id) || '') ? 'Desbloquear Usuário' : 'Bloquear Usuário'}
+                                    </button>
+
+                                    <button onClick={confirmDeleteChat} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs text-red-500 rounded-xl transition-all">
+                                        <TrashIcon className="h-4 w-4" /> Excluir Conversa
+                                    </button>
+                                </>
                             )}
 
                             {selectedChat.type === ChatType.GROUP && selectedChat.adminId === currentUser.id && (
@@ -919,10 +958,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
                </div>
             </div>
 
-            <div className={`flex-1 overflow-y-auto p-2 md:p-6 custom-scrollbar relative transition-colors duration-500 ${themeStyles.bg}`}>
+            <div className={`flex-1 overflow-y-auto overflow-x-hidden p-2 md:p-6 custom-scrollbar relative transition-colors duration-500 ${themeStyles.bg}`}>
                <div className="absolute inset-0 opacity-[0.08] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
                
-               <div className="max-w-4xl mx-auto flex flex-col gap-2 relative z-10 pb-4">
+               <div className="w-full max-w-4xl mx-auto flex flex-col gap-2 relative z-10 pb-4">
                   {selectedChat.messages.map((msg, i) => {
                     const isMine = msg.senderId === currentUser.id;
                     const prevMsg = selectedChat.messages[i-1];
@@ -943,7 +982,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
                          >
                             {/* Reaction Picker Overlay */}
                             {!isMine && !msg.isDeleted && (
-                              <div className={`absolute top-0 ${isMine ? 'right-full mr-2' : 'left-full ml-2'} opacity-0 group-hover/message:opacity-100 transition-opacity flex items-center gap-0.5 bg-white dark:bg-darkcard p-1 rounded-full shadow-lg border border-gray-100 dark:border-white/10 z-50`}>
+                              <div className={`absolute -top-12 ${isMine ? 'right-0' : 'left-0'} opacity-0 group-hover/message:opacity-100 transition-all flex items-center gap-0.5 bg-white dark:bg-[#1a1c23] p-1.5 rounded-full shadow-2xl border border-gray-100 dark:border-white/10 z-50`}>
                                 {REACTION_EMOJIS.map(emoji => (
                                   <button 
                                     key={emoji}
@@ -999,8 +1038,37 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
                </div>
             </div>
 
-            <div className="p-2 md:p-4 bg-white dark:bg-[#12161f] border-t dark:border-white/5 relative z-40 shrink-0">
-               {/* PREVIEW OF ATTACHMENT OR REPLY */}
+            <div className={`p-2 md:p-4 bg-white dark:bg-[#12161f] border-t dark:border-white/5 relative z-40 shrink-0`}>
+               {/* BLOCKED STATUS CHECK */}
+               {selectedChat.type === ChatType.PRIVATE && (currentUser.blockedUserIds?.includes(selectedChat.participants.find(p => p !== currentUser.id) || '') || allUsers.find(u => u.id === selectedChat.participants.find(p => p !== currentUser.id))?.blockedUserIds?.includes(currentUser.id)) ? (
+                  <div className="max-w-4xl mx-auto flex items-center justify-between p-3 bg-gray-50 dark:bg-white/5 rounded-2xl border dark:border-white/10 animate-fade-in">
+                    <div className="flex items-center gap-3 px-4">
+                       <XMarkIcon className="h-5 w-5 text-gray-400" />
+                       <p className="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest">
+                           {currentUser.blockedUserIds?.includes(selectedChat.participants.find(p => p !== currentUser.id) || '') 
+                             ? "Você bloqueou este contato" 
+                             : "Você não pode enviar mensagens para este usuário"}
+                       </p>
+                    </div>
+                    
+                    {currentUser.blockedUserIds?.includes(selectedChat.participants.find(p => p !== currentUser.id) || '') && (
+                       <button 
+                           onClick={async () => {
+                               const partnerId = selectedChat.participants.find(p => p !== currentUser.id);
+                               if (partnerId) {
+                                   await toggleBlockUser(currentUser.id, partnerId);
+                                   if (refreshUser) refreshUser();
+                               }
+                           }}
+                           className="px-4 py-2 bg-blue-600/10 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all active:scale-95"
+                       >
+                           Desbloquear
+                       </button>
+                    )}
+                  </div>
+               ) : (
+                 <>
+                   {/* PREVIEW OF ATTACHMENT OR REPLY */}
                {(replyingTo || editingMessageId || attachedFile) && (
                   <div className="absolute bottom-full left-0 w-full bg-gray-50 dark:bg-[#1a1c23] border-t border-black/5 dark:border-white/5 p-3 flex justify-between items-center animate-slide-up shadow-lg z-50">
                      <div className="flex items-center gap-3 px-2 border-l-4 border-blue-500 overflow-hidden">
@@ -1093,7 +1161,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
                     )}
                  </form>
                )}
-            </div>
+                </>
+              )}
+           </div>
 
           {selectedMessageForAction && (
             <div className="fixed inset-0 z-[10000] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedMessageForAction(null)}>
@@ -1104,6 +1174,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params }) 
                   <div className="w-12 h-1.5 bg-gray-200 dark:bg-white/10 rounded-full mx-auto mb-8 md:hidden"></div>
                   
                   <div className="flex flex-col gap-2">
+                       {/* Reaction Picker in Modal for other's messages */}
+                       {selectedMessageForAction.senderId !== currentUser.id && !selectedMessageForAction.isDeleted && (
+                         <div className="flex justify-between items-center bg-gray-50 dark:bg-white/5 p-4 rounded-2xl mb-2">
+                           {REACTION_EMOJIS.map(emoji => (
+                             <button
+                               key={emoji}
+                               onClick={() => { handleReaction(selectedMessageForAction.id, emoji); setSelectedMessageForAction(null); }}
+                               className="text-2xl hover:scale-125 transition-transform p-1"
+                             >
+                               {emoji}
+                             </button>
+                           ))}
+                         </div>
+                       )}
+
                        {/* Only show Reply/Copy if NOT deleted */}
                        {!selectedMessageForAction.isDeleted && (
                            <>

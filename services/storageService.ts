@@ -155,51 +155,63 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
             termsAccepted: !!dbData?.monetizationGoals?.termsAccepted,
             verificationStep: dbData?.idVerificationStatus === 'APPROVED'
         },
-        address: dbData?.address || undefined
+        address: dbData?.address || undefined,
+        blockedUserIds: dbData?.blockedUserIds || []
     } as User;
 };
 
 export const findUserById = async (userId: string, authUserReference?: any): Promise<User | undefined> => {
   if (!userId || !isFirebaseConfigured || !db) return undefined;
-  const isOwner = auth?.currentUser?.uid === userId;
-  const path = isOwner ? 'profiles' : 'public_profiles';
+  
+  const currentAuth = authUserReference || auth?.currentUser;
+  const isOwner = currentAuth?.uid === userId;
   
   try {
     let docSnap;
-    try {
-      docSnap = await getDoc(doc(db, path, userId));
-    } catch (initialError: any) {
-      if (initialError.message && initialError.message.includes('offline')) {
-        console.warn("⚠️ Firestore Offline detectado. Tentando getDocFromServer...");
-        docSnap = await getDocFromServer(doc(db, path, userId));
-      } else {
-        throw initialError;
+    let data;
+    let foundInPrivate = false;
+
+    // Tenta sempre ler do public_profiles primeiro se não for o dono
+    // Ou tenta ler do profiles se for o dono (para pegar saldo, etc)
+    if (isOwner) {
+      try {
+        docSnap = await getDoc(doc(db, 'profiles', userId));
+        if (docSnap.exists()) {
+          data = docSnap.data();
+          foundInPrivate = true;
+        }
+      } catch (err: any) {
+        // Se falhar a leitura privada (ex: permissão negada por delay de auth), tenta a pública
+        console.warn("[STORAGE] Falha na leitura privada, tentando pública:", err.message);
       }
     }
 
-    const currentAuth = authUserReference || auth?.currentUser;
+    if (!foundInPrivate) {
+      docSnap = await getDoc(doc(db, 'public_profiles', userId));
+      if (docSnap.exists()) {
+        data = docSnap.data();
+      }
+    }
     
-    if (docSnap.exists()) {
-      return mapUserData(userId, docSnap.data(), currentAuth);
+    if (data) {
+      return mapUserData(userId, data, currentAuth);
     } else if (currentAuth && isOwner) {
-      // If owner and doesn't exist, create it (legacy or first login)
+      // Se for o dono e não existir em lugar nenhum, cria o perfil básico
       const newUser = mapUserData(userId, null, currentAuth);
       
       try {
-        // Create private profile
         await setDoc(doc(db, 'profiles', userId), {
             ...newUser,
             timestamp: Date.now()
         });
 
-        // Create public profile
         const { email, phone, documentId, birthDate, balance, ...publicData } = newUser;
         await setDoc(doc(db, 'public_profiles', userId), {
             ...publicData,
             timestamp: Date.now()
         });
       } catch (err) {
-        handleFirestoreError(err, OperationType.WRITE, 'profiles/' + userId);
+        console.error("[STORAGE] Erro ao criar perfil inicial:", err);
       }
       
       return newUser;
@@ -208,7 +220,8 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
     if (e.message && e.message.includes('offline')) {
       console.warn("⚠️ Firestore Offline em findUserById:", e.message);
     } else {
-      handleFirestoreError(e, OperationType.GET, path + '/' + userId);
+      // Don't throw for simple not found or expected permission errors on public lookups
+      console.error("[STORAGE] Erro em findUserById:", e.message);
     }
   }
   return undefined;
@@ -228,6 +241,18 @@ export const loginUser = async (email: string, password: string): Promise<User> 
     // Check for super admin email
     const emailClean = (email || '').toLowerCase().trim();
     const isAdminEmail = emailClean === 'ac926815124@gmail.com' || emailClean === 'alfaajmc@gmail.com';
+    // Check for admin status to sync to the admins collection for faster rule checks
+    if (user && user.isAdmin && db) {
+      try {
+        await setDoc(doc(db, 'admins', userCredential.user.uid), {
+          email: emailClean,
+          timestamp: Date.now()
+        }, { merge: true });
+      } catch (err) {
+        console.warn("[STORAGE] Erro ao sincronizar admins:", err);
+      }
+    }
+
     if (isAdminEmail && user && db) {
       if (!user.isAdmin || !user.isVerified || user.userType !== 'CREATOR') {
         const updatedData = {
@@ -248,6 +273,7 @@ export const loginUser = async (email: string, password: string): Promise<User> 
     // Se logou mas não achou perfil, tenta criar um básico (fallback)
     console.warn("[STORAGE] Usuário logado mas perfil não encontrado. Criando fallback.");
     const fallbackUser = mapUserData(userCredential.user.uid, null, userCredential.user);
+    fallbackUser.blockedUserIds = [];
     
     // Auto-admin for fallback too
     if (isAdminEmail && db) {
@@ -306,7 +332,8 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
       gender: userData.gender,
       isAdmin: isAdminEmail ? true : !!userData.isAdmin,
       isVerified: isAdminEmail ? true : !!userData.isVerified,
-      userType: isAdminEmail ? 'CREATOR' : (userData.userType || 'STANDARD')
+      userType: isAdminEmail ? 'CREATOR' : (userData.userType || 'STANDARD'),
+      blockedUserIds: []
     }, authUser);
     
     // Private profile (contains PII)
@@ -314,14 +341,20 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
       if (db) {
         await setDoc(doc(db, 'profiles', uid), {
             ...newUser,
-            balance: 0,
+            balance: 100, // Dá saldo inicial de $100 para testes
             followedUsers: [],
             followers: [],
             timestamp: Date.now()
         });
+
+        // Registrar unicidade do e-mail
+        await setDoc(doc(db, 'uniqueness_registry', `email_${emailClean}`), {
+          userId: uid,
+          timestamp: Date.now()
+        });
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'profiles/' + uid);
+      console.error("Erro ao criar perfil privado ou registrar e-mail:", err);
     }
 
     // Public profile (no PII)
@@ -330,6 +363,7 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
         const { email, phone, documentId, birthDate, balance, ...publicData } = newUser;
         await setDoc(doc(db, 'public_profiles', uid), {
             ...publicData,
+            balance: 100, // Sincroniza saldo inicial
             followedUsers: [],
             followers: [],
             timestamp: Date.now()
@@ -345,21 +379,45 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
 export const checkFieldUniqueness = async (field: string, value: string): Promise<boolean> => {
   if (!db || !value) return true;
   try {
-    const q = query(collection(db, 'profiles'), where(field, '==', value));
-    let snap;
-    try {
-      snap = await getDocs(q);
-    } catch (e: any) {
-      if (e.message?.includes('offline')) {
-        snap = await getDocsFromServer(q);
-      } else {
-        throw e;
+    // Usamos o registry para evitar problemas de permissão e PII
+    const registryId = `${field}_${value.toLowerCase().trim()}`;
+    const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const currentUserId = auth?.currentUser?.uid;
+      // Se o ID registrado for o meu, então é único para mim (estou apenas re-verificando)
+      if (currentUserId && data.userId === currentUserId) {
+        return true;
       }
+      return false;
     }
+
+    // Fallback para perfis públicos se for campo público (username etc)
+    // Mas para documentId, email, phone, o registry é a fonte da verdade.
+    if (['documentId', 'email', 'phone'].includes(field)) {
+      return true;
+    }
+
+    const q = query(collection(db, 'public_profiles'), where(field, '==', value));
+    const snap = await getDocs(q);
     return snap.empty;
   } catch (err) {
     console.error(`Erro ao verificar unicidade do campo ${field}:`, err);
     return true; 
+  }
+};
+
+export const registerUniqueness = async (field: string, value: string, userId: string) => {
+  if (!db || !value) return;
+  const registryId = `${field}_${value.toLowerCase().trim()}`;
+  try {
+    await setDoc(doc(db, 'uniqueness_registry', registryId), {
+      userId,
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    console.error(`Erro ao registrar unicidade: ${registryId}`, error);
   }
 };
 
@@ -402,7 +460,7 @@ export const registerUser = async (userData: any): Promise<User> => {
 
 // --- CONTEÚDO (FIRESTORE) ---
 
-export const getPosts = async (): Promise<Post[]> => {
+export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
   if (!isFirebaseConfigured || !db) return [];
   try {
     const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
@@ -417,8 +475,16 @@ export const getPosts = async (): Promise<Post[]> => {
         throw initialError;
       }
     }
-    const posts = snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
+    let posts = snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
     
+    // Mutual Blocking Filter
+    if (currentUserId) {
+        const hiddenIds = await getMutualBlockedUserIds(currentUserId);
+        if (hiddenIds.length) {
+            posts = posts.filter(p => !hiddenIds.includes(p.userId));
+        }
+    }
+
     // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
     return posts.sort((a, b) => {
       const now = Date.now();
@@ -550,9 +616,64 @@ export const uploadFile = async (file: File | Blob, folder: string, retryCount =
 
 // --- FUNÇÕES SOCIAIS ---
 
+export const toggleBlockUser = async (cur: string, target: string) => {
+  if (!db) return;
+  const u1 = await findUserById(cur);
+  if (u1) {
+    const isBlocked = u1.blockedUserIds?.includes(target);
+    const newBlocked = isBlocked 
+        ? u1.blockedUserIds?.filter((i: string) => i !== target) 
+        : [...(u1.blockedUserIds || []), target];
+    
+    await updateDoc(doc(db, 'profiles', cur), { blockedUserIds: newBlocked });
+
+    // Sincronização de Bloqueio Mútuo
+    const blockId = `${cur}_${target}`;
+    try {
+      if (isBlocked) {
+        await deleteDoc(doc(db, 'blocks', blockId));
+      } else {
+        await setDoc(doc(db, 'blocks', blockId), {
+            blockerId: cur,
+            blockedId: target,
+            timestamp: Date.now()
+        });
+      }
+    } catch (err) {
+      console.warn("[STORAGE] Erro ao sincronizar coleção 'blocks':", err);
+    }
+  }
+};
+
+export const getMutualBlockedUserIds = async (userId: string): Promise<string[]> => {
+    if (!db) return [];
+    try {
+        // 1. Usuários que EU bloqueei (do perfil)
+        const user = await findUserById(userId);
+        const blockedByMe = user?.blockedUserIds || [];
+        
+        // 2. Usuários que ME bloquearam (da coleção 'blocks')
+        // Adicionada verificação de segurança para garantir que apenas o usuário autenticado pode listar seus bloqueios
+        const blocksSnap = await getDocs(query(collection(db, 'blocks'), where('blockedId', '==', userId)));
+        const blockedByOthers = blocksSnap.docs.map(d => d.data().blockerId);
+        
+        return Array.from(new Set([...blockedByMe, ...blockedByOthers]));
+    } catch (error) {
+        // Usando o manipulador de erro padrão para melhor diagnóstico
+        handleFirestoreError(error, OperationType.LIST, 'blocks');
+        return [];
+    }
+};
+
 export const createNotification = async (recipientId: string, actorId: string, type: NotificationType, postId?: string, groupName?: string) => {
   if (!isFirebaseConfigured || !db || recipientId === actorId) return;
   try {
+    // Check if actor is blocked by recipient
+    const recipientProfile = await findUserById(recipientId);
+    if (recipientProfile?.blockedUserIds?.includes(actorId)) {
+        return;
+    }
+
     await addDoc(collection(db, 'notifications'), {
       recipientId,
       actorId,
@@ -672,11 +793,21 @@ export const incrementPostViews = async (pid: string) => {
             }
             
             const updateData: any = {
-                'monetizationGoals.currentWatchHours': newWatchHours,
-                'monetizationGoals.currentShortsViews': newShortsViews,
-                'monetizationGoals.currentFollowers': currentFollowers,
                 monetizationStatus: newStatus
             };
+
+            if (!authorData.monetizationGoals) {
+                updateData.monetizationGoals = {
+                    ...goals,
+                    currentWatchHours: newWatchHours,
+                    currentShortsViews: newShortsViews,
+                    currentFollowers: currentFollowers
+                };
+            } else {
+                updateData['monetizationGoals.currentWatchHours'] = newWatchHours;
+                updateData['monetizationGoals.currentShortsViews'] = newShortsViews;
+                updateData['monetizationGoals.currentFollowers'] = currentFollowers;
+            }
             
             await updateDoc(authorRef, updateData);
             await updateDoc(doc(db, 'public_profiles', authorId), { monetizationStatus: newStatus });
@@ -734,7 +865,7 @@ export const toggleReaction = async (targetId: string, targetType: 'COMMENT' | '
                 
                 // Restrição: Dono da mensagem não pode reagir à própria mensagem
                 if (message.senderId === userId) {
-                    return; // Ignora se for o próprio autor
+                    throw new Error('OWNER_REACTION_NOT_ALLOWED');
                 }
 
                 const reactions = message.reactions || {};
@@ -911,7 +1042,7 @@ export const getAds = async () => {
         return [];
     }
 };
-export const getStories = async (): Promise<Story[]> => {
+export const getStories = async (currentUserId?: string): Promise<Story[]> => {
     if (!isFirebaseConfigured || !db) return [];
     try {
         const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -921,7 +1052,17 @@ export const getStories = async (): Promise<Story[]> => {
             orderBy('timestamp', 'desc')
         );
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ ...d.data(), id: d.id } as Story));
+        let stories = snap.docs.map(d => ({ ...d.data(), id: d.id } as Story));
+
+        // Mutual Blocking Filter
+        if (currentUserId) {
+            const hiddenIds = await getMutualBlockedUserIds(currentUserId);
+            if (hiddenIds.length) {
+                stories = stories.filter(s => !hiddenIds.includes(s.userId));
+            }
+        }
+
+        return stories;
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'stories');
         return [];
@@ -941,7 +1082,22 @@ export const getChats = async (uid?: string) => {
             q = query(collection(db, 'chats'), where('isPublic', '==', true));
         }
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ ...d.data(), id: d.id } as ChatConversation));
+        let chats = snap.docs.map(d => ({ ...d.data(), id: d.id } as ChatConversation));
+
+        if (uid) {
+            const hiddenIds = await getMutualBlockedUserIds(uid);
+            if (hiddenIds.length) {
+                chats = chats.filter(c => {
+                    if (c.type === ChatType.PRIVATE) {
+                        const partnerId = c.participants.find(p => p !== uid);
+                        return !hiddenIds.includes(partnerId || '');
+                    }
+                    return true;
+                });
+            }
+        }
+
+        return chats;
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'chats');
         return [];
@@ -1012,13 +1168,39 @@ export const seedDatabase = async () => {
     console.log("[SEED] Banco de dados populado com sucesso.");
 };
 
-export const getUsers = async () => {
+export const getUsers = async (currentUser?: User) => {
     if (!isFirebaseConfigured || !db) return [];
-    const path = 'public_profiles';
+    
+    // Admins have permission to read full profiles, which contain more data like documentId
+    // We try to read profiles first if the user is an admin
+    const isAdmin = currentUser?.isAdmin || auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com';
+    const path = isAdmin ? 'profiles' : 'public_profiles';
+    
     try {
-        return (await getDocs(collection(db, path))).docs.map(d => mapUserData(d.id, d.data()));
+        const snap = await getDocs(collection(db, path));
+        let users = snap.docs.map(d => mapUserData(d.id, d.data()));
+
+        // Mutual Blocking Filter
+        if (currentUser && !isAdmin) {
+            const hiddenIds = await getMutualBlockedUserIds(currentUser.id);
+            if (hiddenIds.length) {
+                users = users.filter(u => !hiddenIds.includes(u.id));
+            }
+        }
+
+        return users;
     } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, path);
+        // Fallback to public_profiles if profiles read fails
+        if (isAdmin && path === 'profiles') {
+            try {
+                const publicSnap = await getDocs(collection(db, 'public_profiles'));
+                return publicSnap.docs.map(d => mapUserData(d.id, d.data()));
+            } catch (innerError) {
+                handleFirestoreError(innerError, OperationType.LIST, 'public_profiles');
+            }
+        } else {
+            handleFirestoreError(error, OperationType.LIST, path);
+        }
         return [];
     }
 };
@@ -1050,7 +1232,15 @@ export const updatePostSaves = async (pid: string, uid: string) => {
 export const getNotificationsForUser = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return [];
     const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid), orderBy('timestamp', 'desc')));
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as Notification));
+    let notifications = snap.docs.map(d => ({ ...d.data(), id: d.id } as Notification));
+    
+    // Mutual Blocking Filter
+    const hiddenIds = await getMutualBlockedUserIds(uid);
+    if (hiddenIds.length) {
+        notifications = notifications.filter(n => !hiddenIds.includes(n.actorId));
+    }
+    
+    return notifications;
 };
 export const deleteNotification = async (id: string) => {
     if (!isFirebaseConfigured || !db) return;
@@ -1310,8 +1500,19 @@ export const updateUserData = async (userId: string, data: Partial<User>) => {
             updatedAt: Date.now()
         });
         
+        // Se documentId foi atualizado (e aprovado/verificado), registra no registry
+        if (data.documentId) {
+            await registerUniqueness('documentId', data.documentId, userId);
+        }
+        if (data.email) {
+            await registerUniqueness('email', data.email, userId);
+        }
+        if (data.phone) {
+            await registerUniqueness('phone', data.phone, userId);
+        }
+        
         // Se houver mudanças públicas, atualiza public_profiles tbm
-        const publicKeys: (keyof User)[] = ['firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 'isOnline', 'userType', 'idVerificationStatus'];
+        const publicKeys: (keyof User)[] = ['firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 'isOnline', 'userType', 'idVerificationStatus', 'balance'];
         const publicUpdate: any = {};
         let hasPublicChange = false;
         
@@ -1398,7 +1599,29 @@ export const sendMessage = async (chatId: string, msg: Message) => {
     const ref = doc(db, 'chats', chatId);
     const d = await getDoc(ref);
     if(d.exists()){
-        await updateDoc(ref, { messages: [...(d.data().messages || []), msg] });
+        const chatData = d.data();
+        
+        // Block Check for Private Chats
+        if (chatData.type === ChatType.PRIVATE) {
+            const senderId = msg.senderId;
+            const receiverId = (chatData.participants || []).find((p: string) => p !== senderId);
+            
+            if (receiverId) {
+                const [senderProfile, receiverProfile] = await Promise.all([
+                    findUserById(senderId),
+                    findUserById(receiverId)
+                ]);
+                
+                if (senderProfile?.blockedUserIds?.includes(receiverId)) {
+                    throw new Error("BLOCK: Você bloqueou este usuário.");
+                }
+                if (receiverProfile?.blockedUserIds?.includes(senderId)) {
+                    throw new Error("BLOCK: Este usuário bloqueou você.");
+                }
+            }
+        }
+
+        await updateDoc(ref, { messages: [...(chatData.messages || []), msg] });
     }
 };
 
@@ -1520,12 +1743,31 @@ export const incrementWatchTime = async (userId: string, seconds: number) => {
         if (!userSnap.exists()) return;
         
         const data = userSnap.data();
-        const currentHours = data.monetizationGoals?.currentWatchHours || 0;
+        const goals = data.monetizationGoals || {
+            followersGoal: 1000,
+            watchHoursGoal: 4000,
+            shortsViewsGoal: 10000000,
+            currentFollowers: data.followers?.length || 0,
+            currentWatchHours: 0,
+            currentShortsViews: 0,
+            termsAccepted: false,
+            verificationStep: data.idVerificationStatus === 'APPROVED'
+        };
+
+        const currentHours = goals.currentWatchHours || 0;
         const additionalHours = seconds / 3600;
         
-        await updateDoc(userRef, {
-            'monetizationGoals.currentWatchHours': currentHours + additionalHours
-        });
+        const updateData: any = {};
+        if (!data.monetizationGoals) {
+            updateData.monetizationGoals = {
+                ...goals,
+                currentWatchHours: currentHours + additionalHours
+            };
+        } else {
+            updateData['monetizationGoals.currentWatchHours'] = currentHours + additionalHours;
+        }
+
+        await updateDoc(userRef, updateData);
     } catch (e) {
         console.error("Erro ao incrementar tempo de exibição:", e);
     }
@@ -1539,11 +1781,30 @@ export const incrementShortsView = async (userId: string) => {
         if (!userSnap.exists()) return;
         
         const data = userSnap.data();
-        const currentViews = data.monetizationGoals?.currentShortsViews || 0;
+        const goals = data.monetizationGoals || {
+            followersGoal: 1000,
+            watchHoursGoal: 4000,
+            shortsViewsGoal: 10000000,
+            currentFollowers: data.followers?.length || 0,
+            currentWatchHours: 0,
+            currentShortsViews: 0,
+            termsAccepted: false,
+            verificationStep: data.idVerificationStatus === 'APPROVED'
+        };
+
+        const currentViews = goals.currentShortsViews || 0;
         
-        await updateDoc(userRef, {
-            'monetizationGoals.currentShortsViews': currentViews + 1
-        });
+        const updateData: any = {};
+        if (!data.monetizationGoals) {
+            updateData.monetizationGoals = {
+                ...goals,
+                currentShortsViews: currentViews + 1
+            };
+        } else {
+            updateData['monetizationGoals.currentShortsViews'] = currentViews + 1;
+        }
+
+        await updateDoc(userRef, updateData);
     } catch (e) {
         console.error("Erro ao incrementar views de shorts:", e);
     }
@@ -1938,12 +2199,18 @@ export const getPlatformRevenue = async () => {
     return snap.docs.reduce((acc, d) => acc + (d.data().amount || 0), 0);
 };
 
-export const getTransactions = async (uid?: string) => {
+export const getTransactions = async (uid?: string, currentAdmin?: User) => {
     if (!isFirebaseConfigured || !db) return [];
     try {
-        const q = uid 
-            ? query(collection(db, 'transactions'), where('userId', '==', uid))
-            : collection(db, 'transactions'); // Admin will handle this if needed
+        let q: any;
+        if (uid) {
+            q = query(collection(db, 'transactions'), where('userId', '==', uid));
+        } else if (currentAdmin && !currentAdmin.isAdmin) {
+            // Se não passou UID e não é admin, força o filtro pelo próprio UID
+            q = query(collection(db, 'transactions'), where('userId', '==', currentAdmin.id));
+        } else {
+            q = collection(db, 'transactions');
+        }
         const snap = await getDocs(q);
         return snap.docs.map(d => d.data() as Transaction);
     } catch (error) {
@@ -1957,7 +2224,23 @@ export const getReports = async () => {
     return (await getDocs(collection(db, 'reports'))).docs.map(d => d.data() as ContentReport);
 };
 
-export const adminUpdateUser = async (u: User) => await updateUser(u);
+export const adminUpdateUser = async (u: User) => {
+    await updateUser(u);
+    if (db) {
+        try {
+            if (u.isAdmin) {
+                await setDoc(doc(db, 'admins', u.id), {
+                    email: u.email,
+                    timestamp: Date.now()
+                }, { merge: true });
+            } else {
+                await deleteDoc(doc(db, 'admins', u.id));
+            }
+        } catch (err) {
+            console.warn("[STORAGE] Erro ao sincronizar status de admin:", err);
+        }
+    }
+};
 export const adminDeletePost = async (id: string) => await deletePost(id);
 export const adminProcessReport = async (id: string, status: string, adminId: string) => {
     if (!db) return;
@@ -2140,6 +2423,7 @@ export const createSupportTicket = async (data: any, desc: string, url?: string,
         ...data,
         id,
         status: 'OPEN',
+        assignedAdminId: '',
         messages: [msg],
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -2161,8 +2445,6 @@ export const addSupportMessage = async (tid: string, msg: any) => {
 
         // If sender is admin and ticket is not assigned, assign it
         if (msg.senderId === 'SUPPORT' && !data.assignedAdminId) {
-            // We need the actual admin UID here. 
-            // Since msg.senderId is 'SUPPORT', we should pass the admin UID separately or use auth.currentUser.uid
             if (auth?.currentUser) {
                 updateData.assignedAdminId = auth.currentUser.uid;
             }
@@ -2172,13 +2454,35 @@ export const addSupportMessage = async (tid: string, msg: any) => {
     }
 };
 
-export const getAdminSupportTickets = async () => {
+export const claimSupportTicket = async (tid: string, adminId: string) => {
+    if (!db) return;
+    const ref = doc(db, 'tickets', tid);
+    try {
+        await updateDoc(ref, {
+            assignedAdminId: adminId,
+            updatedAt: Date.now()
+        });
+    } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, 'tickets/' + tid);
+    }
+};
+
+export const getAdminSupportTickets = async (adminId?: string) => {
     if (!db) return [];
     try {
-        // This might fail if there are tickets assigned to other admins due to security rules.
-        // We will handle the error and return what we can or an empty list.
-        const snap = await getDocs(collection(db, 'tickets'));
-        return snap.docs.map(d => d.data() as SupportTicket);
+        let q: any = collection(db, 'tickets');
+        
+        // If it's a super admin, we don't necessarily need to filter (unless they want to)
+        // For standard admins, we filter by unassigned or assigned to them
+        const isSuper = auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com';
+        
+        if (adminId && !isSuper) {
+             // Filter unassigned ('') or assigned to me
+             q = query(q, where('assignedAdminId', 'in', ['', adminId]));
+        }
+        
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as SupportTicket));
     } catch (err) {
         console.error("[STORAGE] Error fetching admin tickets (likely security restriction):", err);
         return [];
@@ -2195,11 +2499,19 @@ export const subscribeToSupportTickets = (userId: string, callback: (tickets: Su
     });
 };
 
-export const subscribeToAdminSupportTickets = (callback: (tickets: SupportTicket[]) => void) => {
+export const subscribeToAdminSupportTickets = (adminId: string, callback: (tickets: SupportTicket[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(collection(db, 'tickets'), (snap) => {
-        callback(snap.docs.map(d => d.data() as SupportTicket));
-    }, (err) => {
+    
+    let q: any = collection(db, 'tickets');
+    const isSuper = auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com';
+    
+    if (!isSuper) {
+        q = query(q, where('assignedAdminId', 'in', ['', adminId]));
+    }
+
+    return onSnapshot(q, (snap: any) => {
+        callback(snap.docs.map((d: any) => ({ ...(d.data() as any), id: d.id } as SupportTicket)));
+    }, (err: any) => {
         handleFirestoreError(err, OperationType.LIST, 'tickets');
     });
 };

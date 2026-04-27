@@ -53,7 +53,7 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
 
   useEffect(() => {
     const loadFollowers = async () => {
-      const allUsers = await getUsers();
+      const allUsers = await getUsers(currentUser);
       // Sugere apenas usuários que seguem o usuário atual
       const myFollowersList = currentUser.followers || [];
       const filtered = allUsers.filter(u => myFollowersList.includes(u.id));

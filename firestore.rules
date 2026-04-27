@@ -73,7 +73,15 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-             (request.auth.token.email == "ac926815124@gmail.com" || request.auth.token.email == "alfaajmc@gmail.com");
+             ((request.auth.token.get('email', '')).matches("(?i)^(ac926815124@gmail.com|alfaajmc@gmail.com)$") ||
+              exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+              (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && 
+               get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('isAdmin', false) == true));
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+             ((request.auth.token.get('email', '')).matches("(?i)^(ac926815124@gmail.com|alfaajmc@gmail.com)$"));
     }
 
     function hasRequiredFields(fields) {
@@ -100,17 +108,21 @@ service cloud.firestore {
 
     match /profiles/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && idUnchanged() && isValidUser(request.resource.data) && (request.resource.data.isAdmin == false || isAdmin());
-      allow update: if (isOwner(userId) || isAdmin()) && idNotModified() &&
-                      (request.resource.data.isAdmin == resource.data.isAdmin || isAdmin());
-      allow delete: if isAdmin();
+      allow create: if isOwner(userId) && idUnchanged() && isValidUser(request.resource.data) && (request.resource.data.isAdmin == false || isSuperAdmin());
+      allow update: if (isAdmin() && (request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false) || isSuperAdmin())) ||
+                      (isOwner(userId) && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)) || 
+                      (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monetizationGoals', 'monetizationStatus', 'followers']));
+      allow delete: if isSuperAdmin();
     }
 
     match /public_profiles/{userId} {
-      allow read: if isAuthenticated();
+      // Allow everyone to read public profiles to avoid permission errors on discovery/search
+      allow read: if true; 
       allow create: if isAuthenticated() && idUnchanged();
-      allow update: if (isOwner(userId) || isAdmin()) && idNotModified();
-      allow delete: if isAdmin();
+      allow update: if (isAdmin() && (request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false) || isSuperAdmin())) ||
+                      (isOwner(userId) && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)) || 
+                      (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['monetizationGoals', 'monetizationStatus', 'followers', 'followedUsers']));
+      allow delete: if isSuperAdmin();
     }
 
     match /posts/{postId} {
@@ -200,25 +212,52 @@ service cloud.firestore {
     match /tickets/{ticketId} {
       allow read: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || 
-        (isAdmin() && (!('assignedAdminId' in resource.data) || resource.data.assignedAdminId == request.auth.uid))
+        (isAdmin() && (isSuperAdmin() || !('assignedAdminId' in resource.data) || resource.data.assignedAdminId == '' || resource.data.assignedAdminId == request.auth.uid))
       );
       allow create: if (isAuthenticated() && request.resource.data.userId == request.auth.uid) || 
                        (request.resource.data.userId == 'public');
       allow update: if isAuthenticated() && (
         resource.data.userId == request.auth.uid || 
-        (isAdmin() && (!('assignedAdminId' in resource.data) || resource.data.assignedAdminId == request.auth.uid))
+        (isAdmin() && (isSuperAdmin() || !('assignedAdminId' in resource.data) || resource.data.assignedAdminId == '' || resource.data.assignedAdminId == request.auth.uid))
       );
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
     }
 
     match /settings/{settingId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow write: if isSuperAdmin();
     }
 
     match /affiliate_links/{linkId} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
       allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /uniqueness_registry/{id} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    function isValidBlock(data) {
+      return data.blockerId is string && data.blockerId.size() > 0 &&
+             data.blockedId is string && data.blockedId.size() > 0 &&
+             data.timestamp is number;
+    }
+
+    match /blocks/{blockId} {
+      allow get: if isAuthenticated() && (resource.data.blockerId == request.auth.uid || resource.data.blockedId == request.auth.uid);
+      allow list: if isAuthenticated() && (resource.data.blockedId == request.auth.uid || resource.data.blockerId == request.auth.uid);
+      allow create: if isAuthenticated() && 
+                      request.resource.data.blockerId == request.auth.uid && 
+                      isValidBlock(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.blockerId == request.auth.uid;
     }
 
     match /logs/{logId} {

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Post, User, Comment, Page, NotificationType, PostType } from '../types';
-import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification } from '../services/storageService';
+import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification, getMutualBlockedUserIds } from '../services/storageService';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import ShareModal from './ShareModal';
@@ -45,6 +45,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
   const [loadingComments, setLoadingComments] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string, userName: string } | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -69,7 +70,12 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
 
   useEffect(() => {
     fetchComments();
-  }, [post.id]);
+    const loadBlocks = async () => {
+      const ids = await getMutualBlockedUserIds(currentUser.id);
+      setHiddenIds(ids);
+    };
+    loadBlocks();
+  }, [post.id, currentUser.id]);
 
   const isOwner = currentUser.id === post.userId;
   const isFollowing = currentUser.followedUsers?.includes(post.userId);
@@ -326,6 +332,8 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     );
   };
 
+  const visibleComments = comments.filter(c => !hiddenIds.includes(c.userId));
+
   return createPortal(
     <div className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center animate-fade-in overflow-hidden blur-none backdrop-blur-sm">
       <div className="w-full h-full md:h-[95vh] md:max-w-2xl md:rounded-3xl bg-white dark:bg-[#000000] flex flex-col overflow-hidden relative shadow-2xl border border-white/5">
@@ -495,8 +503,8 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
            )}
 
            <div className="pb-32 px-2">
-             {comments.length > 0 ? (
-               comments.map((c) => (
+             {visibleComments.length > 0 ? (
+               visibleComments.map((c) => (
                   <RenderComment key={c.id} c={c} />
                ))
              ) : (

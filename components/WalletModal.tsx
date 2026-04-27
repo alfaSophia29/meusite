@@ -128,6 +128,20 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
                  <p className="text-[10px] xs:text-xs font-bold text-green-600">
                     ≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ
                  </p>
+                 {(currentUser.balance || 0) < 5 && (
+                   <button 
+                     onClick={async () => {
+                       const success = await handleWalletTransaction(currentUser.id, 50, 'deposit');
+                       if (success) {
+                         refreshUser();
+                         showAlert("Bônus de teste de $50 adicionado!", { type: 'success' });
+                       }
+                     }}
+                     className="mt-2 text-[10px] font-black uppercase text-blue-500 hover:underline text-left"
+                   >
+                     Solicitar Bônus de Teste ($50)
+                   </button>
+                 )}
               </div>
            </div>
            <div className="text-right flex-shrink-0">
@@ -135,6 +149,29 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
               <span className="text-lg xs:text-xl font-black dark:text-white uppercase flex items-center gap-1.5">
                  {walletRegion === 'angola' ? 'AO' : 'GL'} <MapPinIcon className="h-4 w-4 text-blue-500" />
               </span>
+           </div>
+        </div>
+
+        {/* Conversor Rápido */}
+        <div className="mb-6 p-4 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[1.5rem] text-white overflow-hidden relative group">
+           <CalculatorIcon className="absolute -right-4 -bottom-4 h-24 w-24 text-white/10 group-hover:scale-110 transition-transform duration-500" />
+           <div className="relative z-10">
+              <p className="text-[8px] font-black uppercase tracking-widest text-blue-100 mb-2">Monitor de Câmbio em Tempo Real</p>
+              <div className="flex items-center justify-between gap-4">
+                 <div className="flex-1">
+                    <p className="text-[10px] font-bold text-blue-200">1 USDT (Palo)</p>
+                    <p className="text-xl font-black tracking-tighter">{exchangeRate.toLocaleString()} KZ</p>
+                 </div>
+                 <div className="h-8 w-[1px] bg-white/20" />
+                 <div className="flex-1">
+                    <p className="text-[10px] font-bold text-blue-200">1.000 KZ</p>
+                    <p className="text-xl font-black tracking-tighter">${(1000 / exchangeRate).toFixed(2)} USDT</p>
+                 </div>
+              </div>
+              <div className="mt-3 flex items-center gap-1.5">
+                 <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                 <p className="text-[7px] font-bold uppercase text-blue-100">Atualizado via API Oficial</p>
+              </div>
            </div>
         </div>
 

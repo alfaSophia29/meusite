@@ -36,7 +36,9 @@ export const checkContentSecurity = async (
     try {
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: `Analise o seguinte conteúdo de um(a) ${type} em uma rede social educacional e verifique se ele viola as diretrizes de segurança. 
+            contents: [{
+                parts: [{
+                    text: `Analise o seguinte conteúdo de um(a) ${type} em uma rede social educacional e verifique se ele viola as diretrizes de segurança. 
             Categorias proibidas: Nudez/Pornografia, Drogas, Armas, Ódio/Violência, Golpes/Fraudes.
             
             CONTEÚDO: "${content}"
@@ -46,26 +48,16 @@ export const checkContentSecurity = async (
               "allowed": boolean,
               "reason": "motivo em português se for bloqueado",
               "detectedCategories": ["categoria1", "categoria2"]
-            }`,
+            }`
+                }]
+            }],
             config: {
                 responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        allowed: { type: Type.BOOLEAN },
-                        reason: { type: Type.STRING },
-                        detectedCategories: { 
-                            type: Type.ARRAY,
-                            items: { type: Type.STRING }
-                        }
-                    },
-                    required: ["allowed"]
-                }
             }
         });
 
-        const result = JSON.parse(response.text || '{"allowed": true}');
-        return result;
+        const text = response.text || '';
+        return JSON.parse(text || '{"allowed": true}');
     } catch (error) {
         console.error("Erro no Sentinel AI:", safeJsonStringify(error));
         // Em caso de erro na API, por segurança permitimos, ou poderíamos bloquear dependendo da política.
@@ -84,7 +76,7 @@ export const checkImageSecurity = async (
     try {
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: {
+            contents: [{
                 parts: [
                     {
                         inlineData: {
@@ -97,22 +89,14 @@ export const checkImageSecurity = async (
                         Responda apenas em JSON: { "allowed": boolean, "reason": "motivo em português se bloqueado" }`
                     }
                 ]
-            },
+            }],
             config: {
                 responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        allowed: { type: Type.BOOLEAN },
-                        reason: { type: Type.STRING }
-                    },
-                    required: ["allowed"]
-                }
             }
         });
 
-        const result = JSON.parse(response.text || '{"allowed": true}');
-        return result;
+        const text = response.text || '';
+        return JSON.parse(text || '{"allowed": true}');
     } catch (error) {
         console.error("Erro no Sentinel Image Check:", safeJsonStringify(error));
         return { allowed: true };

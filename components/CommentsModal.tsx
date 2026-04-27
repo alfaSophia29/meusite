@@ -93,7 +93,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
     }
   };
 
-  const REACTION_EMOJIS = ['❤️', '🔥', '😂', '😮', '😢', '👍'];
+  const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '😢', '👍', '🙏'];
 
   const RenderComment = ({ c, depth = 0 }: { c: Comment, depth?: number }) => {
     const displayName = c.isAnonymous ? t('anonymous_user') : c.userName;

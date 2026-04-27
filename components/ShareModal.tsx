@@ -48,7 +48,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, currentUser, o
       setLoading(true);
       const [convs, users] = await Promise.all([
         getChats(currentUser.id),
-        getUsers()
+        getUsers(currentUser)
       ]);
       setConversations(convs);
       setAllUsers(users);

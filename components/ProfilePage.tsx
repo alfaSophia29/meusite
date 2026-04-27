@@ -9,7 +9,8 @@ import {
   getProducts,
   toggleFollowUser,
   formatLastSeen,
-  isUserOnline
+  isUserOnline,
+  getMutualBlockedUserIds
 } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { 
@@ -73,8 +74,16 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
       setProfile(targetUser || null);
       
       if (targetUser) {
+          // Verificação de Bloqueio Mútuo
+          const hiddenIds = await getMutualBlockedUserIds(currentUser.id);
+          if (hiddenIds.includes(targetUser.id)) {
+              setProfile(null);
+              setLoading(false);
+              return;
+          }
+
           setIsFollowing(targetUser.followers?.includes(currentUser.id) || false);
-          const allPosts = await getPosts();
+          const allPosts = await getPosts(currentUser.id);
           const filteredPosts = allPosts.filter(p => p.userId === profileId).sort((a, b) => b.timestamp - a.timestamp);
           
           const recordedLives = filteredPosts.filter(p => p.type === PostType.LIVE && p.liveStream?.status === 'ENDED' && p.liveStream?.recordingUrl);

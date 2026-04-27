@@ -444,12 +444,13 @@ const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshU
   const [isMuted, setIsMuted] = useState(true); // Global mute state
 
   const fetchReels = useCallback(async () => {
-    const allPosts = await getPosts();
+    const allPosts = await getPosts(currentUser.id);
     const myFollows = currentUser.followedUsers || [];
     
     // Filtrar por seguidores (ou próprio) e ordenar por visualizações (Trending)
+    const myBlocked = currentUser.blockedUserIds || [];
     const posts = allPosts
-      .filter(p => p.type === PostType.REEL && (p.userId === currentUser.id || myFollows.includes(p.userId) || p.isBoosted))
+      .filter(p => p.type === PostType.REEL && !myBlocked.includes(p.userId) && (p.userId === currentUser.id || myFollows.includes(p.userId) || p.isBoosted))
       .sort((a, b) => (b.views || 0) - (a.views || 0));
       
     setReels(posts);
