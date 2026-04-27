@@ -126,6 +126,7 @@ export interface User {
   };
   userType?: 'STANDARD' | 'CREATOR';
   isSuspended?: boolean;
+  isFrozen?: boolean;
   verificationFileUrl?: string;
   blockedUserIds?: string[];
   // Status Online
@@ -235,6 +236,7 @@ export interface Product {
   ratings: ProductRating[];
   averageRating: number;
   ratingCount: number;
+  soldCount?: number;
   digitalContentUrl?: string;
   digitalDownloadInstructions?: string;
   colors?: string[];
@@ -288,10 +290,35 @@ export interface Store {
 
 export enum OrderStatus {
   WAITLIST = 'WAITLIST',
+  PROCESSING = 'PROCESSING',
   PROCESSING_SUPPLIER = 'PROCESSING_SUPPLIER',
   SHIPPING = 'SHIPPING',
-  DELIVERED = 'DELIVERED'
+  DELIVERED = 'DELIVERED',
+  COMPLETED = 'COMPLETED',
+  DISPUTED = 'DISPUTED',
+  CANCELED = 'CANCELED'
 }
+
+export interface Carrier {
+  id: string;
+  name: string;
+  countries: string[];
+  type: 'ROAD' | 'AIR' | 'SEA' | 'LOCAL';
+  estimatedDays: string;
+}
+
+export const CARRIERS: Carrier[] = [
+  // Angola
+  { id: 'macom', name: 'Macom', countries: ['Angola'], type: 'ROAD', estimatedDays: '1-3 dias' },
+  { id: 'huambo-express', name: 'Huambo Express', countries: ['Angola'], type: 'ROAD', estimatedDays: '1-2 dias' },
+  { id: 'terceiros-ligeiros', name: 'Terceiros Ligeiros', countries: ['Angola'], type: 'ROAD', estimatedDays: 'Mesmo dia/24h' },
+  // Internacional / PALOP / CPLP
+  { id: 'dhl', name: 'DHL Express', countries: ['Brasil', 'Portugal', 'Moçambique', 'Cabo Verde', 'Guiné-Bissau', 'São Tomé e Príncipe', 'Timor-Leste', 'EUA', 'China'], type: 'AIR', estimatedDays: '3-7 dias' },
+  { id: 'fedex', name: 'FedEx', countries: ['EUA', 'Brasil', 'Portugal', 'Espanha', 'Reino Unido'], type: 'AIR', estimatedDays: '3-5 dias' },
+  { id: 'ctt', name: 'CTT Portugal', countries: ['Portugal'], type: 'LOCAL', estimatedDays: '1-3 dias' },
+  { id: 'correios-br', name: 'Correios Brasil', countries: ['Brasil'], type: 'LOCAL', estimatedDays: '2-10 dias' },
+  { id: 'ups', name: 'UPS', countries: ['Mundial'], type: 'AIR', estimatedDays: '3-7 dias' }
+];
 
 export interface AffiliateSale {
   id: string;
@@ -303,6 +330,8 @@ export interface AffiliateSale {
   saleAmount: number;
   timestamp: number;
   status: OrderStatus;
+  carrierId?: string;
+  carrierName?: string;
   isRated?: boolean;
   shippingAddress?: ShippingAddress;
   digitalContentUrl?: string;

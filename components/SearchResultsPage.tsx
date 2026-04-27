@@ -85,9 +85,17 @@ const ProductResultCard: React.FC<{ product: Product; onNavigate: Function }> = 
     </div>
     <div className="p-5">
       <h4 className="font-black text-gray-900 dark:text-white text-sm line-clamp-1 mb-1">{product.name}</h4>
-      <div className="flex items-center gap-1 mb-3">
-        <StarIcon className="h-3 w-3 text-yellow-400" />
-        <span className="text-[10px] font-black text-gray-400">{product.averageRating.toFixed(1)}</span>
+      <div className="flex items-center gap-2 mb-3">
+        {product.ratingCount > 0 ? (
+          <div className="flex items-center gap-1">
+            <StarIcon className="h-3 w-3 text-yellow-400" />
+            <span className="text-[10px] font-black text-gray-400">{product.averageRating.toFixed(1)}</span>
+          </div>
+        ) : (
+          <span className="text-[10px] font-black text-blue-500 uppercase">Novo</span>
+        )}
+        <span className="text-[10px] text-gray-300">|</span>
+        <span className="text-[10px] font-black text-gray-400">{product.soldCount || 0} vendidos</span>
       </div>
       <p className="text-blue-600 dark:text-blue-400 font-black text-xl">${product.price.toFixed(2)}</p>
     </div>

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, AffiliateSale, Product, OrderStatus, ProductType, Page } from '../types';
-import { getPurchasesByBuyerId, getProducts, addProductRating, updateSaleStatus } from '../services/storageService';
-import { ShoppingBagIcon, TruckIcon, CheckCircleIcon, ClockIcon, StarIcon, ArchiveBoxIcon, CheckIcon, MapPinIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { getPurchasesByBuyerId, getProducts, addProductRating, confirmProductReceipt, openOrderDispute } from '../services/storageService';
+import { ShoppingBagIcon, TruckIcon, CheckCircleIcon, ClockIcon, StarIcon, ArchiveBoxIcon, CheckIcon, MapPinIcon, SparklesIcon, ShieldExclamationIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
 
@@ -59,9 +59,20 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
   const handleConfirmDelivery = async (saleId: string) => {
     const confirmed = await showConfirm("Você confirma que o produto físico chegou em suas mãos e está em boas condições?");
     if (confirmed) {
-       await updateSaleStatus(saleId, OrderStatus.DELIVERED);
-       loadData();
-       showSuccess("Pedido finalizado! Obrigado por confirmar.");
+       setLoading(true);
+       await confirmProductReceipt(saleId);
+       await loadData();
+       showSuccess("Pedido finalizado e vendedor pago! Obrigado por confirmar.");
+    }
+  };
+
+  const handleOpenDispute = async (saleId: string) => {
+    const reason = await showConfirm("Deseja abrir uma disputa? Faça isso se o vendedor não entregou o produto ou te bloqueou. O suporte irá analisar. Continuar?");
+    if (reason) {
+       setLoading(true);
+       await openOrderDispute(saleId, "Cliente solicitou via painel de compras.");
+       await loadData();
+       showAlert("Disputa aberta! Nossa equipe (Sentinela) vai analisar a conversa do chat e os registros para decidir o estorno.", { type: 'alert' });
     }
   };
 
@@ -69,11 +80,21 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
     switch (status) {
       case OrderStatus.WAITLIST:
         return { 
-          label: 'Preparo', 
+          label: 'Aguardando', 
           color: 'text-orange-600', 
           bg: 'bg-orange-50', 
           icon: ClockIcon, 
-          progress: 'w-1/4',
+          progress: 'w-1/6',
+          description: 'Aguardando o início do processamento.' 
+        };
+      case OrderStatus.PROCESSING:
+      case OrderStatus.PROCESSING_SUPPLIER:
+        return { 
+          label: 'Processando', 
+          color: 'text-purple-600', 
+          bg: 'bg-purple-50', 
+          icon: ClockIcon, 
+          progress: 'w-1/3',
           description: 'O vendedor está organizando seu pedido.' 
         };
       case OrderStatus.SHIPPING:
@@ -82,10 +103,19 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
           color: 'text-blue-600', 
           bg: 'bg-blue-50', 
           icon: TruckIcon, 
-          progress: 'w-3/4',
+          progress: 'w-2/3',
           description: 'Seu item foi despachado e está em trânsito.' 
         };
       case OrderStatus.DELIVERED:
+        return { 
+          label: 'No Destino', 
+          color: 'text-emerald-600', 
+          bg: 'bg-emerald-50', 
+          icon: MapPinIcon, 
+          progress: 'w-5/6',
+          description: 'Seu produto já chegou ao destino / transportadora local.' 
+        };
+      case OrderStatus.COMPLETED:
         return { 
           label: 'Entregue', 
           color: 'text-green-600', 
@@ -93,6 +123,24 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
           icon: CheckCircleIcon, 
           progress: 'w-full',
           description: 'O ciclo deste pedido foi concluído com sucesso.' 
+        };
+      case OrderStatus.DISPUTED:
+        return { 
+          label: 'Em Disputa', 
+          color: 'text-red-600', 
+          bg: 'bg-red-50', 
+          icon: ShieldExclamationIcon, 
+          progress: 'w-full',
+          description: 'Este pedido está sob análise de fraude.' 
+        };
+      case OrderStatus.CANCELED:
+        return { 
+          label: 'Cancelado', 
+          color: 'text-gray-400', 
+          bg: 'bg-gray-100', 
+          icon: XCircleIcon, 
+          progress: 'w-0',
+          description: 'Este pedido foi cancelado e estornado.' 
         };
       default:
         return { 
@@ -124,9 +172,10 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
       <div className="flex gap-2 mb-8 overflow-x-auto no-scrollbar px-4 pb-2">
          {[
            { id: 'ALL', label: 'Todos', icon: ArchiveBoxIcon },
-           { id: OrderStatus.WAITLIST, label: 'Em Preparo', icon: ClockIcon },
+           { id: OrderStatus.WAITLIST, label: 'Pendentes', icon: ClockIcon },
            { id: OrderStatus.SHIPPING, label: 'Em Trânsito', icon: TruckIcon },
-           { id: OrderStatus.DELIVERED, label: 'Concluídos', icon: CheckCircleIcon }
+           { id: OrderStatus.DELIVERED, label: 'No Destino', icon: MapPinIcon },
+           { id: OrderStatus.COMPLETED, label: 'Concluídos', icon: CheckCircleIcon }
          ].map(tab => (
            <button
              key={tab.id}
@@ -209,7 +258,16 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
                     )}
 
                     <div className="flex flex-wrap gap-3 pt-2">
-                       {isPhysical && sale.status === OrderStatus.SHIPPING && (
+                       {isPhysical && (sale.status === OrderStatus.WAITLIST || sale.status === OrderStatus.PROCESSING || sale.status === OrderStatus.PROCESSING_SUPPLIER || sale.status === OrderStatus.SHIPPING) && (
+                          <button 
+                            onClick={() => handleOpenDispute(sale.id)}
+                            className="flex-1 bg-white dark:bg-white/5 text-red-600 border border-red-100 dark:border-red-900/30 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-50 dark:hover:bg-red-900/10 transition-all flex items-center justify-center gap-2"
+                          >
+                             <ShieldExclamationIcon className="h-4 w-4" /> Abrir Disputa
+                          </button>
+                       )}
+
+                       {isPhysical && (sale.status === OrderStatus.SHIPPING || sale.status === OrderStatus.DELIVERED) && (
                           <button 
                             onClick={() => handleConfirmDelivery(sale.id)}
                             className="flex-1 bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
@@ -227,7 +285,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
                           </button>
                        )}
 
-                       {sale.status === OrderStatus.DELIVERED && !sale.isRated && (
+                       {sale.status === OrderStatus.COMPLETED && !sale.isRated && (
                           <button 
                             onClick={() => setRatingModal({saleId: sale.id, productId: product.id})}
                             className="flex-1 bg-white dark:bg-white/5 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-50 dark:hover:bg-white/10 transition-all"

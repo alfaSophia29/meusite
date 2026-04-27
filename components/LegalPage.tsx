@@ -32,6 +32,10 @@ const LegalPage: React.FC<LegalPageProps> = ({ type, onBack }) => {
       {
         title: '5. Moderação e Suspensão',
         text: 'O CyBerPhone reserva-se o direito de remover qualquer conteúdo ou suspender contas que prejudiquem a experiência de outros usuários ou a integridade técnica do sistema, sem aviso prévio, caso as violações sejam consideradas graves.'
+      },
+      {
+        title: '6. Proteção ao Comprador e Reembolsos (Escrow)',
+        text: 'Para garantir a segurança contra fraudes no mercado angolano, todas as transações de produtos físicos utilizam nosso Sistema de Escrow. O pagamento do comprador fica retido com a plataforma até que o recebimento seja confirmado. Em caso de não entrega ou bloqueio por parte do vendedor, o comprador deve abrir uma "Disputa" em até 7 dias. Nossa equipe auditará os registros e, se comprovada a fraude, o estorno será realizado integralmente para a carteira do usuário.'
       }
     ]
   } : {
@@ -58,6 +62,10 @@ const LegalPage: React.FC<LegalPageProps> = ({ type, onBack }) => {
       {
         title: '5. Compartilhamento Restrito',
         text: 'Seus dados pessoais nunca são vendidos. O compartilhamento ocorre apenas com prestadores de serviços essenciais (como gateways de pagamento) ou autoridades judiciais mediante ordem formal, conforme a legislação vigente.'
+      },
+      {
+        title: '6. Auditoria de Disputas',
+        text: 'Em caso de abertura de disputa comercial no Marketplace, nossa equipe de suporte reserva-se o direito de auditar os logs de mensagens entre comprador e vendedor para verificar a legitimidade da transação e decidir sobre o estorno de fundos.'
       }
     ]
   };

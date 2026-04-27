@@ -20,6 +20,7 @@ export interface SentinelResult {
     allowed: boolean;
     reason?: string;
     detectedCategories?: string[];
+    isFraud?: boolean;
 }
 
 /**
@@ -39,7 +40,7 @@ export const checkContentSecurity = async (
             contents: [{
                 parts: [{
                     text: `Analise o seguinte conteúdo de um(a) ${type} em uma rede social educacional e verifique se ele viola as diretrizes de segurança. 
-            Categorias proibidas: Nudez/Pornografia, Drogas, Armas, Ódio/Violência, Golpes/Fraudes.
+            Categorias proibidas: Nudez/Pornografia, Drogas, Armas, Ódio/Violência, Golpes/Fraudes (incluindo pedir pagamentos fora da plataforma), Contatos Externos (compartilhar WhatsApp, Telefone, Email, Instagram para negociar fora).
             
             CONTEÚDO: "${content}"
             
@@ -47,7 +48,8 @@ export const checkContentSecurity = async (
             {
               "allowed": boolean,
               "reason": "motivo em português se for bloqueado",
-              "detectedCategories": ["categoria1", "categoria2"]
+              "detectedCategories": ["categoria1", "categoria2"],
+              "isFraud": boolean (defina como true se for tentativa de golpe, fraude ou levar cliente para fora da plataforma)
             }`
                 }]
             }],

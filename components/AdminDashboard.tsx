@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   User, Post, Product, AdCampaign, Transaction, 
   ContentReport, OrderStatus, GlobalSettings, TransactionType, Store, PostType, SystemLog, Page,
-  SupportTicket, SupportMessage
+  SupportTicket, SupportMessage, AffiliateSale
 } from '../types';
 import { 
   getUsers, getPlatformRevenue, getPosts, getProducts, getAds,
@@ -10,7 +10,7 @@ import {
   adminUpdateUser, adminDeletePost, adminProcessReport, adminDeleteProduct,
   updateGlobalSettings, updateUserBalance, getStores, deleteUser,
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
-  subscribeToAdminSupportTickets, claimSupportTicket
+  subscribeToAdminSupportTickets, claimSupportTicket, getDisputedSales, confirmProductReceipt, cancelPurchaseAndRefund
 } from '../services/storageService';
 import { safeJsonStringify } from '../src/lib/utils';
 import { 
@@ -45,7 +45,7 @@ import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { getAoaExchangeRate } from '../services/currencyService';
 
-type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization';
+type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization' | 'disputes';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -63,6 +63,7 @@ interface DashboardData {
   reports: ContentReport[];
   logs: SystemLog[];
   tickets: SupportTicket[];
+  disputes: AffiliateSale[];
   revenue: number;
 }
 
@@ -88,7 +89,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   });
   
   const [data, setData] = useState<DashboardData>({
-    users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], revenue: 0
+    users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], disputes: [], revenue: 0
   });
   const [loading, setLoading] = useState(true);
   const [exchangeRate, setExchangeRate] = useState(930);
@@ -131,7 +132,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [users, posts, products, stores, ads, transactions, reports, logs, revenue, globalSettings, tickets] = await Promise.all([
+      const [users, posts, products, stores, ads, transactions, reports, logs, revenue, globalSettings, tickets, disputes] = await Promise.all([
         getUsers(currentUser),
         getPosts(),
         getProducts(),
@@ -142,7 +143,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
         getSystemLogs(),
         getPlatformRevenue(),
         getGlobalSettings(),
-        getAdminSupportTickets(currentUser.id)
+        getAdminSupportTickets(currentUser.id),
+        getDisputedSales()
       ]);
 
       setData({
@@ -155,6 +157,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
         reports: reports.sort((a, b) => b.timestamp - a.timestamp),
         logs: logs.sort((a, b) => b.timestamp - a.timestamp),
         tickets: tickets.sort((a, b) => b.updatedAt - a.updatedAt),
+        disputes: disputes.sort((a, b) => b.timestamp - a.timestamp),
         revenue
       });
       setSettings(globalSettings);
@@ -187,6 +190,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
         return data.users.filter(u => u.idVerificationStatus !== 'NOT_STARTED' && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)));
       case 'monetization':
         return data.users.filter(u => u.monetizationStatus === 'PENDING' && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)));
+      case 'disputes':
+        return data.disputes.filter(d => d.id.includes(term) || d.buyerId.includes(term));
       case 'posts':
         return data.posts.filter(p => p.authorName.toLowerCase().includes(term) || (p.content?.toLowerCase().includes(term)));
       case 'products':
@@ -349,6 +354,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       badgeCount = data.users.filter(u => u.idVerificationStatus !== 'NOT_STARTED').length;
     } else if (id === 'monetization') {
       badgeCount = data.users.filter(u => u.monetizationStatus === 'PENDING').length;
+    } else if (id === 'disputes') {
+      badgeCount = data.disputes.length;
     }
     
     return (
@@ -404,6 +411,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
             <SidebarItem id="moderation" icon={ShieldExclamationIcon} label="Denúncias" />
             <SidebarItem id="support" icon={LifebuoyIcon} label="Suporte" />
             <SidebarItem id="monetization" icon={BanknotesIcon} label="Monetização" />
+            <SidebarItem id="disputes" icon={ShieldExclamationIcon} label="Disputas" />
             <SidebarItem id="verifications" icon={IdentificationIcon} label="Verificações" />
             <SidebarItem id="finance" icon={BanknotesIcon} label="Tesouraria" />
             {currentUser.email === 'alfaajmc@gmail.com' && (
@@ -1149,6 +1157,98 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                      <p className="text-xs font-bold text-gray-500 uppercase tracking-widest max-w-sm">Apenas o Administrador Master tem permissão para gerenciar parâmetros globais e taxas do sistema.</p>
                   </div>
                 )
+              )}
+
+              {activeTab === 'disputes' && (
+                <div className="space-y-6 animate-fade-in">
+                   <div className="flex items-center justify-between mb-8">
+                      <div>
+                         <h3 className="text-xl font-black uppercase tracking-tighter text-red-500">Gestão de Disputas Ativas</h3>
+                         <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mt-1">Analise os casos de fraude e decida o destino dos fundos em escrow</p>
+                      </div>
+                      <div className="bg-red-600/10 px-4 py-2 rounded-xl border border-red-500/20">
+                         <span className="text-[10px] font-black text-red-500 uppercase">{data.disputes.length} CASOS ABERTOS</span>
+                      </div>
+                   </div>
+
+                   <div className="grid grid-cols-1 gap-6">
+                      {filteredData.map((sale: any) => (
+                         <div key={sale.id} className="bg-[#12161f] p-8 rounded-[2.5rem] border border-red-500/20 shadow-2xl relative overflow-hidden group hover:border-red-500/40 transition-all">
+                            <div className="absolute top-0 right-0 px-6 py-2 bg-red-600 text-[10px] font-black uppercase tracking-widest text-white rounded-bl-2xl">
+                              EM DISPUTA
+                            </div>
+                            
+                            <div className="flex flex-col lg:flex-row gap-8">
+                               <div className="flex-1 space-y-4">
+                                  <div className="flex items-center gap-3">
+                                     <div className="p-3 bg-red-600/10 rounded-xl">
+                                        <ExclamationTriangleIcon className="h-6 w-6 text-red-500" />
+                                     </div>
+                                     <h4 className="text-xl font-black uppercase tracking-tighter text-white">{sale.productName}</h4>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-1">
+                                        <p className="text-[9px] font-black text-gray-500 uppercase">Comprador (Vítima?)</p>
+                                        <p className="text-xs font-bold text-gray-200 truncate">{sale.buyerId}</p>
+                                     </div>
+                                     <div className="bg-white/5 p-4 rounded-2xl border border-white/5 space-y-1">
+                                        <p className="text-[9px] font-black text-gray-500 uppercase">Vendedor (Suspeito?)</p>
+                                        <p className="text-xs font-bold text-gray-200 truncate">{sale.sellerId}</p>
+                                     </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-4 text-[10px] font-black text-gray-500 uppercase tracking-widest pt-2">
+                                     <span className="bg-white/5 px-3 py-1 rounded-lg">ID: {sale.id.slice(-8)}</span>
+                                     <span className="text-white bg-blue-600 px-3 py-1 rounded-lg">VALOR EM ESCROW: ${sale.totalAmount.toFixed(2)}</span>
+                                     <span>Data: {new Date(sale.timestamp).toLocaleDateString()}</span>
+                                  </div>
+                               </div>
+
+                               <div className="flex flex-col gap-3 justify-center min-w-[260px] border-l border-white/5 pl-8">
+                                  <button 
+                                    onClick={async () => {
+                                      if (await showConfirm("Confirmar REEMBOLSO TOTAL ao comprador e cancelamento definitivo da venda?")) {
+                                        await cancelPurchaseAndRefund(sale.id);
+                                        refresh();
+                                      }
+                                    }}
+                                    className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                                  >
+                                     <TrashIcon className="h-4 w-4" /> Reembolsar Cliente
+                                  </button>
+                                  <button 
+                                    onClick={async () => {
+                                      if (await showConfirm("Confirmar que o produto foi entregue corretamente e LIBERAR fundos ao vendedor?")) {
+                                        await confirmProductReceipt(sale.id);
+                                        refresh();
+                                      }
+                                    }}
+                                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                                  >
+                                     <CheckCircleIcon className="h-4 w-4" /> Liberar Pagamento
+                                  </button>
+                                  <button 
+                                    onClick={() => onNavigate('chat')}
+                                    className="w-full py-3 bg-white/5 hover:bg-white/10 text-gray-400 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all text-center"
+                                  >
+                                     Auditar Chat da Venda
+                                  </button>
+                               </div>
+                            </div>
+                         </div>
+                      ))}
+                   </div>
+
+                   {filteredData.length === 0 && (
+                      <div className="p-32 text-center bg-[#12161f] rounded-[3rem] border border-white/5 border-dashed">
+                         <ShieldCheckIcon className="h-20 w-20 text-emerald-500/10 mx-auto mb-6" />
+                         <h3 className="text-gray-500 font-black uppercase text-sm tracking-widest">Sem disputas pendentes</h3>
+                         <p className="text-[10px] text-gray-600 font-bold uppercase mt-2">O sistema de Escrow está operando normalmente</p>
+                      </div>
+                   )}
+                   <Pagination />
+                </div>
               )}
 
               {activeTab === 'support' && (

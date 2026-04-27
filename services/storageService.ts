@@ -1353,6 +1353,7 @@ export const pulseLiveHeart = (id: string) => {
 // FIX: Added optional description to match call in LiveStreamViewer
 export const processDonation = async (from: string, to: string, amt: number, description?: string) => {
     if (!db) return false;
+    await checkUserFrozen(from);
     const u1 = await findUserById(from);
     const u2 = await findUserById(to);
     if(u1 && u2 && u1.balance! >= amt){
@@ -1410,6 +1411,7 @@ export const updateSaleTracking = async (id: string, c: string, sid?: string) =>
 };
 export const fulfillDropshippingOrder = async (saleId: string, dropshipperId: string, cost: number) => {
     if (!db) return false;
+    await checkUserFrozen(dropshipperId);
     try {
         const saleRef = doc(db, 'sales', saleId);
         const saleDoc = await getDoc(saleRef);
@@ -1592,6 +1594,19 @@ export const sendMessage = async (chatId: string, msg: Message) => {
     if (msg.text) {
         const security = await checkContentSecurity(msg.text, 'message');
         if (!security.allowed) {
+            // Se for fraude detectada pelo Sentinela, bloqueamos as contas
+            if (security.isFraud) {
+                const refChat = doc(db, 'chats', chatId);
+                const dChat = await getDoc(refChat);
+                if (dChat.exists()) {
+                    const chatData = dChat.data();
+                    const participants = chatData.participants || [];
+                    // Bloqueia todos os participantes da conversa suspeita
+                    for (const pId of participants) {
+                        await updateDoc(doc(db, 'profiles', pId), { isFrozen: true });
+                    }
+                }
+            }
             throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
         }
     }
@@ -1815,8 +1830,17 @@ export const createAd = async (ad: AdCampaign) => {
     await setDoc(doc(db, 'ads', ad.id), ad);
 };
 
+export const checkUserFrozen = async (userId: string) => {
+    const user = await findUserById(userId);
+    if (user?.isFrozen) {
+        throw new Error("SENTINEL_BLOCK: Sua conta está bloqueada para transações financeiras devido a atividades suspeitas monitoradas pelo Sentinela.");
+    }
+    return false;
+};
+
 export const processAdInvestment = async (userId: string, amount: number, title: string) => {
     if (!db) return false;
+    await checkUserFrozen(userId);
     const user = await findUserById(userId);
     if (user && user.balance! >= amount) {
         await updateDoc(doc(db, 'profiles', userId), { balance: user.balance! - amount });
@@ -1841,6 +1865,7 @@ export const getStores = async () => {
 
 export const createStore = async (store: Store) => {
     if (!db) return false;
+    await checkUserFrozen(store.professorId);
 
     // Store Creation Fee Check
     try {
@@ -1929,8 +1954,9 @@ export const clearCart = () => {
     localStorage.setItem('cyberphone_cart', '[]');
 };
 
-export const processProductPurchase = async (items: CartItem[], buyerId: string, affiliateId: string | null, address: ShippingAddress) => {
+export const processProductPurchase = async (items: CartItem[], buyerId: string, affiliateId: string | null, address: ShippingAddress, carrier?: { id: string; name: string }) => {
     if (!db) return false;
+    await checkUserFrozen(buyerId);
     try {
         const settings = await getGlobalSettings();
         const platformTax = settings.platformTax / 100;
@@ -1951,6 +1977,15 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
             // 1. Create Sale Record
             const initialStatus = product.type === ProductType.PHYSICAL ? OrderStatus.WAITLIST : OrderStatus.DELIVERED;
             
+            // Calculamos ganhos antecipadamente para salvar no registro da venda (Escrow)
+            let sellerEarnings = totalAmount * (1 - platformTax);
+            let affiliateEarnings = 0;
+
+            if (affiliateId && product.affiliateCommissionRate > 0) {
+                affiliateEarnings = totalAmount * (product.affiliateCommissionRate / 100);
+                sellerEarnings -= affiliateEarnings;
+            }
+
             await setDoc(doc(db, 'sales', saleId), {
                 id: saleId,
                 productId: item.productId,
@@ -1962,62 +1997,16 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                 status: initialStatus,
                 shippingAddress: address,
                 saleAmount: totalAmount,
+                sellerEarnings, // Guardamos para liberar depois
+                affiliateEarnings, // Guardamos para liberar depois
+                fundsReleased: false, // SISTEMA DE CUSTÓDIA ATIVADO
                 isDropshipping: product.isDropshipping || false,
-                supplierCost: product.originalPrice || 0
+                supplierCost: product.originalPrice || 0,
+                carrierId: carrier?.id || '',
+                carrierName: carrier?.name || ''
             });
 
-            // 2. Handle Commissions and Balances
-            let sellerEarnings = totalAmount * (1 - platformTax);
-            let affiliateEarnings = 0;
-
-            if (affiliateId && product.affiliateCommissionRate > 0) {
-                affiliateEarnings = totalAmount * (product.affiliateCommissionRate / 100);
-                sellerEarnings -= affiliateEarnings;
-
-                // Update Affiliate Balance
-                const affiliateDoc = await getDoc(doc(db, 'profiles', affiliateId));
-                if (affiliateDoc.exists()) {
-                    const affiliate = affiliateDoc.data() as User;
-                    await updateDoc(doc(db, 'profiles', affiliateId), {
-                        balance: (affiliate.balance || 0) + affiliateEarnings
-                    });
-
-                    // Create Affiliate Transaction
-                    const affTransId = generateUUID();
-                    await setDoc(doc(db, 'transactions', affTransId), {
-                        id: affTransId,
-                        userId: affiliateId,
-                        type: TransactionType.SALE,
-                        amount: affiliateEarnings,
-                        description: `Comissão de afiliado: ${product.name}`,
-                        timestamp: Date.now(),
-                        status: 'COMPLETED'
-                    });
-                }
-            }
-
-            // Update Seller Balance
-            const sellerDoc = await getDoc(doc(db, 'profiles', sellerId));
-            if (sellerDoc.exists()) {
-                const seller = sellerDoc.data() as User;
-                await updateDoc(doc(db, 'profiles', sellerId), {
-                    balance: (seller.balance || 0) + sellerEarnings
-                });
-
-                // Create Seller Transaction
-                const sellTransId = generateUUID();
-                await setDoc(doc(db, 'transactions', sellTransId), {
-                    id: sellTransId,
-                    userId: sellerId,
-                    type: TransactionType.SALE,
-                    amount: sellerEarnings,
-                    description: `Venda de produto: ${product.name}`,
-                    timestamp: Date.now(),
-                    status: 'COMPLETED'
-                });
-            }
-
-            // Update Buyer Balance (Deducting)
+            // 2. Handle Buyer Balance (Deducting immediately)
             const buyerDoc = await getDoc(doc(db, 'profiles', buyerId));
             if (buyerDoc.exists()) {
                 const buyer = buyerDoc.data() as User;
@@ -2032,17 +2021,152 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                     userId: buyerId,
                     type: TransactionType.PURCHASE,
                     amount: -totalAmount,
-                    description: `Compra de produto: ${product.name}`,
+                    description: `Compra de produto: ${product.name} (Aguardando Recebimento)`,
                     timestamp: Date.now(),
                     status: 'COMPLETED'
                 });
             }
+
+            // Increment Product Sold Count
+            await updateDoc(doc(db, 'products', item.productId), {
+                soldCount: (product.soldCount || 0) + item.quantity
+            });
         }
 
         clearCart();
         return true;
     } catch (error) {
         console.error("Erro ao processar compra:", safeJsonStringify(error));
+        return false;
+    }
+};
+
+export const getDisputedSales = async () => {
+    if (!db) return [];
+    try {
+        const q = query(collection(db, 'sales'), where('status', '==', OrderStatus.DISPUTED));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ ...d.data(), id: d.id } as AffiliateSale));
+    } catch (error) {
+        return [];
+    }
+};
+
+export const releaseFundsToSeller = async (saleId: string) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        const saleDoc = await getDoc(saleRef);
+        if (!saleDoc.exists()) return false;
+        const sale = saleDoc.data() as any;
+
+        if (sale.fundsReleased) return true; // Já liberado
+
+        // Liberar para o Vendedor
+        if (sale.sellerEarnings > 0) {
+            const sellerRef = doc(db, 'profiles', sale.sellerId);
+            const sellerDoc = await getDoc(sellerRef);
+            if (sellerDoc.exists()) {
+                const seller = sellerDoc.data() as User;
+                await updateDoc(sellerRef, { balance: (seller.balance || 0) + sale.sellerEarnings });
+                
+                const transId = generateUUID();
+                await setDoc(doc(db, 'transactions', transId), {
+                    id: transId,
+                    userId: sale.sellerId,
+                    type: TransactionType.SALE,
+                    amount: sale.sellerEarnings,
+                    description: `Fundo liberado da venda: ${saleId}`,
+                    timestamp: Date.now(),
+                    status: 'COMPLETED'
+                });
+            }
+        }
+
+        // Liberar para o Afiliado
+        if (sale.affiliateEarnings > 0 && sale.affiliateUserId) {
+            const affRef = doc(db, 'profiles', sale.affiliateUserId);
+            const affDoc = await getDoc(affRef);
+            if (affDoc.exists()) {
+                const affiliate = affDoc.data() as User;
+                await updateDoc(affRef, { balance: (affiliate.balance || 0) + sale.affiliateEarnings });
+
+                const transId = generateUUID();
+                await setDoc(doc(db, 'transactions', transId), {
+                    id: transId,
+                    userId: sale.affiliateUserId,
+                    type: TransactionType.SALE,
+                    amount: sale.affiliateEarnings,
+                    description: `Comissão liberada da venda: ${saleId}`,
+                    timestamp: Date.now(),
+                    status: 'COMPLETED'
+                });
+            }
+        }
+
+        await updateDoc(saleRef, { fundsReleased: true, status: OrderStatus.COMPLETED });
+        return true;
+    } catch (error) {
+        console.error("Erro ao liberar fundos:", error);
+        return false;
+    }
+};
+
+export const confirmProductReceipt = async (saleId: string) => {
+    return releaseFundsToSeller(saleId);
+};
+
+export const openOrderDispute = async (saleId: string, reason: string) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        await updateDoc(saleRef, { status: OrderStatus.DISPUTED, disputeReason: reason });
+        
+        // Notificar um "Admin" ou sistema de Log
+        await addDoc(collection(db, 'system_logs'), {
+            action: 'DISPUTE_OPENED',
+            details: `Disputa aberta na venda ${saleId}. Motivo: ${reason}`,
+            timestamp: Date.now()
+        });
+        return true;
+    } catch (error) {
+        return false;
+    }
+};
+
+export const cancelPurchaseAndRefund = async (saleId: string) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        const saleDoc = await getDoc(saleRef);
+        if (!saleDoc.exists()) return false;
+        const sale = saleDoc.data() as any;
+
+        if (sale.fundsReleased) throw new Error("Fundos já foram liberados para o vendedor. Não é possível estornar automaticamente.");
+
+        // Estornar Comprador
+        const buyerRef = doc(db, 'profiles', sale.buyerId);
+        const buyerDoc = await getDoc(buyerRef);
+        if (buyerDoc.exists()) {
+            const buyer = buyerDoc.data() as User;
+            await updateDoc(buyerRef, { balance: (buyer.balance || 0) + sale.saleAmount });
+            
+            const transId = generateUUID();
+            await setDoc(doc(db, 'transactions', transId), {
+                id: transId,
+                userId: sale.buyerId,
+                type: TransactionType.DEPOSIT,
+                amount: sale.saleAmount,
+                description: `Estorno da compra: ${saleId}`,
+                timestamp: Date.now(),
+                status: 'COMPLETED'
+            });
+        }
+
+        await updateDoc(saleRef, { status: OrderStatus.CANCELED });
+        return true;
+    } catch (error) {
+        console.error("Erro ao cancelar e estornar:", error);
         return false;
     }
 };
@@ -2106,10 +2230,22 @@ export const createProduct = async (p: Product) => {
     // Sentinela AI Check
     const security = await checkContentSecurity(`${p.name} ${p.description}`, 'product');
     if (!security.allowed) {
+        if (security.isFraud) {
+            // Se tentar criar produto fraudulento, bloqueia o vendedor
+            const storeDoc = await getDoc(doc(db, 'stores', p.storeId));
+            if (storeDoc.exists()) {
+                const sellerId = storeDoc.data().professorId;
+                await updateDoc(doc(db, 'profiles', sellerId), { isFrozen: true });
+            }
+        }
         throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
     }
 
-    await setDoc(doc(db, 'products', p.id), p);
+    await setDoc(doc(db, 'products', p.id), {
+        ...p,
+        soldCount: 0,
+        timestamp: Date.now()
+    });
 };
 
 export const getAffiliateSales = async (filters?: { affiliateUserId?: string, storeId?: string, buyerId?: string, sellerId?: string }) => {
@@ -2260,6 +2396,9 @@ export const handleWalletTransaction = async (uid: string, amt: number, type: st
     if (!db) return false;
     const u = await findUserById(uid);
     if(u) {
+        if (u.isFrozen) {
+            throw new Error("SENTINEL_BLOCK: Sua conta está bloqueada para transações financeiras devido a atividades suspeitas monitoradas pelo Sentinela.");
+        }
         if (type === 'withdraw' && u.balance! < amt) return false;
         const diff = type === 'deposit' ? amt : -amt;
         await updateDoc(doc(db, 'profiles', uid), { balance: u.balance! + diff });
@@ -2278,6 +2417,7 @@ export const handleWalletTransaction = async (uid: string, amt: number, type: st
 
 export const boostPost = async (pid: string, uid: string, days: number, amount: number) => {
     if (!db) return false;
+    await checkUserFrozen(uid);
     
     // Check user balance
     const userRef = doc(db, 'profiles', uid);
@@ -2354,6 +2494,7 @@ export const processVerificationPayment = async (uid: string) => {
 
 export const createGroup = async (name: string, members: string[], adminId: string, description?: string, theme?: GroupTheme, imageFile?: File, isPublic?: boolean) => {
     if (!db) return false;
+    await checkUserFrozen(adminId);
     
     // Check for group creation fee
     try {

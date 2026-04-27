@@ -14,7 +14,8 @@ import {
   PlusIcon,
   CheckIcon,
   BoltIcon,
-  TruckIcon
+  TruckIcon,
+  ChatBubbleLeftEllipsisIcon
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 
@@ -78,6 +79,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
   }, [product.storeId]);
   
   const [quantity, setQuantity] = useState(1);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedColor, setSelectedColor] = useState<string | undefined>(
     product.colors && product.colors.length > 0 ? product.colors[0] : undefined
   );
@@ -89,12 +91,22 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
     setTimeout(() => setIsAdded(false), 2000);
   };
 
+  const handleStartChat = () => {
+    if (!currentUser || !owner) return;
+    if (currentUser.id === owner.id) {
+      showAlert("Você não pode iniciar um chat consigo mesmo.", { type: 'alert' });
+      return;
+    }
+    onClose();
+    onNavigate('chat', { userId: owner.id });
+  };
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[110] flex items-center justify-center p-0 md:p-10 animate-fade-in" onClick={onClose}>
       <div className="bg-white w-full max-w-5xl h-full md:h-auto md:max-h-[90vh] rounded-none md:rounded-[2.5rem] overflow-hidden flex flex-col md:flex-row shadow-2xl relative" onClick={e => e.stopPropagation()}>
         
         {/* Galeria de Imagens */}
-        <div className="w-full md:w-1/2 bg-gray-50 relative h-64 md:h-auto group">
+        <div className="w-full md:w-1/2 bg-gray-50 relative h-64 md:h-auto group flex flex-col">
           <button onClick={onClose} className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur p-2 rounded-full shadow-lg md:hidden">
             <XMarkIcon className="h-6 w-6 text-gray-900" />
           </button>
@@ -104,11 +116,51 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
           >
             <ShareIcon className="h-6 w-6 text-gray-900" />
           </button>
-          <img src={product.imageUrls[0]} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt={product.name} />
           
-          <div className="absolute bottom-4 left-4 flex gap-2">
+          <div className="flex-1 relative overflow-hidden">
+            <img 
+              src={product.imageUrls[currentImageIndex]} 
+              className="w-full h-full object-cover transition-all duration-500 transform scale-100 group-hover:scale-110" 
+              alt={product.name} 
+            />
+            
+            {/* Controles de Navegação (Apenas se houver mais de uma imagem) */}
+            {product.imageUrls.length > 1 && (
+              <div className="absolute inset-0 flex items-center justify-between p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : product.imageUrls.length - 1)); }}
+                  className="p-2 bg-white/80 backdrop-blur rounded-full shadow-lg hover:bg-white"
+                >
+                  <MinusIcon className="h-6 w-6 text-gray-900 rotate-90" />
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev < product.imageUrls.length - 1 ? prev + 1 : 0)); }}
+                  className="p-2 bg-white/80 backdrop-blur rounded-full shadow-lg hover:bg-white"
+                >
+                  <PlusIcon className="h-6 w-6 text-gray-900 -rotate-90" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Miniaturas (Thumbnails) */}
+          {product.imageUrls.length > 1 && (
+            <div className="p-4 bg-white border-t border-gray-100 flex gap-2 overflow-x-auto no-scrollbar justify-center">
+               {product.imageUrls.map((url, i) => (
+                 <button 
+                    key={i} 
+                    onClick={() => setCurrentImageIndex(i)}
+                    className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${currentImageIndex === i ? 'border-blue-600 scale-110 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                 >
+                    <img src={url} className="w-full h-full object-cover" alt={`Thumb ${i}`} />
+                 </button>
+               ))}
+            </div>
+          )}
+
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 flex gap-1.5 md:hidden">
              {product.imageUrls.map((_, i) => (
-               <div key={i} className={`h-1.5 rounded-full transition-all ${i === 0 ? 'w-8 bg-blue-600' : 'w-2 bg-white/50'}`}></div>
+               <div key={i} className={`h-1.5 rounded-full transition-all ${i === currentImageIndex ? 'w-6 bg-blue-600' : 'w-1.5 bg-white/50'}`}></div>
              ))}
           </div>
         </div>
@@ -142,9 +194,17 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
                   Dropshipping
                 </span>
               )}
-              <div className="flex items-center text-yellow-400">
-                <StarIconSolid className="h-4 w-4" />
-                <span className="text-gray-900 font-black ml-1 text-xs">{product.averageRating.toFixed(1)}</span>
+              <div className="flex items-center">
+                {product.ratingCount > 0 ? (
+                  <>
+                    <StarIconSolid className="h-4 w-4 text-yellow-400" />
+                    <span className="text-gray-900 font-black ml-1 text-xs">{product.averageRating.toFixed(1)}</span>
+                  </>
+                ) : (
+                  <span className="text-blue-600 font-black text-xs uppercase tracking-tighter">Novo</span>
+                )}
+                <span className="text-gray-400 mx-2">|</span>
+                <span className="text-gray-500 font-bold text-xs">{product.soldCount || 0} vendidos</span>
               </div>
             </div>
 
@@ -275,7 +335,12 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
                       <p className="font-black text-sm text-gray-900">{owner.firstName} {owner.lastName}</p>
                    </div>
                 </div>
-                <button onClick={() => {onClose(); onNavigate('profile', { userId: owner.id });}} className="bg-gray-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-gray-600 hover:bg-blue-600 hover:text-white transition-all">Perfil</button>
+                <div className="flex gap-2">
+                   <button onClick={handleStartChat} className="bg-blue-50 p-2 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm" title="Conversar com vendedor">
+                      <ChatBubbleLeftEllipsisIcon className="h-5 w-5" />
+                   </button>
+                   <button onClick={() => {onClose(); onNavigate('profile', { userId: owner.id });}} className="bg-gray-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-gray-600 hover:bg-blue-600 hover:text-white transition-all">Perfil</button>
+                </div>
               </div>
             )}
 
@@ -304,10 +369,14 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
             <div className="mt-10 space-y-6">
                 <div className="flex items-center justify-between">
                    <h3 className="text-base font-black text-gray-900 uppercase tracking-tight">Avaliações ({product.ratingCount || 0})</h3>
-                   <div className="flex items-center text-yellow-500 gap-1">
-                      <StarIconSolid className="h-4 w-4" />
-                      <span className="text-sm font-black">{product.averageRating.toFixed(1)}</span>
-                   </div>
+                   {product.ratingCount > 0 ? (
+                      <div className="flex items-center text-yellow-500 gap-1">
+                         <StarIconSolid className="h-4 w-4" />
+                         <span className="text-sm font-black">{product.averageRating.toFixed(1)}</span>
+                      </div>
+                   ) : (
+                      <span className="text-[10px] font-black text-blue-500 uppercase tracking-tighter">Aguardando Avaliação</span>
+                   )}
                 </div>
                 
                 {product.ratings && product.ratings.length > 0 ? (
