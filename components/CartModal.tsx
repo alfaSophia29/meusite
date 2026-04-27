@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { CartItem, Product, User, ShippingAddress, ProductType } from '../types';
+import { CartItem, Product, User, ShippingAddress, ProductType, CARRIERS, Carrier } from '../types';
 import { updateUserBalance, saveUserAddress, getCart, getProducts, updateCartItemQuantity, removeFromCart, processProductPurchase } from '../services/storageService';
 import { getExchangeRates, ExchangeRates } from '../services/currencyService';
 import { XMarkIcon, PlusIcon, MinusIcon, TrashIcon, QrCodeIcon, BanknotesIcon, ShoppingBagIcon, ArrowRightIcon, MapPinIcon } from '@heroicons/react/24/outline';
@@ -25,10 +25,11 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
     AOA: 900
   });
   const [selectedCurrency, setSelectedCurrency] = useState<'USD' | 'BRL' | 'EUR' | 'AOA'>('USD');
-  const [view, setView] = useState<'cart' | 'shipping' | 'payment' | 'cryptomus' | 'processing' | 'success'>('cart');
+  const [view, setView] = useState<'cart' | 'shipping' | 'carrier' | 'payment' | 'cryptomus' | 'processing' | 'success'>('cart');
   const [shippingDetails, setShippingDetails] = useState<ShippingAddress>(() => 
     currentUser.address || { address: '', city: '', state: '', zipCode: '' }
   );
+  const [selectedCarrier, setSelectedCarrier] = useState<Carrier | null>(null);
   const [saveAddress, setSaveAddress] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState<'balance' | 'pix' | 'card' | 'cryptomus' | null>(null);
   const [formError, setFormError] = useState('');
@@ -82,6 +83,15 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
     return `${currencySymbols[selectedCurrency]}${converted.toFixed(2)}`;
   };
 
+  const filteredCarriers = useMemo(() => {
+    if (!shippingDetails.state) return CARRIERS;
+    // Lógica de filtro por país/estado se disponível, por enquanto geral
+    return CARRIERS.filter(c => {
+       if (selectedCurrency === 'AOA') return c.countries.includes('Angola');
+       return !c.countries.includes('Angola') || c.id === 'dhl' || c.id === 'ups';
+    });
+  }, [selectedCurrency, shippingDetails.state]);
+
   const hasInsufficientBalance = (currentUser.balance || 0) < subtotal;
 
   const handleConfirmPurchase = () => {
@@ -115,7 +125,8 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
          await updateUserBalance(currentUser.id, -subtotal);
       }
       
-      const success = await processProductPurchase(cartItems, currentUser.id, affiliateId, shippingDetails);
+      const carrierInfo = selectedCarrier ? { id: selectedCarrier.id, name: selectedCarrier.name } : undefined;
+      const success = await processProductPurchase(cartItems, currentUser.id, affiliateId, shippingDetails, carrierInfo);
       if (success) {
         refreshUser();
         onCartUpdate();
@@ -219,6 +230,22 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
               
               <div className="space-y-4">
                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">País / Destino</label>
+                    <select 
+                      value={selectedCurrency === 'AOA' ? 'Angola' : 'Outro'} 
+                      onChange={(e) => setSelectedCurrency(e.target.value === 'Angola' ? 'AOA' : 'USD')}
+                      className="w-full p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all appearance-none"
+                    >
+                      <option value="Angola">Angola</option>
+                      <option value="Brasil">Brasil</option>
+                      <option value="Portugal">Portugal</option>
+                      <option value="Cabo Verde">Cabo Verde</option>
+                      <option value="Moçambique">Moçambique</option>
+                      <option value="Outro">Outro País (Global)</option>
+                    </select>
+                 </div>
+
+                 <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Endereço Completo</label>
                     <input type="text" placeholder="Ex: Rua das Flores, 123" value={shippingDetails.address} onChange={e => setShippingDetails({...shippingDetails, address: e.target.value})} className="w-full p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all" />
                  </div>
@@ -229,14 +256,14 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                       <input type="text" placeholder="Sua Cidade" value={shippingDetails.city} onChange={e => setShippingDetails({...shippingDetails, city: e.target.value})} className="p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all" />
                    </div>
                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Estado</label>
-                      <input type="text" placeholder="Ex: SP" value={shippingDetails.state} onChange={e => setShippingDetails({...shippingDetails, state: e.target.value})} className="p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all" />
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Estado / Província</label>
+                      <input type="text" placeholder="Ex: Luanda" value={shippingDetails.state} onChange={e => setShippingDetails({...shippingDetails, state: e.target.value})} className="p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all" />
                    </div>
                  </div>
 
                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">CEP</label>
-                    <input type="text" placeholder="00000-000" value={shippingDetails.zipCode} onChange={e => setShippingDetails({...shippingDetails, zipCode: e.target.value})} className="w-full p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all" />
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Código Postal / Referência</label>
+                    <input type="text" placeholder="Referência de entrega" value={shippingDetails.zipCode} onChange={e => setShippingDetails({...shippingDetails, zipCode: e.target.value})} className="w-full p-4 bg-gray-50 dark:bg-white/5 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-blue-500 transition-all" />
                  </div>
               </div>
 
@@ -247,6 +274,45 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                  <input type="checkbox" className="hidden" checked={saveAddress} onChange={() => setSaveAddress(!saveAddress)} />
                  <span className="text-xs font-black text-gray-600 dark:text-gray-300 uppercase tracking-tight">Salvar endereço no meu perfil</span>
               </label>
+            </div>
+          )}
+
+          {view === 'carrier' && (
+            <div className="space-y-4 xs:space-y-6 animate-fade-in px-1">
+              <div className="flex items-center gap-3 mb-2">
+                 <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-2xl text-blue-600">
+                    <TruckIcon className="h-6 w-6" />
+                 </div>
+                 <div>
+                    <h3 className="font-black text-lg xs:text-xl text-gray-900 dark:text-white uppercase tracking-tighter">Transportadora</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Escolha o serviço de frete ideal</p>
+                 </div>
+              </div>
+
+              <div className="space-y-3">
+                 {filteredCarriers.map(carrier => (
+                   <button 
+                     key={carrier.id} 
+                     onClick={() => setSelectedCarrier(carrier)}
+                     className={`w-full flex items-center justify-between p-5 border-2 rounded-[2rem] transition-all ${selectedCarrier?.id === carrier.id ? 'border-blue-600 bg-blue-50 dark:bg-blue-600/10 shadow-lg' : 'border-gray-50 dark:border-white/5 hover:border-gray-200'}`}
+                   >
+                     <div className="flex items-center gap-4 text-left">
+                        <div className={`p-3 rounded-2xl ${selectedCarrier?.id === carrier.id ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-white/5 text-gray-500'}`}>
+                           <TruckIcon className="h-6 w-6" />
+                        </div>
+                        <div>
+                           <p className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-tight">{carrier.name}</p>
+                           <p className="text-[9px] font-black text-gray-400 uppercase">{carrier.estimatedDays}</p>
+                        </div>
+                     </div>
+                     {selectedCarrier?.id === carrier.id && (
+                       <div className="bg-blue-600 rounded-full p-1">
+                         <CheckIcon className="h-4 w-4 text-white" />
+                       </div>
+                     )}
+                   </button>
+                 ))}
+              </div>
             </div>
           )}
 
@@ -327,7 +393,23 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
             )}
             
             {view === 'shipping' && (
-              <button onClick={() => setView('payment')} className="w-full bg-blue-600 text-white py-4 xs:py-5 rounded-[1.5rem] xs:rounded-[2rem] font-black text-xs xs:text-sm flex items-center justify-center gap-2 xs:gap-3">Confirmar Entrega</button>
+              <button 
+                onClick={() => setView('carrier')} 
+                disabled={!shippingDetails.address || !shippingDetails.city}
+                className="w-full bg-blue-600 text-white py-4 xs:py-5 rounded-[1.5rem] xs:rounded-[2rem] font-black text-xs xs:text-sm flex items-center justify-center gap-2 xs:gap-3 disabled:bg-gray-300 transition-all"
+              >
+                Escolher Transportadora
+              </button>
+            )}
+
+            {view === 'carrier' && (
+              <button 
+                onClick={() => setView('payment')} 
+                disabled={!selectedCarrier}
+                className="w-full bg-blue-600 text-white py-4 xs:py-5 rounded-[1.5rem] xs:rounded-[2rem] font-black text-xs xs:text-sm flex items-center justify-center gap-2 xs:gap-3 disabled:bg-gray-300 transition-all"
+              >
+                Prosseguir para Pagamento
+              </button>
             )}
 
             {view === 'payment' && (

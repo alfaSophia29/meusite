@@ -592,14 +592,17 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                     <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{new Date(sale.timestamp).toLocaleString()}</p>
                                   </div>
                                   <span className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-xl border ${
-                                      sale.status === OrderStatus.DELIVERED ? 'bg-green-100 text-green-700 border-green-200' : 
-                                      sale.status === OrderStatus.PROCESSING_SUPPLIER ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                      sale.status === OrderStatus.COMPLETED ? 'bg-green-100 text-green-700 border-green-200' :
+                                      sale.status === OrderStatus.DELIVERED ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 
+                                      sale.status === OrderStatus.PROCESSING_SUPPLIER || sale.status === OrderStatus.PROCESSING ? 'bg-purple-100 text-purple-700 border-purple-200' :
                                       sale.status === OrderStatus.SHIPPING ? 'bg-blue-100 text-blue-700 border-blue-200' : 
                                       'bg-orange-100 text-orange-700 border-orange-200'
                                   }`}>
-                                        {sale.status === OrderStatus.WAITLIST ? 'Pendente de Envio' : 
+                                        {sale.status === OrderStatus.WAITLIST ? 'Pendente' : 
+                                         sale.status === OrderStatus.PROCESSING ? 'Em Processamento' :
                                          sale.status === OrderStatus.PROCESSING_SUPPLIER ? 'Em Processamento (Fornecedor)' :
-                                         sale.status === OrderStatus.SHIPPING ? 'Enviado' : 'Entregue'}
+                                         sale.status === OrderStatus.SHIPPING ? 'A Caminho' : 
+                                         sale.status === OrderStatus.DELIVERED ? 'No Destino' : 'Finalizado'}
                                   </span>
                                </div>
                                
@@ -642,12 +645,38 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                      </button>
                                   )}
 
-                                  {((sale.isDropshipping && sale.status === OrderStatus.PROCESSING_SUPPLIER) || (!sale.isDropshipping && sale.status === OrderStatus.WAITLIST)) && (
+                                  {!sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
+                                     <button 
+                                      onClick={async () => {
+                                        await updateSaleStatus(sale.id, OrderStatus.PROCESSING);
+                                        loadData();
+                                        showAlert("Status atualizado para: EM PROCESSAMENTO", { type: 'success' });
+                                      }}
+                                      className="bg-purple-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-purple-700 active:scale-95 transition-all w-full"
+                                     >
+                                        <ArrowPathIcon className="h-5 w-5" /> Iniciar Processamento
+                                     </button>
+                                  )}
+
+                                  {((sale.isDropshipping && sale.status === OrderStatus.PROCESSING_SUPPLIER) || (!sale.isDropshipping && sale.status === OrderStatus.PROCESSING)) && (
                                      <button 
                                       onClick={() => setTrackingModal({saleId: sale.id})}
                                       className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-blue-700 active:scale-95 transition-all w-full"
                                      >
-                                        <TruckIcon className="h-5 w-5" /> {sale.trackingCode ? 'Atualizar Rastreio' : 'Inserir Rastreio'}
+                                        <TruckIcon className="h-4 w-4" /> {sale.trackingCode ? 'Atualizar Rastreio' : 'Marcar como Enviado'}
+                                     </button>
+                                  )}
+
+                                  {sale.status === OrderStatus.SHIPPING && (
+                                     <button 
+                                      onClick={async () => {
+                                        await updateSaleStatus(sale.id, OrderStatus.DELIVERED);
+                                        loadData();
+                                        showAlert("Status atualizado: PRODUTO NO DESTINO", { type: 'success' });
+                                      }}
+                                      className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-emerald-700 active:scale-95 transition-all w-full"
+                                     >
+                                        <CheckBadgeIcon className="h-5 w-5" /> Chegou ao Destino
                                      </button>
                                   )}
                             </div>

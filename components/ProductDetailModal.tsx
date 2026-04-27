@@ -14,7 +14,8 @@ import {
   PlusIcon,
   CheckIcon,
   BoltIcon,
-  TruckIcon
+  TruckIcon,
+  ChatBubbleLeftEllipsisIcon
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 
@@ -88,6 +89,16 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
     onAddToCart(product.id, quantity, selectedColor);
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2000);
+  };
+
+  const handleStartChat = () => {
+    if (!currentUser || !owner) return;
+    if (currentUser.id === owner.id) {
+      showAlert("Você não pode iniciar um chat consigo mesmo.", { type: 'alert' });
+      return;
+    }
+    onClose();
+    onNavigate('chat', { userId: owner.id });
   };
 
   return (
@@ -324,7 +335,12 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
                       <p className="font-black text-sm text-gray-900">{owner.firstName} {owner.lastName}</p>
                    </div>
                 </div>
-                <button onClick={() => {onClose(); onNavigate('profile', { userId: owner.id });}} className="bg-gray-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-gray-600 hover:bg-blue-600 hover:text-white transition-all">Perfil</button>
+                <div className="flex gap-2">
+                   <button onClick={handleStartChat} className="bg-blue-50 p-2 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm" title="Conversar com vendedor">
+                      <ChatBubbleLeftEllipsisIcon className="h-5 w-5" />
+                   </button>
+                   <button onClick={() => {onClose(); onNavigate('profile', { userId: owner.id });}} className="bg-gray-100 px-4 py-2 rounded-xl text-[10px] font-black uppercase text-gray-600 hover:bg-blue-600 hover:text-white transition-all">Perfil</button>
+                </div>
               </div>
             )}
 

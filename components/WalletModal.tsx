@@ -56,25 +56,43 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
         : `Confirmação de Saque:\n\nValor Solicitado: $${requestedAmount.toFixed(2)}\nTaxa CyBer (${(taxPercentage * 100).toFixed(0)}%): -$${taxAmount.toFixed(2)}\nValor Líquido a Receber: $${netAmount.toFixed(2)}`;
 
       if (await showConfirm(confirmationMsg)) {
-        const success = await handleWalletTransaction(currentUser.id, requestedAmount, 'withdraw');
-        
-        if (success) {
-            refreshUser();
-            showAlert("Pedido de saque enviado! Os fundos líquidos serão processados para sua conta externa.", { type: 'success' });
-            onClose();
-        } else {
-            showAlert("Erro ao processar saque.", { type: 'error' });
+        try {
+          const success = await handleWalletTransaction(currentUser.id, requestedAmount, 'withdraw');
+          
+          if (success) {
+              refreshUser();
+              showAlert("Pedido de saque enviado! Os fundos líquidos serão processados para sua conta externa.", { type: 'success' });
+              onClose();
+          } else {
+              showAlert("Erro ao processar saque.", { type: 'error' });
+          }
+        } catch (err: any) {
+          console.error("Failed to process transaction", err);
+          if (err.message?.includes('SENTINEL_BLOCK')) {
+              showAlert(err.message.replace('SENTINEL_BLOCK: ', ''), { type: 'error', title: 'Sentinela de Segurança' });
+          } else {
+              showAlert("Falha ao processar transação. Tente novamente.", { type: 'error' });
+          }
         }
       }
     } else {
-      const success = await handleWalletTransaction(currentUser.id, requestedAmount, 'deposit');
-      
-      if (success) {
-          refreshUser();
-          showAlert("Transação processada! Seu saldo foi atualizado.", { type: 'success' });
-          onClose();
-      } else {
-          showAlert("Erro ao processar depósito.", { type: 'error' });
+      try {
+        const success = await handleWalletTransaction(currentUser.id, requestedAmount, 'deposit');
+        
+        if (success) {
+            refreshUser();
+            showAlert("Transação processada! Seu saldo foi atualizado.", { type: 'success' });
+            onClose();
+        } else {
+            showAlert("Erro ao processar depósito.", { type: 'error' });
+        }
+      } catch (err: any) {
+        console.error("Failed to process transaction", err);
+        if (err.message?.includes('SENTINEL_BLOCK')) {
+            showAlert(err.message.replace('SENTINEL_BLOCK: ', ''), { type: 'error', title: 'Sentinela de Segurança' });
+        } else {
+            showAlert("Falha ao processar transação. Tente novamente.", { type: 'error' });
+        }
       }
     }
   };
