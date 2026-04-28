@@ -12,6 +12,7 @@ import {
   isUserOnline,
   getMutualBlockedUserIds
 } from '../services/storageService';
+import { getAoaExchangeRate } from '../services/currencyService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { 
   CheckBadgeIcon, 
@@ -60,6 +61,15 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
   const [userProducts, setUserProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState(930);
+  
+  useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
   
   useEffect(() => {
     const fetchData = async () => {
@@ -306,6 +316,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                       <div>
                          <p className="text-[10px] font-black text-blue-800 dark:text-blue-300 uppercase tracking-widest">Saldo Disponível</p>
                          <p className="text-3xl font-black text-blue-900 dark:text-white">${(currentUser.balance || 0).toFixed(2)}</p>
+                        <p className="text-[10px] font-black text-green-600 uppercase tracking-tighter mt-1">≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ</p>
                       </div>
                    </div>
 

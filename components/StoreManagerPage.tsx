@@ -10,6 +10,7 @@ import {
   updateSaleStatus,
   uploadFile,
   adminDeleteProduct,
+  findUserById,
   generateUUID,
   fulfillDropshippingOrder,
   updateSaleTracking,
@@ -75,6 +76,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [userStore, setUserStore] = useState<Store | null>(null);
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeSales, setStoreSales] = useState<AffiliateSale[]>([]);
+  const [buyerProfiles, setBuyerProfiles] = useState<Record<string, User>>({});
   const [activeTab, setActiveTab] = useState<ManagerTab>(params?.tab || 'inventory');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -94,6 +96,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [pDiscount, setPDiscount] = useState('');
   const [pHasFreeShipping, setPHasFreeShipping] = useState(true);
   const [pShippingFee, setPShippingFee] = useState('');
+  const [pCondition, setPCondition] = useState<'NEW' | 'USED'>('NEW');
   
   // Bidding & Positioning
   const [pPositioning, setPPositioning] = useState<'STANDARD' | 'TOP_SEARCH' | 'MAIN_BANNER'>('STANDARD');
@@ -146,7 +149,62 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       const allProds = await getProducts();
       setStoreProducts(allProds.filter(p => p.storeId === myStore.id));
       const allSales = await getAffiliateSales({ sellerId: currentUser.id });
-      setStoreSales(allSales.sort((a, b) => b.timestamp - a.timestamp));
+      
+      // Carregar perfis dos compradores
+      const buyerIds = Array.from(new Set(allSales.map(s => s.buyerId)));
+      const profiles: Record<string, User> = { ...buyerProfiles };
+      await Promise.all(buyerIds.map(async (id) => {
+        if (!profiles[id]) {
+          const u = await findUserById(id);
+          if (u) profiles[id] = u;
+        }
+      }));
+      setBuyerProfiles(profiles);
+
+      // Deduplicação Inteligente:
+      // 1. Primeiro por ID único (Garantia técnica)
+      // 2. Depois por Logica (Mesmo comprador, mesmo produto, mesmo minuto) para evitar pânico de cliques duplos
+      const dedupedSalesMap = new Map<string, AffiliateSale>();
+      
+      allSales
+        .sort((a, b) => a.timestamp - b.timestamp) // Processar os mais antigos primeiro para que os novos (com status possivelmente atualizado) substituam
+        .forEach(sale => {
+          if (!sale.id) return;
+          
+          // Chave lógica: Comprador + Produto + Dia + Hora + Minuto
+          // Isso agrupa cliques duplos ou erros de rede que geraram múltiplos IDs para a mesma intenção
+          const date = new Date(sale.timestamp);
+          const timeKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}`;
+          const logicalKey = `${sale.buyerId}-${sale.productId}-${timeKey}`;
+          
+          const existing = dedupedSalesMap.get(logicalKey);
+          
+          // Se não existe ou se o novo registro tem um status mais "avançado" (ex: saiu de WAITLIST)
+          if (!existing) {
+            dedupedSalesMap.set(logicalKey, sale);
+          } else {
+            // Se já existe um registro para esse "momento lógico", mantemos o que tem ID ou Status mais relevante
+            // Por padrão, mantemos o primeiro (mais antigo do loop sort) ou atualizamos se o status for superior
+            const statusPriority: Record<string, number> = {
+              [OrderStatus.WAITLIST]: 1,
+              [OrderStatus.PROCESSING]: 2,
+              [OrderStatus.PROCESSING_SUPPLIER]: 3,
+              [OrderStatus.SHIPPING]: 4,
+              [OrderStatus.DELIVERED]: 5,
+              [OrderStatus.COMPLETED]: 6
+            };
+            
+            if (statusPriority[sale.status] > statusPriority[existing.status]) {
+              dedupedSalesMap.set(logicalKey, sale);
+            }
+          }
+          
+          // Sempre garantir que o ID original está mapeado se for uma busca direta, 
+          // mas aqui estamos limpando a LISTA para o dono da loja
+        });
+      
+      const finalSales = Array.from(dedupedSalesMap.values());
+      setStoreSales(finalSales.sort((a, b) => b.timestamp - a.timestamp));
     }
     setLoading(false);
   };
@@ -229,6 +287,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       dropshippingPrice: pIsAvailableForDropshipping ? parseFloat(pDropshippingPrice) : undefined,
       isDropshipping: editingProduct ? editingProduct.isDropshipping : false,
       originalProductId: editingProduct ? editingProduct.originalProductId : undefined,
+      condition: pCondition,
 
       // Novos campos
       hasFreeShipping: pHasFreeShipping,
@@ -289,6 +348,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       setPDigitalUrl(p.digitalContentUrl || '');
       setPIsAvailableForDropshipping(p.isAvailableForDropshipping || false);
       setPDropshippingPrice(p.dropshippingPrice?.toString() || '');
+      setPCondition(p.condition || 'NEW');
       
       setPOriginalPrice(p.originalPrice?.toString() || '');
       setPDiscount(p.discountPercentage?.toString() || '');
@@ -583,105 +643,171 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                   {storeSales.length === 0 ? (
                     <div className="p-24 text-center text-gray-400 font-black uppercase text-xs tracking-widest">Aguardando sua primeira venda...</div>
                   ) : (
-                    storeSales.map(sale => (
-                         <div key={sale.id} className="p-6 md:p-8 flex flex-col lg:flex-row gap-8 items-start lg:items-center hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors">
-                            <div className="flex-1 space-y-3 w-full">
-                               <div className="flex justify-between items-start">
-                                  <div>
-                                    <p className="font-black text-xl text-gray-900 dark:text-white leading-tight">Venda #{sale.id.slice(-6)}</p>
-                                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">{new Date(sale.timestamp).toLocaleString()}</p>
-                                  </div>
-                                  <span className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-xl border ${
-                                      sale.status === OrderStatus.COMPLETED ? 'bg-green-100 text-green-700 border-green-200' :
-                                      sale.status === OrderStatus.DELIVERED ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 
-                                      sale.status === OrderStatus.PROCESSING_SUPPLIER || sale.status === OrderStatus.PROCESSING ? 'bg-purple-100 text-purple-700 border-purple-200' :
-                                      sale.status === OrderStatus.SHIPPING ? 'bg-blue-100 text-blue-700 border-blue-200' : 
-                                      'bg-orange-100 text-orange-700 border-orange-200'
-                                  }`}>
-                                        {sale.status === OrderStatus.WAITLIST ? 'Pendente' : 
-                                         sale.status === OrderStatus.PROCESSING ? 'Em Processamento' :
-                                         sale.status === OrderStatus.PROCESSING_SUPPLIER ? 'Em Processamento (Fornecedor)' :
-                                         sale.status === OrderStatus.SHIPPING ? 'A Caminho' : 
-                                         sale.status === OrderStatus.DELIVERED ? 'No Destino' : 'Finalizado'}
-                                  </span>
-                               </div>
-                               
-                               <div className="flex items-center gap-6 bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5">
-                                  <div>
-                                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Recebido</p>
-                                      <p className="text-xl font-black text-green-600">+${sale.saleAmount.toFixed(2)}</p>
-                                  </div>
-                                  {sale.isDropshipping && sale.supplierCost && (
-                                     <>
-                                        <div className="w-px h-8 bg-gray-300 dark:bg-white/10"></div>
-                                        <div>
-                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Custo Fornecedor</p>
-                                            <p className="text-xl font-black text-red-400">-${sale.supplierCost.toFixed(2)}</p>
-                                        </div>
-                                        <div className="w-px h-8 bg-gray-300 dark:bg-white/10"></div>
-                                        <div>
-                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Lucro Líquido</p>
-                                            <p className="text-xl font-black text-blue-600">${(sale.saleAmount - sale.supplierCost).toFixed(2)}</p>
-                                        </div>
-                                     </>
-                                  )}
-                               </div>
-
-                               {sale.trackingCode && (
-                                   <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/10 px-4 py-2 rounded-xl w-fit">
-                                       <TruckIcon className="h-4 w-4 text-blue-600" />
-                                       <p className="text-[10px] text-blue-700 dark:text-blue-300 font-mono font-bold tracking-widest">{sale.trackingCode}</p>
+                     storeSales.map(sale => {
+                        const buyer = buyerProfiles[sale.buyerId];
+                        const product = storeProducts.find(p => p.id === sale.productId);
+                        
+                        return (
+                          <div key={sale.id} className="p-6 md:p-10 flex flex-col gap-8 hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors border-b dark:border-white/5 last:border-0">
+                             <div className="flex flex-col lg:flex-row gap-8 items-start">
+                                <div className="flex-1 space-y-4 w-full">
+                                   <div className="flex justify-between items-start">
+                                      <div>
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] mb-1">Pedido #{sale.id.slice(-8).toUpperCase()}</p>
+                                        <h4 className="font-black text-2xl text-gray-900 dark:text-white leading-tight">
+                                           {product?.name || 'Produtos Diversos'}
+                                        </h4>
+                                        <p className="text-[11px] text-gray-400 font-bold uppercase mt-1">{new Date(sale.timestamp).toLocaleString()}</p>
+                                      </div>
+                                      <span className={`text-[10px] font-black uppercase px-4 py-2 rounded-2xl border shadow-sm ${
+                                          sale.status === OrderStatus.COMPLETED ? 'bg-green-100 text-green-700 border-green-200' :
+                                          sale.status === OrderStatus.DELIVERED ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 
+                                          sale.status === OrderStatus.PROCESSING_SUPPLIER || sale.status === OrderStatus.PROCESSING ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                          sale.status === OrderStatus.SHIPPING ? 'bg-blue-100 text-blue-700 border-blue-200' : 
+                                          'bg-orange-100 text-orange-700 border-orange-200'
+                                      }`}>
+                                            {sale.status === OrderStatus.WAITLIST ? 'Pendente' : 
+                                             sale.status === OrderStatus.PROCESSING ? 'Em Processamento' :
+                                             sale.status === OrderStatus.PROCESSING_SUPPLIER ? 'Em Processamento (Fornecedor)' :
+                                             sale.status === OrderStatus.SHIPPING ? 'A Caminho' : 
+                                             sale.status === OrderStatus.DELIVERED ? 'No Destino' : 'Finalizado'}
+                                      </span>
                                    </div>
-                               )}
-                            </div>
-                            
-                            <div className="flex flex-col gap-2 shrink-0 min-w-[200px]">
-                                  {sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
-                                     <button 
-                                      onClick={() => handleFulfillOrder(sale)}
-                                      className="bg-purple-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-purple-700 active:scale-95 transition-all w-full"
-                                     >
-                                        <CurrencyDollarIcon className="h-5 w-5" /> Pagar Fornecedor
-                                     </button>
-                                  )}
 
-                                  {!sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
-                                     <button 
-                                      onClick={async () => {
-                                        await updateSaleStatus(sale.id, OrderStatus.PROCESSING);
-                                        loadData();
-                                        showAlert("Status atualizado para: EM PROCESSAMENTO", { type: 'success' });
-                                      }}
-                                      className="bg-purple-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-purple-700 active:scale-95 transition-all w-full"
-                                     >
-                                        <ArrowPathIcon className="h-5 w-5" /> Iniciar Processamento
-                                     </button>
-                                  )}
+                                   {/* Informações do Cliente & Endereço */}
+                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                                      <div className="bg-gray-100 dark:bg-white/5 p-6 rounded-[2rem] border dark:border-white/5">
+                                         <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <StarIcon className="h-4 w-4" /> Dados do Cliente
+                                         </p>
+                                         {buyer ? (
+                                           <div className="flex items-center gap-4">
+                                              {buyer.profilePicture && (
+                                                <img src={buyer.profilePicture} className="h-12 w-12 rounded-full object-cover border-2 border-white dark:border-white/10" />
+                                              )}
+                                              <div>
+                                                 <p className="font-black text-gray-900 dark:text-white uppercase">{buyer.firstName} {buyer.lastName}</p>
+                                                 <p className="text-xs text-gray-500 font-medium">{buyer.email}</p>
+                                                 {buyer.phone && <p className="text-xs text-gray-500 font-medium">{buyer.phone}</p>}
+                                              </div>
+                                           </div>
+                                         ) : (
+                                           <p className="text-xs text-gray-400 font-bold italic">Carregando dados do cliente...</p>
+                                         )}
+                                      </div>
 
-                                  {((sale.isDropshipping && sale.status === OrderStatus.PROCESSING_SUPPLIER) || (!sale.isDropshipping && sale.status === OrderStatus.PROCESSING)) && (
-                                     <button 
-                                      onClick={() => setTrackingModal({saleId: sale.id})}
-                                      className="bg-blue-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-blue-700 active:scale-95 transition-all w-full"
-                                     >
-                                        <TruckIcon className="h-4 w-4" /> {sale.trackingCode ? 'Atualizar Rastreio' : 'Marcar como Enviado'}
-                                     </button>
-                                  )}
+                                      <div className="bg-gray-100 dark:bg-white/5 p-6 rounded-[2rem] border dark:border-white/5">
+                                         <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <TruckIcon className="h-4 w-4" /> Endereço de Entrega
+                                         </p>
+                                         {sale.shippingAddress ? (
+                                           <div className="space-y-1">
+                                              <p className="text-sm font-black text-gray-800 dark:text-gray-200 uppercase leading-snug">{sale.shippingAddress.address}</p>
+                                              <p className="text-xs text-gray-500 font-bold uppercase">{sale.shippingAddress.city}, {sale.shippingAddress.state}</p>
+                                              <p className="text-[10px] text-gray-400 font-mono tracking-widest">{sale.shippingAddress.zipCode}</p>
+                                           </div>
+                                         ) : (
+                                            <p className="text-xs text-gray-400 font-bold italic">Endereço não informado.</p>
+                                         )}
+                                      </div>
+                                   </div>
+                                   
+                                   <div className="flex flex-wrap items-center gap-6 mt-6">
+                                      <div className="flex items-center gap-4 bg-gray-50 dark:bg-white/5 px-6 py-4 rounded-3xl border border-gray-100 dark:border-white/5 shadow-inner">
+                                         <div>
+                                             <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Valor da Venda</p>
+                                             <p className="text-2xl font-black text-gray-900 dark:text-white">${sale.saleAmount.toFixed(2)}</p>
+                                         </div>
+                                         {sale.isDropshipping && sale.supplierCost && (
+                                            <>
+                                               <div className="w-px h-8 bg-gray-300 dark:bg-white/10"></div>
+                                               <div>
+                                                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Custo</p>
+                                                   <p className="text-xl font-black text-red-500">-${sale.supplierCost.toFixed(2)}</p>
+                                               </div>
+                                               <div className="w-px h-8 bg-gray-300 dark:bg-white/10"></div>
+                                               <div>
+                                                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Lucro</p>
+                                                   <p className="text-xl font-black text-blue-600">${(sale.saleAmount - sale.supplierCost).toFixed(2)}</p>
+                                               </div>
+                                            </>
+                                         )}
+                                      </div>
+                                      
+                                      <div className="flex flex-col gap-2">
+                                         <div className="flex items-center gap-3">
+                                            {sale.carrierName && (
+                                              <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/10 px-4 py-2 rounded-xl text-blue-700 dark:text-blue-300">
+                                                  <GlobeAmericasIcon className="h-4 w-4" />
+                                                  <p className="text-[10px] font-black uppercase tracking-wider">{sale.carrierName}</p>
+                                              </div>
+                                            )}
+                                            {sale.trackingCode && (
+                                                <div className="flex items-center gap-2 bg-gray-100 dark:bg-white/10 px-4 py-2 rounded-xl text-gray-600 dark:text-gray-400">
+                                                    <TagIcon className="h-4 w-4" />
+                                                    <p className="text-[10px] font-mono font-bold tracking-widest uppercase">TRACK: {sale.trackingCode}</p>
+                                                </div>
+                                            )}
+                                         </div>
+                                      </div>
+                                   </div>
+                                </div>
+                                
+                                <div className="flex flex-col gap-3 shrink-0 w-full lg:w-auto min-w-[240px]">
+                                      {sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
+                                         <button 
+                                          onClick={() => handleFulfillOrder(sale)}
+                                          className="bg-purple-600 shadow-purple-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-purple-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                                         >
+                                            <CurrencyDollarIcon className="h-5 w-5" /> Pagar Fornecedor
+                                         </button>
+                                      )}
 
-                                  {sale.status === OrderStatus.SHIPPING && (
-                                     <button 
-                                      onClick={async () => {
-                                        await updateSaleStatus(sale.id, OrderStatus.DELIVERED);
-                                        loadData();
-                                        showAlert("Status atualizado: PRODUTO NO DESTINO", { type: 'success' });
-                                      }}
-                                      className="bg-emerald-600 text-white px-6 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-2 hover:bg-emerald-700 active:scale-95 transition-all w-full"
-                                     >
-                                        <CheckBadgeIcon className="h-5 w-5" /> Chegou ao Destino
-                                     </button>
-                                  )}
-                            </div>
-                         </div>
-                    ))
+                                      {!sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
+                                         <button 
+                                          onClick={async () => {
+                                            await updateSaleStatus(sale.id, OrderStatus.PROCESSING);
+                                            loadData();
+                                            showAlert("Status atualizado para: EM PROCESSAMENTO", { type: 'success' });
+                                          }}
+                                          className="bg-purple-600 shadow-purple-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-purple-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                                         >
+                                            <ArrowPathIcon className="h-5 w-5" /> Iniciar Processamento
+                                         </button>
+                                      )}
+
+                                      {((sale.isDropshipping && sale.status === OrderStatus.PROCESSING_SUPPLIER) || (!sale.isDropshipping && sale.status === OrderStatus.PROCESSING)) && (
+                                         <button 
+                                          onClick={() => setTrackingModal({saleId: sale.id})}
+                                          className="bg-blue-600 shadow-blue-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                                         >
+                                            <TruckIcon className="h-5 w-5" /> {sale.trackingCode ? 'Atualizar Rastreio' : 'Marcar como Enviado'}
+                                         </button>
+                                      )}
+
+                                      {sale.status === OrderStatus.SHIPPING && (
+                                         <button 
+                                          onClick={async () => {
+                                            await updateSaleStatus(sale.id, OrderStatus.DELIVERED);
+                                            loadData();
+                                            showAlert("Status atualizado: PRODUTO NO DESTINO", { type: 'success' });
+                                          }}
+                                          className="bg-emerald-600 shadow-emerald-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-emerald-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                                         >
+                                            <CheckBadgeIcon className="h-5 w-5" /> Chegou ao Destino
+                                         </button>
+                                      )}
+
+                                      {sale.status === OrderStatus.DELIVERED && (
+                                         <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-[1.8rem] text-center">
+                                            <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Aguardando Cliente Confirmar Recebimento</p>
+                                         </div>
+                                      )}
+                                </div>
+                             </div>
+                          </div>
+                        );
+                     })
                   )}
                </div>
             </div>
@@ -870,6 +996,25 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                     </div>
                   </div>
 
+                  {/* Condição do Produto */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Condição do Item</label>
+                        <div className="flex gap-2">
+                           {['NEW', 'USED'].map((c) => (
+                             <button
+                               key={c}
+                               type="button"
+                               onClick={() => setPCondition(c as any)}
+                               className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${pCondition === c ? 'bg-blue-600 text-white border-blue-600 shadow-lg' : 'bg-gray-50 dark:bg-white/5 text-gray-400 border-transparent hover:border-gray-200'}`}
+                             >
+                               {c === 'NEW' ? '✨ Novo / Lacrado' : '🏷️ Usado / Semi-novo'}
+                             </button>
+                           ))}
+                        </div>
+                    </div>
+                  </div>
+
                   {/* Pricing Section - Advanced */}
                   <div className="p-6 bg-gray-50 dark:bg-white/5 rounded-3xl space-y-6">
                     <h4 className="text-xs font-black dark:text-white uppercase tracking-widest flex items-center gap-2">
@@ -878,7 +1023,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Preço Atual (R$)</label>
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Preço Atual ($)</label>
                           <input 
                             type="number" 
                             required 
@@ -890,7 +1035,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                           />
                        </div>
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Preço Original (R$)</label>
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Preço Original ($)</label>
                           <input 
                             type="number" 
                             step="0.01"
@@ -937,7 +1082,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                         
                         {!pHasFreeShipping && (
                           <div className="flex-1 space-y-2 animate-fade-in">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Valor do Frete (R$)</label>
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Valor do Frete ($)</label>
                             <input 
                               type="number" 
                               value={pShippingFee} 
@@ -973,7 +1118,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                           </select>
                        </div>
                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Seu Lance (Bid) - R$/Dia</label>
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Seu Lance (Bid) - $/Dia</label>
                           <div className="relative">
                              <input 
                                type="number" 

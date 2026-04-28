@@ -9,7 +9,7 @@ import {
   saveAffiliateLink,
 } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
-import { ShoppingCartIcon, CheckIcon, PlusIcon, StarIcon, ShoppingBagIcon, MagnifyingGlassIcon, FunnelIcon, Squares2X2Icon, BookOpenIcon, VideoCameraIcon, AcademicCapIcon, TruckIcon, LinkIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, BoltIcon, BuildingStorefrontIcon, RocketLaunchIcon, ShareIcon } from '@heroicons/react/24/outline';
+import { ShoppingCartIcon, CheckIcon, PlusIcon, StarIcon, ShoppingBagIcon, MagnifyingGlassIcon, FunnelIcon, Squares2X2Icon, BookOpenIcon, VideoCameraIcon, AcademicCapIcon, TruckIcon, LinkIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, BoltIcon, BuildingStorefrontIcon, RocketLaunchIcon, ShareIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
 import { getAoaExchangeRate } from '../services/currencyService';
@@ -99,6 +99,14 @@ const ProductCard: React.FC<{
             ) : (
               <span className="text-[10px] font-bold text-blue-500">Novo</span>
             )}
+            {product.condition && (
+               <>
+                 <span className="text-[10px] text-gray-400">|</span>
+                 <span className={`text-[10px] font-bold ${product.condition === 'NEW' ? 'text-green-500' : 'text-orange-500'}`}>
+                   {product.condition === 'NEW' ? 'Novo' : 'Usado'}
+                 </span>
+               </>
+            )}
             <span className="text-[10px] text-gray-400">|</span>
             <span className="text-[10px] text-gray-500">{product.soldCount || 0} vendidos</span>
           </div>
@@ -107,7 +115,9 @@ const ProductCard: React.FC<{
             {product.hasFreeShipping ? (
                <span className="bg-[#fff0f0] text-[#ff4747] text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Frete Grátis</span>
             ) : product.shippingFee && (
-               <span className="bg-gray-100 text-gray-600 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Frete: R$ {product.shippingFee}</span>
+               <span className="bg-gray-100 text-gray-600 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">
+                 Frete: ${product.shippingFee.toFixed(2)} (≈ {(product.shippingFee * exchangeRate).toLocaleString()} KZ)
+               </span>
             )}
             {product.type !== ProductType.PHYSICAL && (
               <span className="bg-blue-50 text-blue-600 text-[9px] font-bold px-1.5 py-0.5 rounded-sm">Digital</span>
@@ -135,6 +145,17 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState<ProductType | 'ALL'>('ALL');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  
+  // New Filters State
+  const [showFilters, setShowFilters] = useState(false);
+  const [minPrice, setMinPrice] = useState<string>('');
+  const [maxPrice, setMaxPrice] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'newest' | 'price-asc' | 'price-desc' | 'rating'>('newest');
+  const [condition, setCondition] = useState<'ALL' | 'NEW' | 'USED'>('ALL');
+  const [onlyFreeShipping, setOnlyFreeShipping] = useState(false);
+  const [onlyPromotion, setOnlyPromotion] = useState(false);
+  const [productTypeFilter, setProductTypeFilter] = useState<'ALL' | 'PHYSICAL' | 'DIGITAL'>('ALL');
+
   const [currentStore, setCurrentStore] = useState<Store | null>(null);
   const [currentBanner, setCurrentBanner] = useState(0);
   const [shareContent, setShareContent] = useState<any>(null);
@@ -232,12 +253,32 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
   }, [allProducts]);
 
   const filteredProducts = useMemo(() => {
-    return featuredProducts.filter(p => {
+    let result = featuredProducts.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.description.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = activeCategory === 'ALL' || p.type === activeCategory;
-      return matchesSearch && matchesCategory;
+      
+      const price = p.price;
+      const matchesMin = minPrice === '' || price >= parseFloat(minPrice);
+      const matchesMax = maxPrice === '' || price <= parseFloat(maxPrice);
+      const matchesCondition = condition === 'ALL' || p.condition === condition;
+      const matchesFreeShipping = !onlyFreeShipping || p.hasFreeShipping;
+      const matchesPromotion = !onlyPromotion || (p.discountPercentage && p.discountPercentage > 0) || (p.originalPrice && p.originalPrice > p.price);
+      const matchesType = productTypeFilter === 'ALL' || 
+                         (productTypeFilter === 'PHYSICAL' && p.type === ProductType.PHYSICAL) ||
+                         (productTypeFilter === 'DIGITAL' && p.type !== ProductType.PHYSICAL);
+
+      return matchesSearch && matchesCategory && matchesMin && matchesMax && matchesCondition && matchesFreeShipping && matchesPromotion && matchesType;
     });
-  }, [featuredProducts, searchTerm, activeCategory]);
+
+    // Sorting
+    return [...result].sort((a, b) => {
+      if (sortBy === 'price-asc') return a.price - b.price;
+      if (sortBy === 'price-desc') return b.price - a.price;
+      if (sortBy === 'rating') return (b.averageRating || 0) - (a.averageRating || 0);
+      // Default newest - assuming ID or some logic, for now use current order
+      return 0; 
+    });
+  }, [featuredProducts, searchTerm, activeCategory, minPrice, maxPrice, sortBy, condition, onlyFreeShipping, onlyPromotion, productTypeFilter]);
 
   const categories = [
     { id: 'ALL', label: 'Tudo', icon: Squares2X2Icon },
@@ -276,6 +317,16 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
             </div>
             
             <div className="flex items-center gap-6 shrink-0">
+              <button onClick={() => setShowFilters(true)} className="flex flex-col items-center group relative">
+                <div className="p-2 rounded-full group-hover:bg-[#ff4747]/10 transition-colors">
+                  <FunnelIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-[#ff4747]" />
+                  {(minPrice || maxPrice || condition !== 'ALL' || onlyFreeShipping || onlyPromotion || productTypeFilter !== 'ALL') && (
+                    <div className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#ff4747] rounded-full border border-white"></div>
+                  )}
+                </div>
+                <span className="text-[10px] font-bold text-gray-500 mt-0.5 uppercase tracking-tighter">Filtros</span>
+              </button>
+
               <button onClick={() => onNavigate('manage-store')} className="flex flex-col items-center group">
                 <div className="p-2 rounded-full group-hover:bg-[#ff4747]/10 transition-colors">
                   <BuildingStorefrontIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-[#ff4747]" />
@@ -513,6 +564,155 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
           </div>
         )}
       </div>
+
+      {/* Filter Sidebar overlay or drawer */}
+      {showFilters && (
+        <div className="fixed inset-0 z-[100] flex justify-end">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in" onClick={() => setShowFilters(false)}></div>
+          <div className="relative w-full max-w-xs bg-white dark:bg-[#1a1a1a] h-full shadow-2xl flex flex-col animate-slide-in-right">
+             <div className="p-6 border-b dark:border-white/5 flex items-center justify-between">
+                <h3 className="text-xl font-black uppercase tracking-tighter dark:text-white">Filtros Avançados</h3>
+                <button onClick={() => setShowFilters(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl">
+                  <XMarkIcon className="h-6 w-6 text-gray-500" />
+                </button>
+             </div>
+
+             <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-thin">
+                {/* Sort Section */}
+                <div className="space-y-4">
+                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Ordenar por</h4>
+                   <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: 'newest', label: 'Mais Recentes' },
+                        { id: 'price-asc', label: 'Menor Preço' },
+                        { id: 'price-desc', label: 'Maior Preço' },
+                        { id: 'rating', label: 'Melhor Avaliados' }
+                      ].map(option => (
+                        <button
+                          key={option.id}
+                          onClick={() => setSortBy(option.id as any)}
+                          className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-all ${sortBy === option.id ? 'bg-[#ff4747] text-white shadow-lg' : 'bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/10'}`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+
+                {/* Price Section */}
+                <div className="space-y-4">
+                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Faixa de Preço ($)</h4>
+                   <div className="flex items-center gap-3">
+                      <input 
+                        type="number" 
+                        placeholder="Mín" 
+                        value={minPrice}
+                        onChange={e => setMinPrice(e.target.value)}
+                        className="w-full bg-gray-100 dark:bg-white/5 px-4 py-3 rounded-xl text-xs outline-none border-2 border-transparent focus:border-[#ff4747] dark:text-white" 
+                      />
+                      <div className="w-4 h-0.5 bg-gray-300"></div>
+                      <input 
+                        type="number" 
+                        placeholder="Máx" 
+                        value={maxPrice}
+                        onChange={e => setMaxPrice(e.target.value)}
+                        className="w-full bg-gray-100 dark:bg-white/5 px-4 py-3 rounded-xl text-xs outline-none border-2 border-transparent focus:border-[#ff4747] dark:text-white" 
+                      />
+                   </div>
+                </div>
+
+                {/* Condition Section */}
+                <div className="space-y-4">
+                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Condição</h4>
+                   <div className="flex gap-2">
+                      {['ALL', 'NEW', 'USED'].map(c => (
+                        <button
+                          key={c}
+                          onClick={() => setCondition(c as any)}
+                          className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${condition === c ? 'bg-[#ff4747] text-white shadow-lg' : 'bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400'}`}
+                        >
+                          {c === 'ALL' ? 'Todos' : c === 'NEW' ? 'Novo' : 'Usado'}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+
+                {/* Type Section */}
+                <div className="space-y-4">
+                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Tipo de Entrega</h4>
+                   <div className="flex gap-2">
+                      {[
+                        { id: 'ALL', label: 'Todos' },
+                        { id: 'PHYSICAL', label: 'Físico' },
+                        { id: 'DIGITAL', label: 'Digital' }
+                      ].map(t => (
+                        <button
+                          key={t.id}
+                          onClick={() => setProductTypeFilter(t.id as any)}
+                          className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${productTypeFilter === t.id ? 'bg-[#ff4747] text-white shadow-lg' : 'bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400'}`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+
+                {/* Quick Filters */}
+                <div className="space-y-3">
+                   <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Vantagens & Ofertas</h4>
+                   <button 
+                    onClick={() => setOnlyFreeShipping(!onlyFreeShipping)}
+                    className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${onlyFreeShipping ? 'border-[#ff4747] bg-[#ff4747]/5' : 'border-gray-100 dark:border-white/5 opacity-60'}`}
+                   >
+                     <div className="flex items-center gap-3">
+                        <TruckIcon className={`h-5 w-5 ${onlyFreeShipping ? 'text-[#ff4747]' : 'text-gray-400'}`} />
+                        <span className={`text-[11px] font-black uppercase ${onlyFreeShipping ? 'text-[#ff4747]' : 'text-gray-400'}`}>Frete Grátis</span>
+                     </div>
+                     <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${onlyFreeShipping ? 'bg-[#ff4747] text-white' : 'bg-gray-200 dark:bg-white/10'}`}>
+                        {onlyFreeShipping && <CheckIcon className="h-3 w-3 stroke-[3]" />}
+                     </div>
+                   </button>
+
+                   <button 
+                    onClick={() => setOnlyPromotion(!onlyPromotion)}
+                    className={`w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${onlyPromotion ? 'border-[#ff4747] bg-[#ff4747]/5' : 'border-gray-100 dark:border-white/5 opacity-60'}`}
+                   >
+                     <div className="flex items-center gap-3">
+                        <BoltIcon className={`h-5 w-5 ${onlyPromotion ? 'text-[#ff4747]' : 'text-gray-400'}`} />
+                        <span className={`text-[11px] font-black uppercase ${onlyPromotion ? 'text-[#ff4747]' : 'text-gray-400'}`}>Em Promoção</span>
+                     </div>
+                     <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${onlyPromotion ? 'bg-[#ff4747] text-white' : 'bg-gray-200 dark:bg-white/10'}`}>
+                        {onlyPromotion && <CheckIcon className="h-3 w-3 stroke-[3]" />}
+                     </div>
+                   </button>
+                </div>
+             </div>
+
+             <div className="p-6 border-t dark:border-white/5 bg-gray-50/50 dark:bg-white/5 flex gap-3">
+                <button 
+                  onClick={() => {
+                    setMinPrice('');
+                    setMaxPrice('');
+                    setCondition('ALL');
+                    setOnlyFreeShipping(false);
+                    setOnlyPromotion(false);
+                    setProductTypeFilter('ALL');
+                    setSortBy('newest');
+                  }}
+                  className="flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-gray-500 hover:bg-gray-100 transition-all"
+                >
+                  Limpar
+                </button>
+                <button 
+                  onClick={() => setShowFilters(false)}
+                  className="flex-[2] bg-[#ff4747] text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-[#ff4747]/20 active:scale-95 transition-all"
+                >
+                  Ver Resultados
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
 
       {selectedProduct && (
         <ProductDetailModal 

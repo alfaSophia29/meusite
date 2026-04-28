@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, AffiliateSale, Product, OrderStatus, ProductType, Page } from '../types';
 import { getPurchasesByBuyerId, getProducts, addProductRating, confirmProductReceipt, openOrderDispute } from '../services/storageService';
+import { getAoaExchangeRate } from '../services/currencyService';
 import { ShoppingBagIcon, TruckIcon, CheckCircleIcon, ClockIcon, StarIcon, ArchiveBoxIcon, CheckIcon, MapPinIcon, SparklesIcon, ShieldExclamationIcon, XCircleIcon } from '@heroicons/react/24/outline';
-import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
+import { StarIcon as StarIconSolid, ShieldCheckIcon } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
 
 interface PurchasesPageProps {
@@ -15,23 +16,40 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
   const { showAlert, showConfirm, showSuccess } = useDialog();
   const [purchases, setPurchases] = useState<AffiliateSale[]>([]);
   const [productsMap, setProductsMap] = useState<Record<string, Product>>({});
+  const [exchangeRate, setExchangeRate] = useState(930);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<OrderStatus | 'ALL'>('ALL');
   const [ratingModal, setRatingModal] = useState<{saleId: string, productId: string} | null>(null);
+  const [rigorousConfirmModal, setRigorousConfirmModal] = useState<{saleId: string, productName: string} | null>(null);
+  const [confirmChecklist, setConfirmChecklist] = useState({
+    received: false,
+    intact: false,
+    matches: false,
+    noRegrets: false
+  });
   const [tempRating, setTempRating] = useState(5);
   const [tempComment, setTempComment] = useState('');
 
   const loadData = async () => {
-    setLoading(true);
-    const purchasesData = await getPurchasesByBuyerId(currentUser.id);
-    setPurchases(purchasesData);
-    
-    const allProducts = await getProducts();
-    const map: Record<string, Product> = {};
-    allProducts.forEach(p => map[p.id] = p);
-    setProductsMap(map);
-    
-    setLoading(false);
+    try {
+      setLoading(true);
+      const purchasesData = await getPurchasesByBuyerId(currentUser.id);
+      setPurchases(purchasesData);
+      
+      const [allProducts, rate] = await Promise.all([
+        getProducts(),
+        getAoaExchangeRate()
+      ]);
+      
+      const map: Record<string, Product> = {};
+      allProducts.forEach(p => map[p.id] = p);
+      setProductsMap(map);
+      setExchangeRate(rate);
+    } catch (error) {
+      console.error("Erro ao carregar dados de pedidos:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -42,8 +60,55 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
   }, [currentUser.id]);
 
   const filteredPurchases = useMemo(() => {
-    if (activeTab === 'ALL') return purchases;
-    return purchases.filter(p => p.status === activeTab);
+    const statusRank: Record<string, number> = {
+      [OrderStatus.CANCELED]: -1,
+      [OrderStatus.WAITLIST]: 0,
+      [OrderStatus.PROCESSING]: 1,
+      [OrderStatus.PROCESSING_SUPPLIER]: 2,
+      [OrderStatus.SHIPPING]: 3,
+      [OrderStatus.DELIVERED]: 4,
+      [OrderStatus.COMPLETED]: 5,
+      [OrderStatus.DISPUTED]: 6,
+    };
+
+    // 1. Primeiro removemos duplicatas absolutas por ID de venda (saleId)
+    const saleIdMap = new Map<string, AffiliateSale>();
+    purchases.forEach(p => {
+      if (p.id) saleIdMap.set(p.id, p);
+    });
+    const uniqueSales = Array.from(saleIdMap.values());
+
+    // 2. Agrupamento lógico por Produto e Dia para evitar poluição Visual
+    // (Útil se o sistema gerou duplicatas por falha de rede/clique duplo)
+    const dedupedMap = new Map<string, AffiliateSale>();
+    uniqueSales
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .forEach(p => {
+        // Agrupamos por Produto e Data (YYYY-MM-DD)
+        const dateKey = new Date(p.timestamp).toISOString().split('T')[0];
+        const key = `${p.productId}-${dateKey}`;
+        
+        const existing = dedupedMap.get(key);
+        // Prioridade: Manter o status mais avançado ou o registro mais recente
+        if (!existing || (statusRank[p.status || ''] || 0) > (statusRank[existing.status || ''] || 0)) {
+          dedupedMap.set(key, p);
+        }
+      });
+    
+    const unique = Array.from(dedupedMap.values());
+    const sorted = unique.sort((a, b) => b.timestamp - a.timestamp);
+    
+    if (activeTab === 'ALL') return sorted;
+    
+    return sorted.filter(p => {
+      // Aba Pendentes (Waitlist) agora inclui também os estados de Processamento
+      if (activeTab === OrderStatus.WAITLIST) {
+        return p.status === OrderStatus.WAITLIST || 
+               p.status === OrderStatus.PROCESSING || 
+               p.status === OrderStatus.PROCESSING_SUPPLIER;
+      }
+      return p.status === activeTab;
+    });
   }, [purchases, activeTab]);
 
   const handleRateProduct = async (e: React.FormEvent) => {
@@ -56,14 +121,31 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
     showSuccess('Avaliação enviada com sucesso!');
   };
 
-  const handleConfirmDelivery = async (saleId: string) => {
-    const confirmed = await showConfirm("Você confirma que o produto físico chegou em suas mãos e está em boas condições?");
-    if (confirmed) {
-       setLoading(true);
-       await confirmProductReceipt(saleId);
-       await loadData();
-       showSuccess("Pedido finalizado e vendedor pago! Obrigado por confirmar.");
+  const handleConfirmDelivery = async (saleId: string, productName: string) => {
+    setConfirmChecklist({ received: false, intact: false, matches: false, noRegrets: false });
+    setRigorousConfirmModal({ saleId, productName });
+  };
+
+  const executeRigorousConfirm = async () => {
+    if (!rigorousConfirmModal) return;
+    if (!Object.values(confirmChecklist).every(val => val)) {
+      showAlert("Você deve confirmar todos os itens do checklist para prosseguir.", { type: 'alert' });
+      return;
     }
+
+    setLoading(true);
+    const saleId = rigorousConfirmModal.saleId;
+    setRigorousConfirmModal(null);
+
+    try {
+      await confirmProductReceipt(saleId);
+      await loadData();
+      showSuccess("Pedido finalizado com sucesso! O pagamento foi liberado ao vendedor.");
+    } catch (error) {
+      console.error("Erro ao confirmar:", error);
+      showAlert("Erro ao confirmar recebimento.", { type: 'alert' });
+    }
+    setLoading(false);
   };
 
   const handleOpenDispute = async (saleId: string) => {
@@ -223,6 +305,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
                        </div>
                        <div className="text-center md:text-right">
                           <p className="text-2xl font-black text-gray-900 dark:text-white">${sale.saleAmount.toFixed(2)}</p>
+                          <p className="text-[10px] font-black text-green-600 uppercase">≈ {(sale.saleAmount * exchangeRate).toLocaleString()} KZ</p>
                           <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{isPhysical ? 'Produto Físico' : 'Conteúdo Digital'}</span>
                        </div>
                     </div>
@@ -269,7 +352,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
 
                        {isPhysical && (sale.status === OrderStatus.SHIPPING || sale.status === OrderStatus.DELIVERED) && (
                           <button 
-                            onClick={() => handleConfirmDelivery(sale.id)}
+                            onClick={() => handleConfirmDelivery(sale.id, product.name)}
                             className="flex-1 bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
                           >
                              <CheckIcon className="h-5 w-5 stroke-[4]" /> Confirmar Recebimento
@@ -335,6 +418,70 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
            </div>
         </div>
       )}
+
+       {/* Modal de Confirmação Rigorosa */}
+       {rigorousConfirmModal && (
+         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[150] flex items-center justify-center p-4 animate-fade-in">
+           <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[3rem] p-8 xs:p-12 shadow-2xl relative border-2 border-green-500/30 overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 opacity-10">
+                 <ShieldCheckIcon className="h-32 w-32 text-green-500" />
+              </div>
+
+              <div className="relative z-10 space-y-8">
+                 <div className="text-center space-y-3">
+                    <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mx-auto text-green-600">
+                       <ShieldCheckIcon className="h-10 w-10" />
+                    </div>
+                    <h3 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter">Confirmação de Posse</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-relaxed">
+                       PRODUTO: <span className="text-blue-600">{rigorousConfirmModal.productName}</span>
+                    </p>
+                    <div className="text-[10px] text-red-500 font-bold uppercase p-4 border border-red-500/20 rounded-xl bg-red-50/50 dark:bg-red-900/10 text-center">
+                       ⚠️ Atenção: Ao confirmar, o dinheiro será liberado imediatamente ao vendedor. Esta ação não pode ser desfeita.
+                    </div>
+                 </div>
+
+                 <div className="space-y-3">
+                    {[
+                      { key: 'received', label: 'Confirmo que o produto físico está nas minhas mãos' },
+                      { key: 'intact', label: 'A integridade da embalagem e do produto está impecável' },
+                      { key: 'matches', label: 'O produto corresponde exatamente ao que foi anunciado' },
+                      { key: 'noRegrets', label: 'Não tenho intenção de devolver ou abrir disputa' }
+                    ].map((item) => (
+                      <button 
+                        key={item.key}
+                        onClick={() => setConfirmChecklist(prev => ({ ...prev, [item.key]: !prev[item.key as keyof typeof confirmChecklist] }))}
+                        className={`w-full flex items-center gap-4 p-5 rounded-2xl border-2 transition-all text-left ${confirmChecklist[item.key as keyof typeof confirmChecklist] ? 'border-green-600 bg-green-50 dark:bg-green-600/10' : 'border-gray-50 dark:border-white/5 bg-gray-50/50 dark:bg-white/5'}`}
+                      >
+                         <div className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-all ${confirmChecklist[item.key as keyof typeof confirmChecklist] ? 'bg-green-600 border-green-600 text-white' : 'border-gray-300 dark:border-white/20'}`}>
+                            {confirmChecklist[item.key as keyof typeof confirmChecklist] && <CheckIcon className="h-4 w-4" />}
+                         </div>
+                         <span className={`text-[11px] font-black uppercase tracking-tight leading-tight ${confirmChecklist[item.key as keyof typeof confirmChecklist] ? 'text-green-700 dark:text-green-400' : 'text-gray-500'}`}>
+                            {item.label}
+                         </span>
+                      </button>
+                    ))}
+                 </div>
+
+                 <div className="flex gap-4 pt-4">
+                    <button 
+                      onClick={() => setRigorousConfirmModal(null)}
+                      className="flex-1 py-5 rounded-[1.8rem] font-black text-[10px] uppercase tracking-widest text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 transition-all text-center"
+                    >
+                       Cancelar
+                    </button>
+                    <button 
+                      onClick={executeRigorousConfirm}
+                      disabled={!Object.values(confirmChecklist).every(val => val)}
+                      className="flex-[2] bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white py-5 rounded-[1.8rem] font-black text-[11px] uppercase tracking-widest shadow-2xl active:scale-95 transition-all"
+                    >
+                       Confirmar e Liberar Pagamento
+                    </button>
+                 </div>
+              </div>
+           </div>
+         </div>
+       )}
     </div>
   );
 };

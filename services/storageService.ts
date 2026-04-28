@@ -646,7 +646,14 @@ export const toggleBlockUser = async (cur: string, target: string) => {
 };
 
 export const getMutualBlockedUserIds = async (userId: string): Promise<string[]> => {
-    if (!db) return [];
+    if (!db || !userId || userId === 'anonymous') return [];
+    
+    // Verificamos se há um usuário autenticado no Firebase para evitar erros de permissão
+    if (!auth?.currentUser) {
+        console.warn("[STORAGE] getMutualBlockedUserIds: Usuário não autenticado no Firebase Auth.");
+        return [];
+    }
+
     try {
         // 1. Usuários que EU bloqueei (do perfil)
         const user = await findUserById(userId);
@@ -654,12 +661,20 @@ export const getMutualBlockedUserIds = async (userId: string): Promise<string[]>
         
         // 2. Usuários que ME bloquearam (da coleção 'blocks')
         // Adicionada verificação de segurança para garantir que apenas o usuário autenticado pode listar seus bloqueios
+        // O Firestore validará isso via regras, mas evitamos a chamada se não houver UID válido
         const blocksSnap = await getDocs(query(collection(db, 'blocks'), where('blockedId', '==', userId)));
         const blockedByOthers = blocksSnap.docs.map(d => d.data().blockerId);
         
         return Array.from(new Set([...blockedByMe, ...blockedByOthers]));
     } catch (error) {
         // Usando o manipulador de erro padrão para melhor diagnóstico
+        // Se o erro for de permissão insuficiente, logamos apenas um aviso se for esperado (ex: logout pendente)
+        const errStr = String(error);
+        if (errStr.includes('permission-denied') || errStr.includes('insufficient permissions')) {
+            console.warn("[STORAGE] Permissão negada ao listar blocos para:", userId);
+            return [];
+        }
+        
         handleFirestoreError(error, OperationType.LIST, 'blocks');
         return [];
     }
@@ -1915,7 +1930,7 @@ export const getAudioTracks = async () => [];
 
 export const getSalesByAffiliateId = async (uid: string) => {
     if (!db) return [];
-    return (await getDocs(query(collection(db, 'sales'), where('affiliateUserId', '==', uid)))).docs.map(d => d.data() as AffiliateSale);
+    return (await getDocs(query(collection(db, 'sales'), where('affiliateUserId', '==', uid)))).docs.map(d => ({ ...d.data(), id: d.id } as AffiliateSale));
 };
 
 export const getAffiliateLinks = async (uid: string) => {
@@ -1960,6 +1975,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
     try {
         const settings = await getGlobalSettings();
         const platformTax = settings.platformTax / 100;
+        const batchTimestamp = Date.now();
 
         for (const item of items) {
             const productDoc = await getDoc(doc(db, 'products', item.productId));
@@ -1971,7 +1987,12 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
             const store = storeDoc.data() as Store;
             const sellerId = store.professorId;
 
-            const totalAmount = product.price * item.quantity;
+            // Include shipping fee in total calculation for physical products
+            const shippingCost = (product.type === ProductType.PHYSICAL && !product.hasFreeShipping) 
+                ? (product.shippingFee || 0) 
+                : 0;
+            
+            const totalAmount = (product.price * item.quantity) + shippingCost;
             const saleId = generateUUID();
 
             // 1. Create Sale Record
@@ -1993,7 +2014,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                 sellerId,
                 affiliateUserId: affiliateId || '',
                 storeId: product.storeId,
-                timestamp: Date.now(),
+                timestamp: batchTimestamp,
                 status: initialStatus,
                 shippingAddress: address,
                 saleAmount: totalAmount,
@@ -2022,7 +2043,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                     type: TransactionType.PURCHASE,
                     amount: -totalAmount,
                     description: `Compra de produto: ${product.name} (Aguardando Recebimento)`,
-                    timestamp: Date.now(),
+                    timestamp: batchTimestamp,
                     status: 'COMPLETED'
                 });
             }
@@ -2179,7 +2200,14 @@ export const updateUserBalance = async (uid: string, amt: number) => {
 
 export const getPurchasesByBuyerId = async (uid: string) => {
     if (!db) return [];
-    return (await getDocs(query(collection(db, 'sales'), where('buyerId', '==', uid)))).docs.map(d => d.data() as AffiliateSale);
+    try {
+        const q = query(collection(db, 'sales'), where('buyerId', '==', uid));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as AffiliateSale));
+    } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'sales/buyer/' + uid);
+        return [];
+    }
 };
 
 export const addProductRating = async (saleId: string, rating: number, comment: string) => {
@@ -2348,7 +2376,7 @@ export const getTransactions = async (uid?: string, currentAdmin?: User) => {
             q = collection(db, 'transactions');
         }
         const snap = await getDocs(q);
-        return snap.docs.map(d => d.data() as Transaction);
+        return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Transaction));
     } catch (error) {
         console.error("Erro ao buscar transações:", error);
         return [];
@@ -2357,7 +2385,7 @@ export const getTransactions = async (uid?: string, currentAdmin?: User) => {
 
 export const getReports = async () => {
     if (!db) return [];
-    return (await getDocs(collection(db, 'reports'))).docs.map(d => d.data() as ContentReport);
+    return (await getDocs(collection(db, 'reports'))).docs.map(d => ({ ...(d.data() as any), id: d.id } as ContentReport));
 };
 
 export const adminUpdateUser = async (u: User) => {
@@ -2553,7 +2581,7 @@ export const createGroup = async (name: string, members: string[], adminId: stri
 
 export const getSupportTickets = async (uid: string) => {
     if (!db) return [];
-    return (await getDocs(query(collection(db, 'tickets'), where('userId', '==', uid)))).docs.map(d => d.data() as SupportTicket);
+    return (await getDocs(query(collection(db, 'tickets'), where('userId', '==', uid)))).docs.map(d => ({ ...d.data(), id: d.id } as SupportTicket));
 };
 
 export const createSupportTicket = async (data: any, desc: string, url?: string, type?: string) => {
@@ -2634,7 +2662,7 @@ export const subscribeToSupportTickets = (userId: string, callback: (tickets: Su
     if (!db) return () => {};
     const q = query(collection(db, 'tickets'), where('userId', '==', userId));
     return onSnapshot(q, (snap) => {
-        callback(snap.docs.map(d => d.data() as SupportTicket));
+        callback(snap.docs.map(d => ({ ...d.data(), id: d.id } as SupportTicket)));
     }, (err) => {
         handleFirestoreError(err, OperationType.LIST, 'tickets');
     });

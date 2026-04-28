@@ -268,6 +268,7 @@ export interface Product {
   originalProductId?: string; // ID do produto original no sistema
   isAvailableForDropshipping?: boolean; // Se o dono permite que outros façam dropshipping
   dropshippingPrice?: number; // Preço base para dropshippers
+  condition?: 'NEW' | 'USED';
 }
 
 export interface ProductRating {

@@ -17,7 +17,7 @@ import {
     seedDatabase
 } from './services/storageService';
 import { safeJsonStringify } from './src/lib/utils';
-import { showNotification, requestNotificationPermission, getNotificationContent } from './services/notificationService';
+import { showNotification, requestNotificationPermission, getNotificationContent, listenForNewSales } from './services/notificationService';
 import { auth } from './services/firebaseClient';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -50,7 +50,7 @@ import OfflinePage from './components/OfflinePage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 
-import { DialogProvider } from './services/DialogContext';
+import { DialogProvider, useDialog } from './services/DialogContext';
 
 console.log("[BOOT] App.tsx Iniciado");
 
@@ -154,9 +154,78 @@ const App: React.FC = () => {
         }
     }, [deferredPrompt]);
 
-    const lastNotificationIdRef = useRef<string | null>(null);
-    const lastMessageCountRef = useRef(0);
     const currentUserRef = useRef<User | null>(null); // Ref para acesso estável em callbacks
+
+    // --- NOTIFICATION MANAGER COMPONENT ---
+    const NotificationManager: React.FC<{ currentUser: User | null }> = ({ currentUser }) => {
+        const { showSuccess } = useDialog();
+        const lastNotificationIdRef = useRef<string | null>(null);
+        const lastMessageCountRef = useRef<number>(0);
+
+        useEffect(() => {
+            if (!currentUser) return;
+
+            const pollData = async () => {
+                try {
+                    const userId = currentUser.id;
+                    const notifications = await getNotificationsForUser(userId);
+                    const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
+                    
+                    if (sorted.length > 0) {
+                        const latest = sorted[0];
+                        const unreadCount = sorted.filter(n => !n.isRead).length;
+                        setUnreadNotificationsCount(prev => prev !== unreadCount ? unreadCount : prev);
+
+                        if (lastNotificationIdRef.current && latest.id !== lastNotificationIdRef.current && !latest.isRead) {
+                            const actor = await findUserById(latest.actorId);
+                            if (actor) {
+                                const content = getNotificationContent(latest.type, actor.firstName, latest.groupName);
+                                showNotification(content.title, { 
+                                    body: content.body,
+                                    icon: actor.profilePicture,
+                                    url: window.location.origin
+                                });
+                            }
+                        }
+                        lastNotificationIdRef.current = latest.id;
+                    }
+
+                    const msgCount = await getUnreadMessagesCount(userId);
+                    if (msgCount > lastMessageCountRef.current) {
+                        showNotification("Nova Mensagem", {
+                            body: `Você tem ${msgCount} mensagens não lidas no bupo.`,
+                            url: window.location.origin
+                        });
+                    }
+                    setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
+                    lastMessageCountRef.current = msgCount;
+                } catch (err) {}
+            };
+
+            const pollInterval = setInterval(pollData, 15000);
+            pollData();
+
+            const unsubscribeSales = listenForNewSales(currentUser.id, (sale) => {
+                const content = getNotificationContent('SALE', '', sale.productName);
+                
+                showNotification(content.title, {
+                    body: content.body,
+                    url: window.location.origin + '?page=manage-store&tab=orders'
+                });
+
+                showSuccess(`🚀 ${content.title}\n${content.body}`, {
+                    title: "PARABÉNS POR SUA VENDA!"
+                });
+            });
+
+            return () => {
+                clearInterval(pollInterval);
+                unsubscribeSales();
+            };
+        }, [currentUser?.id]);
+
+        return null;
+    };
 
     // Sincroniza o ref sempre que o state mudar
     useEffect(() => {
@@ -243,59 +312,6 @@ const App: React.FC = () => {
         document.documentElement.style.setProperty('--brand-light', theme.light);
     }, [appTheme]);
 
-    // --- SISTEMA DE POLLING PARA NOTIFICAÇÕES (Otimizado: 15s e verificação de mudanças real) ---
-    useEffect(() => {
-        if (!currentUser) return;
-
-        const pollData = async () => {
-            try {
-                const userId = currentUserRef.current?.id;
-                if (!userId) return;
-
-                const notifications = await getNotificationsForUser(userId);
-                const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
-                
-                if (sorted.length > 0) {
-                    const latest = sorted[0];
-                    const unreadCount = sorted.filter(n => !n.isRead).length;
-                    setUnreadNotificationsCount(prev => prev !== unreadCount ? unreadCount : prev);
-
-                    if (lastNotificationIdRef.current && latest.id !== lastNotificationIdRef.current && !latest.isRead) {
-                        const actor = await findUserById(latest.actorId);
-                        if (actor) {
-                            const content = getNotificationContent(latest.type, actor.firstName, latest.groupName);
-                            showNotification(content.title, { 
-                                body: content.body,
-                                icon: actor.profilePicture,
-                                url: window.location.origin
-                            });
-                        }
-                    }
-                    lastNotificationIdRef.current = latest.id;
-                }
-
-                // Polling for Messages
-                const msgCount = await getUnreadMessagesCount(userId);
-                if (msgCount > lastMessageCountRef.current) {
-                    showNotification("Nova Mensagem", {
-                        body: `Você tem ${msgCount} mensagens não lidas no bupo.`,
-                        url: window.location.origin
-                    });
-                }
-                setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
-                lastMessageCountRef.current = msgCount;
-
-            } catch (err) {
-                // Silently fail on poll error
-            }
-        };
-
-        const pollInterval = setInterval(pollData, 15000); // 15 segundos agora
-        pollData(); // Execução inicial imediata
-
-        return () => clearInterval(pollInterval);
-    }, [currentUser?.id]); // Depende apenas do ID
-
     const syncUserProfile = useCallback(async (userId: string, authUserReference?: any) => {
         try {
             let user = await findUserById(userId, authUserReference);
@@ -343,15 +359,12 @@ const App: React.FC = () => {
                     seedDatabase().catch(err => console.error("[APP] Erro ao popular banco:", err));
                 }
                 
-                const notifications = await getNotificationsForUser(user.id);
-                const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
-                if (sorted.length > 0) lastNotificationIdRef.current = sorted[0].id;
-                const unreadNotifCount = notifications.filter(n => !n.isRead).length;
+                const userNotifications = await getNotificationsForUser(user.id);
+                const unreadNotifCount = userNotifications.filter(n => !n.isRead).length;
                 setUnreadNotificationsCount(prev => prev !== unreadNotifCount ? unreadNotifCount : prev);
                 
                 const msgCount = await getUnreadMessagesCount(user.id);
                 setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
-                lastMessageCountRef.current = msgCount;
 
                 requestNotificationPermission();
                 return true;
@@ -453,7 +466,6 @@ const App: React.FC = () => {
         saveCurrentUser(null);
         setCurrentUser(null);
         setCurrentPage('auth');
-        lastNotificationIdRef.current = null;
         setIsLoading(false);
     }, []);
 
@@ -461,7 +473,6 @@ const App: React.FC = () => {
         if (!currentUser) return;
         const msgCount = await getUnreadMessagesCount(currentUser.id);
         setUnreadMessagesCount(msgCount);
-        lastMessageCountRef.current = msgCount;
     }, [currentUser]);
 
     const handleNavigate = useCallback((page: Page, params: Record<string, string> = {}) => {
@@ -680,6 +691,7 @@ const App: React.FC = () => {
 
     return (
         <DialogProvider>
+            <NotificationManager currentUser={currentUser} />
             {renderContent()}
         </DialogProvider>
     );

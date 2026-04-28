@@ -202,6 +202,77 @@
         "timestamp": { "type": "number" }
       },
       "required": ["blockerId", "blockedId", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "actorId": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "postId": { "type": "string" },
+        "saleId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "groupName": { "type": "string" }
+      },
+      "required": ["id", "recipientId", "actorId", "type", "timestamp", "isRead"]
+    },
+    "AdCampaign": {
+      "title": "AdCampaign",
+      "description": "Advertising campaign",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "professorId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "budget": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "professorId", "title", "budget", "isActive", "timestamp"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Vendor store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "professorId": { "type": "string" },
+        "name": { "type": "string" },
+        "productIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "professorId", "name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store product",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storeId": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrls": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "storeId", "name", "price"]
+    },
+    "AffiliateSale": {
+      "title": "AffiliateSale",
+      "description": "Sales record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "buyerId": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "saleAmount": { "type": "number" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "productId", "buyerId", "sellerId", "saleAmount", "timestamp"]
     }
   },
   "firestore": {
