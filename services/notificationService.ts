@@ -1,139 +1,79 @@
 
-import { NotificationType } from '../types';
+import { db } from './firebaseClient';
+import { onSnapshot, collection, query, where, limit, orderBy } from 'firebase/firestore';
 
-/**
- * Serviço de Notificações Profissional para CyBerPhone
- * Suporta Local Notifications e Web Push via Service Worker
- */
-
-export const isPushSupported = () => {
-  return 'serviceWorker' in navigator && 'PushManager' in window;
-};
-
-export const requestNotificationPermission = async (): Promise<NotificationPermission> => {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    console.warn("Ambiente não suporta notificações.");
-    return 'denied';
-  }
-
+export const requestNotificationPermission = async () => {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
   const permission = await Notification.requestPermission();
-  
-  if (permission === 'granted' && isPushSupported()) {
-    await registerAndSubscribePush();
-  }
-  
-  return permission;
+  return permission === 'granted';
 };
 
-/**
- * Registra o Service Worker e cria a assinatura de Push
- */
-const registerAndSubscribePush = async () => {
-  try {
-    const registration = await navigator.serviceWorker.register('/sw.js');
-    console.log('SW registrado para Push:', registration);
+export const showNotification = (title: string, options?: NotificationOptions & { url?: string }) => {
+  if (Notification.permission === 'granted') {
+    const notification = new Notification(title, {
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-192x192.png',
+      ...options
+    });
 
-    // Chave VAPID pública válida (exemplo)
-    // Em produção, use process.env.VITE_VAPID_PUBLIC_KEY
-    const publicVapidKey = 'BEl62vp9IHZisOV0QXZf8azm2vVvF-W66XlE16-96WqL_K5f3tF7_p03-B5_6-6WqL_K5f3tF7_p03-B5_6-6WqL_K5f3tF7_p03';
-    
-    let subscription = await registration.pushManager.getSubscription();
-    
-    if (!subscription) {
-      try {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicVapidKey)
-        });
-      } catch (subError) {
-        console.warn('Assinatura de Push não disponível ou chave inválida:', subError);
-        return null;
-      }
-    }
-
-    // Aqui você enviaria a 'subscription' para o seu backend via Supabase/API
-    // console.log('Push Subscription Ativa:', JSON.stringify(subscription));
-    return subscription;
-  } catch (error) {
-    console.error('Falha ao assinar Push:', error);
+    notification.onclick = () => {
+      window.focus();
+      if (options?.url) window.location.href = options.url;
+      notification.close();
+    };
   }
 };
 
-interface ShowNotificationOptions {
-  body: string;
-  icon?: string;
-  url?: string;
-  tag?: string;
-}
-
-/**
- * Dispara uma notificação local (fallback ou imediata)
- */
-export const showNotification = async (title: string, options: ShowNotificationOptions) => {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
-  try {
-    // Tenta usar o Service Worker para mostrar a notificação (melhor para mobile/background)
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready;
-      registration.showNotification(title, {
-        body: options.body,
-        icon: options.icon || '/icon-192x192.png',
-        tag: options.tag || 'general',
-        data: { url: options.url || '/' },
-        vibrate: [200, 100, 200]
-      } as any);
-    } else {
-      // Fallback para Notificação de Janela clássica
-      const notification = new Notification(title, {
-        body: options.body,
-        icon: options.icon || '/icon-192x192.png',
-      });
-      notification.onclick = () => {
-        window.focus();
-        if (options.url) window.location.href = options.url;
-        notification.close();
-      };
-    }
-  } catch (error) {
-    console.warn("Erro ao exibir notificação:", error);
-  }
-};
-
-/**
- * Gera título e corpo da notificação baseado no tipo
- */
-export const getNotificationContent = (type: NotificationType, actorName: string, groupName?: string) => {
+export const getNotificationContent = (type: string, actorName: string, context?: string) => {
   switch (type) {
-    case NotificationType.MESSAGE:
-      return { title: `Nova Mensagem de ${actorName}`, body: 'Toque para responder.' };
-    case NotificationType.GROUP_POST:
-      return { title: `Nova mensagem em ${groupName}`, body: `${actorName} enviou algo no grupo.` };
-    case NotificationType.LIKE:
-      return { title: 'Nova Curtida', body: `${actorName} curtiu sua publicação.` };
-    case NotificationType.COMMENT:
-      return { title: 'Novo Comentário', body: `${actorName} comentou no seu post.` };
-    case NotificationType.NEW_FOLLOWER:
-      return { title: 'Novo Seguidor', body: `${actorName} começou a te seguir.` };
-    case NotificationType.INDICATION:
-      return { title: 'Indicação', body: `${actorName} indicou um conteúdo para você.` };
-    case NotificationType.AFFILIATE_SALE:
-      return { title: 'Venda Realizada!', body: 'Você recebeu uma comissão.' };
+    case 'LIKE':
+      return { title: 'Novo Like! ❤️', body: `${actorName} curtiu sua publicação.` };
+    case 'COMMENT':
+      return { title: 'Novo Comentário! 💬', body: `${actorName} comentou: "${context || '...'}"` };
+    case 'FOLLOW':
+      return { title: 'Novo Seguidor! 👤', body: `${actorName} começou a te seguir.` };
+    case 'MENTION':
+      return { title: 'Menção! @', body: `${actorName} mencionou você.` };
+    case 'SALE':
+      return { title: 'VENDA REALIZADA! 🔥', body: `Parabéns! Você vendeu um ${context || 'produto'}. Confira os detalhes.` };
     default:
-      return { title: 'Nova Notificação', body: 'Você tem uma nova interação no CyBerPhone.' };
+      return { title: 'Nova Notificação', body: `${actorName} interagiu com você.` };
   }
 };
 
 /**
- * Utilitário para converter chave VAPID
+ * Real-time listener for new sales targeting vendors.
  */
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
+export const listenForNewSales = (vendorId: string, onNewSale: (sale: any) => void) => {
+  if (!db) return () => {};
+
+  const salesRef = collection(db, 'sales');
+  // We look for any sale where sellerId is the user
+  const q = query(
+    salesRef, 
+    where('sellerId', '==', vendorId),
+    orderBy('timestamp', 'desc'),
+    limit(1)
+  );
+
+  let initialLoad = true;
+
+  return onSnapshot(q, (snapshot) => {
+    if (initialLoad) {
+      initialLoad = false;
+      return;
+    }
+
+    snapshot.docChanges().forEach((change) => {
+        // Only trigger for newly ADDED documents in the query
+        if (change.type === 'added') {
+           const sale = change.doc.data();
+           onNewSale(sale);
+        }
+    });
+  }, (error) => {
+      console.error("Error listening for sales:", error);
+  });
+};

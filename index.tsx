@@ -38,4 +38,25 @@ try {
   `;
 }
 
-// Service worker registration will be handled automatically by vite-plugin-pwa
+import { Workbox } from 'workbox-window';
+
+// Service worker registration
+if ('serviceWorker' in navigator && window.self === window.top && import.meta.env.PROD) {
+  const wb = new Workbox('/sw.js');
+
+  wb.addEventListener('activated', (event) => {
+    if (!event.isUpdate) {
+      console.log('[PWA] Service Worker ativado pela primeira vez!');
+    } else {
+      console.log('[PWA] Service Worker atualizado!');
+    }
+  });
+
+  wb.register().then(registration => {
+    console.log('[PWA] Service Worker registrado com sucesso:', registration?.scope);
+  }).catch(err => {
+    console.error('[PWA] Falha ao registrar Service Worker:', err);
+  });
+} else if (window.self !== window.top) {
+  console.log('[PWA] Rodando dentro de um iframe. Registro de Service Worker pulado.');
+}

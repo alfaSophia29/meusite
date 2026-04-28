@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, AffiliateSale, Product, Store, Page } from '../types';
 import { getSalesByAffiliateId, getProducts, getAffiliateLinks, saveAffiliateLink } from '../services/storageService';
+import { getAoaExchangeRate } from '../services/currencyService';
 import { ChartBarIcon, ClipboardDocumentCheckIcon, LinkIcon, PresentationChartLineIcon, ShoppingBagIcon, SparklesIcon, TrophyIcon, MagnifyingGlassIcon, ArrowTopRightOnSquareIcon, FireIcon } from '@heroicons/react/24/outline';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 
@@ -30,6 +31,15 @@ const AffiliatesPage: React.FC<AffiliatesPageProps> = ({ currentUser, onNavigate
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [exchangeRate, setExchangeRate] = useState(930);
+
+  useEffect(() => {
+    const fetchRate = async () => {
+      const rate = await getAoaExchangeRate();
+      setExchangeRate(rate);
+    };
+    fetchRate();
+  }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -54,10 +64,10 @@ const AffiliatesPage: React.FC<AffiliatesPageProps> = ({ currentUser, onNavigate
     const totalCommission = myAffiliateSales.reduce((sum, sale) => sum + sale.commissionEarned, 0);
     return {
       salesCount: myAffiliateSales.length,
-      totalSalesValue: totalSalesValue.toLocaleString('pt-BR', { style: 'currency', currency: 'USD' }),
-      totalCommission: totalCommission.toLocaleString('pt-BR', { style: 'currency', currency: 'USD' }),
+      totalSalesValue: `$${totalSalesValue.toFixed(2)} (≈ ${(totalSalesValue * exchangeRate).toLocaleString()} KZ)`,
+      totalCommission: `$${totalCommission.toFixed(2)} (≈ ${(totalCommission * exchangeRate).toLocaleString()} KZ)`,
     };
-  }, [myAffiliateSales]);
+  }, [myAffiliateSales, exchangeRate]);
 
   const handleGenerateLink = async (productId: string) => {
     const product = allProducts.find(p => p.id === productId);

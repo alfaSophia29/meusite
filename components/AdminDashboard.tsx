@@ -461,7 +461,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                <div className="space-y-12 animate-fade-in">
                   <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                {[
-                 { label: 'Receita Total', val: `$${data.revenue.toFixed(2)}`, color: 'text-green-500', icon: BanknotesIcon },
+                 { label: 'Receita Total', val: `$${data.revenue.toFixed(2)}`, subVal: `≈ ${(data.revenue * exchangeRate).toLocaleString()} KZ`, color: 'text-green-500', icon: BanknotesIcon },
                  { label: 'Usuários Ativos', val: data.users.length, color: 'text-blue-500', icon: UserGroupIcon },
                  { label: 'Tickets Suporte', val: data.tickets.filter(t => t.status === 'OPEN').length, color: 'text-red-500', icon: LifebuoyIcon, highlight: data.tickets.some(t => t.status === 'OPEN') },
                  { label: 'Publicações', val: data.posts.length, color: 'text-purple-500', icon: NewspaperIcon },
@@ -477,6 +477,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                        <s.icon className={`h-4 w-4 ${s.highlight ? 'text-red-500 animate-pulse' : 'text-white/20'}`} />
                     </div>
                     <p className={`text-xl md:text-4xl font-black tracking-tighter ${s.color}`}>{s.val}</p>
+                    {s.subVal && <p className="text-[10px] font-black text-green-600 uppercase mt-1">{s.subVal}</p>}
                     {s.highlight && <p className="text-[8px] font-black text-red-500 uppercase mt-2">Ação Requerida</p>}
                  </div>
                ))}
@@ -534,7 +535,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                  className="flex-1 bg-emerald-500/5 border border-emerald-500/20 rounded-xl py-3 text-center"
                                >
                                   <p className="font-black text-lg text-emerald-400 tracking-tighter">${(user.balance || 0).toFixed(2)}</p>
-                                  <p className="text-[8px] font-black uppercase text-emerald-500/60">Saldo</p>
+                                  <p className="text-[8px] font-black text-green-500 uppercase">≈ {((user.balance || 0) * exchangeRate).toLocaleString()} KZ</p>
                                </button>
 
                                <div className="flex gap-2">
@@ -594,6 +595,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                          className="group/bal bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl px-6 py-4 transition-all flex flex-col items-center min-w-[140px] shadow-inner"
                                         >
                                            <p className="font-black text-xl text-emerald-400 tracking-tighter group-hover/bal:scale-110 transition-transform">${(user.balance || 0).toFixed(2)}</p>
+                                           <p className="text-[10px] font-black text-green-500 uppercase">≈ {((user.balance || 0) * exchangeRate).toLocaleString()} KZ</p>
                                            <div className="flex items-center gap-1 mt-1">
                                               <CurrencyDollarIcon className="h-3 w-3 text-emerald-500/60" />
                                               <p className="text-[8px] font-black uppercase text-emerald-500/60">Ajustar Saldo</p>
@@ -889,6 +891,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                   <p className="text-xs font-black text-gray-100 uppercase truncate">{prod.name}</p>
                                   <div className="flex items-center gap-2 mt-1">
                                      <p className="text-sm font-black text-blue-500">${prod.price.toFixed(2)}</p>
+                                     <p className="text-[10px] font-black text-green-600 uppercase">≈ {(prod.price * exchangeRate).toLocaleString()} KZ</p>
                                      <span className="text-[8px] font-black text-green-500 uppercase bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">
                                         {(prod.affiliateCommissionRate * 100).toFixed(0)}% Comis.
                                      </span>
@@ -924,6 +927,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                      </td>
                                      <td className="px-8 py-6">
                                         <p className="text-sm font-black text-blue-600">${prod.price.toFixed(2)}</p>
+                                        <p className="text-[10px] font-black text-green-600 uppercase">≈ {(prod.price * exchangeRate).toLocaleString()} KZ</p>
                                         <p className="text-[9px] font-bold text-green-500 uppercase">Comissão: {(prod.affiliateCommissionRate * 100).toFixed(0)}%</p>
                                      </td>
                                      <td className="px-8 py-6 text-right">
@@ -983,7 +987,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                    <div className="p-8 border-b border-white/5 flex items-center justify-between">
                       <h3 className="font-black uppercase tracking-widest text-sm">Transações Recentes</h3>
                       <div className="bg-green-500/10 text-green-500 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-green-500/20">
-                         Receita Bruta: ${data.revenue.toFixed(2)}
+                         Receita Bruta: ${data.revenue.toFixed(2)} (≈ {(data.revenue * exchangeRate).toLocaleString()} KZ)
                       </div>
                    </div>
                    <div className="divide-y divide-white/[0.03]">
@@ -1003,6 +1007,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                </div>
                                <div className={`font-black text-xs md:text-sm whitespace-nowrap ml-4 ${tx.type === TransactionType.DEPOSIT ? 'text-green-500' : 'text-white'}`}>
                                   {tx.type === TransactionType.DEPOSIT ? '+' : ''}${tx.amount.toFixed(2)}
+                                  <p className="text-[10px] font-black text-green-600 uppercase mt-0.5">≈ {(tx.amount * exchangeRate).toLocaleString()} KZ</p>
                                </div>
                             </div>
                          ))
@@ -1200,7 +1205,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
                                   <div className="flex flex-wrap items-center gap-4 text-[10px] font-black text-gray-500 uppercase tracking-widest pt-2">
                                      <span className="bg-white/5 px-3 py-1 rounded-lg">ID: {sale.id.slice(-8)}</span>
-                                     <span className="text-white bg-blue-600 px-3 py-1 rounded-lg">VALOR EM ESCROW: ${sale.totalAmount.toFixed(2)}</span>
+                                     <span className="text-white bg-blue-600 px-3 py-1 rounded-lg">VALOR EM ESCROW: ${sale.totalAmount.toFixed(2)} (≈ {(sale.totalAmount * exchangeRate).toLocaleString()} KZ)</span>
                                      <span>Data: {new Date(sale.timestamp).toLocaleDateString()}</span>
                                   </div>
                                </div>

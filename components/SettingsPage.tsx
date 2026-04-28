@@ -6,6 +6,7 @@ import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { isFirebaseConfigured } from '../services/firebaseClient';
 import { useDialog } from '../services/DialogContext';
 import { Github } from 'lucide-react';
+import { requestNotificationPermission, showNotification } from '../services/notificationService';
 import { 
   UserIcon, 
   PaintBrushIcon, 
@@ -26,7 +27,8 @@ import {
   LanguageIcon,
   GlobeAltIcon,
   ArrowDownTrayIcon,
-  NoSymbolIcon
+  NoSymbolIcon,
+  BellIcon
 } from '@heroicons/react/24/outline';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -479,6 +481,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       items: [
         { label: 'Editar Perfil & Senha', desc: 'Nome, bio, foto e segurança', icon: UserIcon, onClick: () => setView('edit-profile') },
         { label: 'Visual e Estilo', desc: 'Cores e Modo Dark', icon: PaintBrushIcon, onClick: () => setView('appearance') },
+        { 
+          label: 'Notificações no Celular', 
+          desc: 'Alerta na barra de tarefas', 
+          icon: BellIcon, 
+          onClick: async () => {
+            const granted = await requestNotificationPermission();
+            if (granted) {
+              showNotification("Notificações Ativadas!", { body: "Você agora receberá alertas de vendas e mensagens aqui." });
+              showAlert("Notificações ativadas com sucesso!", { type: 'success' });
+            } else {
+              showAlert("Permissão negada ou não suportada no navegador.", { type: 'error' });
+            }
+          } 
+        },
         { label: 'Usuários Bloqueados', desc: 'Gerenciar lista negra', icon: NoSymbolIcon, onClick: () => onNavigate('blocked-users') },
         { label: 'Idioma do Sistema', desc: 'Alterar linguagem global', icon: LanguageIcon, onClick: () => setView('language') }
       ]

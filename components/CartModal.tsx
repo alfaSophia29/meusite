@@ -1,9 +1,9 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { CartItem, Product, User, ShippingAddress, ProductType, CARRIERS, Carrier } from '../types';
 import { updateUserBalance, saveUserAddress, getCart, getProducts, updateCartItemQuantity, removeFromCart, processProductPurchase } from '../services/storageService';
 import { getExchangeRates, ExchangeRates } from '../services/currencyService';
-import { XMarkIcon, PlusIcon, MinusIcon, TrashIcon, QrCodeIcon, BanknotesIcon, ShoppingBagIcon, ArrowRightIcon, MapPinIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, PlusIcon, MinusIcon, TrashIcon, QrCodeIcon, BanknotesIcon, ShoppingBagIcon, ArrowRightIcon, MapPinIcon, TruckIcon } from '@heroicons/react/24/outline';
 import { CheckIcon, ShieldCheckIcon, BoltIcon, ExclamationTriangleIcon } from '@heroicons/react/24/solid';
 import CryptomusPaymentForm from './CryptomusPaymentForm';
 
@@ -33,6 +33,8 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
   const [saveAddress, setSaveAddress] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState<'balance' | 'pix' | 'card' | 'cryptomus' | null>(null);
   const [formError, setFormError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -46,7 +48,10 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
         setExchangeRates(rates);
         setView('cart');
         setFormError('');
+        setIsProcessing(false);
+        setFormError('');
         setSelectedPayment(null);
+        processingRef.current = false;
         if (currentUser.address) {
           setShippingDetails(currentUser.address);
         }
@@ -70,6 +75,18 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
 
   const subtotal = useMemo(() => detailedCartItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0), [detailedCartItems]);
 
+  const shippingTotal = useMemo(() => {
+    return detailedCartItems.reduce((sum, item) => {
+      if (item.product.type === ProductType.PHYSICAL && !item.product.hasFreeShipping) {
+        // Here we assume shipping is per product, not per quantity, but this can be adjusted
+        return sum + (item.product.shippingFee || 0);
+      }
+      return sum;
+    }, 0);
+  }, [detailedCartItems]);
+
+  const grandTotal = subtotal + shippingTotal;
+
   const currencySymbols = {
     USD: '$',
     BRL: 'R$',
@@ -87,14 +104,15 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
     if (!shippingDetails.state) return CARRIERS;
     // Lógica de filtro por país/estado se disponível, por enquanto geral
     return CARRIERS.filter(c => {
-       if (selectedCurrency === 'AOA') return c.countries.includes('Angola');
-       return !c.countries.includes('Angola') || c.id === 'dhl' || c.id === 'ups';
+      if (selectedCurrency === 'AOA') return c.countries.includes('Angola');
+      return !c.countries.includes('Angola') || c.id === 'dhl' || c.id === 'ups';
     });
   }, [selectedCurrency, shippingDetails.state]);
 
   const hasInsufficientBalance = (currentUser.balance || 0) < subtotal;
 
   const handleConfirmPurchase = () => {
+    if (isProcessing || processingRef.current) return;
     if (selectedPayment === 'balance' && hasInsufficientBalance) {
       setFormError('Saldo insuficiente na sua carteira CyBer.');
       return;
@@ -109,31 +127,44 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
   };
 
   const executeFinalPurchase = () => {
+    if (isProcessing || processingRef.current) return;
+    setIsProcessing(true);
+    processingRef.current = true;
     setView('processing');
     
     // Tenta recuperar o ID do afiliado salvo no navegador
     const affiliateId = localStorage.getItem('cyber_referrer_id');
 
     setTimeout(async () => {
-      // Se o usuário optou por salvar o endereço
-      if (saveAddress) {
-        await saveUserAddress(currentUser.id, shippingDetails);
-      }
+      try {
+        // Se o usuário optou por salvar o endereço
+        if (saveAddress) {
+          await saveUserAddress(currentUser.id, shippingDetails);
+        }
 
-      // Se for saldo, desconta primeiro
-      if (selectedPayment === 'balance') {
-         await updateUserBalance(currentUser.id, -subtotal);
-      }
-      
-      const carrierInfo = selectedCarrier ? { id: selectedCarrier.id, name: selectedCarrier.name } : undefined;
-      const success = await processProductPurchase(cartItems, currentUser.id, affiliateId, shippingDetails, carrierInfo);
-      if (success) {
-        refreshUser();
-        onCartUpdate();
-        setView('success');
-      } else {
-        setFormError('Erro ao processar compra.');
+        // REMOVIDO: updateUserBalance redundante (já feito no processProductPurchase)
+        
+        const carrierInfo = selectedCarrier ? { id: selectedCarrier.id, name: selectedCarrier.name } : undefined;
+        const success = await processProductPurchase(cartItems, currentUser.id, affiliateId, shippingDetails, carrierInfo);
+        
+        if (success) {
+          refreshUser();
+          onCartUpdate();
+          setView('success');
+          // processingRef remains true until modal is closed/reopened or reset in success view if needed
+          // but usually on success we just close the modal.
+        } else {
+          setFormError('Erro ao processar compra. Verifique sua conexão ou saldo.');
+          setView('payment');
+          setIsProcessing(false);
+          processingRef.current = false;
+        }
+      } catch (err) {
+        console.error("Purchase error:", err);
+        setFormError('Erro crítico ao processar compra.');
         setView('payment');
+        setIsProcessing(false);
+        processingRef.current = false;
       }
     }, 2500);
   };
@@ -382,10 +413,42 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
         </div>
 
         {view !== 'success' && view !== 'processing' && view !== 'cryptomus' && detailedCartItems.length > 0 && (
-          <div className="p-5 xs:p-8 border-t border-gray-100 dark:border-white/10">
-            <div className="flex justify-between items-end mb-4 xs:mb-6">
-               <span className="text-[8px] xs:text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</span>
-               <span className="text-2xl xs:text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{formatPrice(subtotal)}</span>
+          <div className="p-5 xs:p-8 border-t border-gray-100 dark:border-white/10 space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Subtotal</span>
+                <span className="text-base font-black text-gray-900 dark:text-white tracking-tighter">{formatPrice(subtotal)}</span>
+              </div>
+              
+              {detailedCartItems.some(i => i.product.type === ProductType.PHYSICAL) && (
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Frete</span>
+                  <span className="text-xs font-black text-gray-600 dark:text-gray-300 tracking-tighter">
+                    {shippingTotal === 0 ? (
+                      <span className="text-green-600">Grátis</span>
+                    ) : (
+                      <>
+                        ${shippingTotal.toFixed(2)} 
+                        <span className="text-[10px] ml-1 text-blue-600 opacity-80">
+                          (≈ {(shippingTotal * (exchangeRates.AOA || 930)).toLocaleString()} KZ)
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-end mb-4 xs:mb-6 pt-2 border-t border-gray-50 dark:border-white/5">
+               <span className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest">Total</span>
+               <span className="text-2xl xs:text-3xl font-black text-blue-600 tracking-tighter">
+                 {formatPrice(grandTotal)}
+                 {selectedCurrency === 'USD' && (
+                   <span className="block text-[10px] font-black text-green-600 uppercase tracking-tighter">
+                     ≈ {(grandTotal * (exchangeRates.AOA || 930)).toLocaleString()} KZ
+                   </span>
+                 )}
+               </span>
             </div>
 
             {view === 'cart' && (
@@ -415,10 +478,10 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
             {view === 'payment' && (
               <button 
                 onClick={handleConfirmPurchase} 
-                disabled={!selectedPayment || (selectedPayment === 'balance' && hasInsufficientBalance)} 
-                className={`w-full py-4 xs:py-5 rounded-[1.5rem] xs:rounded-[2rem] font-black text-xs xs:text-sm text-white shadow-xl transition-all ${selectedPayment === 'balance' && hasInsufficientBalance ? 'bg-gray-400' : 'bg-black dark:bg-white dark:text-black'}`}
+                disabled={isProcessing || !selectedPayment || (selectedPayment === 'balance' && hasInsufficientBalance)} 
+                className={`w-full py-4 xs:py-5 rounded-[1.5rem] xs:rounded-[2rem] font-black text-xs xs:text-sm text-white shadow-xl transition-all ${isProcessing || (selectedPayment === 'balance' && hasInsufficientBalance) ? 'bg-gray-400' : 'bg-black dark:bg-white dark:text-black'}`}
               >
-                {selectedPayment === 'balance' && hasInsufficientBalance ? 'Saldo Insuficiente' : 'Pagar Agora'}
+                {isProcessing ? 'Processando...' : (selectedPayment === 'balance' && hasInsufficientBalance ? 'Saldo Insuficiente' : 'Pagar Agora')}
               </button>
             )}
           </div>

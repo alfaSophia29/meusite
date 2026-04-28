@@ -189,6 +189,11 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
               <span className="bg-blue-600 text-white text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg shadow-sm">
                 {product.type === ProductType.PHYSICAL ? 'Físico' : 'Digital'}
               </span>
+              {product.condition && (
+                <span className={`text-white text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg shadow-sm ${product.condition === 'NEW' ? 'bg-green-600' : 'bg-orange-600'}`}>
+                  {product.condition === 'NEW' ? 'Novo' : 'Usado'}
+                </span>
+              )}
               {product.isAvailableForDropshipping && (
                 <span className="bg-purple-600 text-white text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg shadow-sm">
                   Dropshipping
@@ -241,7 +246,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
                   <div className="text-right">
                     <p className="text-[10px] font-black uppercase text-gray-400">Frete</p>
                     <p className={`text-xs font-black uppercase ${product.hasFreeShipping ? 'text-green-600' : 'text-gray-900'}`}>
-                      {product.hasFreeShipping ? 'Grátis para você' : `R$ ${product.shippingFee?.toFixed(2)}`}
+                      {product.hasFreeShipping ? 'Grátis para você' : `$${product.shippingFee?.toFixed(2)} (≈ ${(product.shippingFee! * exchangeRate).toLocaleString()} KZ)`}
                     </p>
                   </div>
                </div>
