@@ -161,52 +161,56 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       }));
       setBuyerProfiles(profiles);
 
-      // Deduplicação Inteligente:
-      // 1. Primeiro por ID único (Garantia técnica)
-      // 2. Depois por Logica (Mesmo comprador, mesmo produto, mesmo minuto) para evitar pânico de cliques duplos
-      const dedupedSalesMap = new Map<string, AffiliateSale>();
-      
-      allSales
-        .sort((a, b) => a.timestamp - b.timestamp) // Processar os mais antigos primeiro para que os novos (com status possivelmente atualizado) substituam
-        .forEach(sale => {
-          if (!sale.id) return;
-          
-          // Chave lógica: Comprador + Produto + Dia + Hora + Minuto
-          // Isso agrupa cliques duplos ou erros de rede que geraram múltiplos IDs para a mesma intenção
-          const date = new Date(sale.timestamp);
-          const timeKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}`;
-          const logicalKey = `${sale.buyerId}-${sale.productId}-${timeKey}`;
-          
-          const existing = dedupedSalesMap.get(logicalKey);
-          
-          // Se não existe ou se o novo registro tem um status mais "avançado" (ex: saiu de WAITLIST)
-          if (!existing) {
-            dedupedSalesMap.set(logicalKey, sale);
-          } else {
-            // Se já existe um registro para esse "momento lógico", mantemos o que tem ID ou Status mais relevante
-            // Por padrão, mantemos o primeiro (mais antigo do loop sort) ou atualizamos se o status for superior
-            const statusPriority: Record<string, number> = {
-              [OrderStatus.WAITLIST]: 1,
-              [OrderStatus.PROCESSING]: 2,
-              [OrderStatus.PROCESSING_SUPPLIER]: 3,
-              [OrderStatus.SHIPPING]: 4,
-              [OrderStatus.DELIVERED]: 5,
-              [OrderStatus.COMPLETED]: 6
-            };
-            
-            if (statusPriority[sale.status] > statusPriority[existing.status]) {
-              dedupedSalesMap.set(logicalKey, sale);
-            }
+      // Deduplicação Avançada:
+      // 1. Primeiro por ID único (Garantia técnica absoluta contra duplicatas de rede)
+      // 2. Depois por Logica de Sessão (Mesmo comprador + mesmo produto + janela de 30 min) 
+      // Isso resolve o problema de múltiplos registros gerados por erro de processamento ou re-cliques
+      const idDedupedMap = new Map<string, AffiliateSale>();
+      allSales.forEach(s => {
+        if (s.id) {
+          const existing = idDedupedMap.get(s.id);
+          // Se tiver IDs duplicados, mantemos o que tiver status mais avançado
+          if (!existing || statusRank(s.status) > statusRank(existing.status)) {
+            idDedupedMap.set(s.id, s);
           }
+        }
+      });
+
+      const uniqueByContentMap = new Map<string, AffiliateSale>();
+      Array.from(idDedupedMap.values())
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .forEach(sale => {
+          // Janela de 30 minutos para agrupar tentativas de compra repetidas
+          const date = new Date(sale.timestamp);
+          const hourKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+          const halfHour = Math.floor(date.getMinutes() / 30);
+          const logicalKey = `${sale.buyerId}-${sale.productId}-${hourKey}-${halfHour}`;
           
-          // Sempre garantir que o ID original está mapeado se for uma busca direta, 
-          // mas aqui estamos limpando a LISTA para o dono da loja
+          const existing = uniqueByContentMap.get(logicalKey);
+          
+          if (!existing || statusRank(sale.status) > statusRank(existing.status)) {
+            uniqueByContentMap.set(logicalKey, sale);
+          }
         });
       
-      const finalSales = Array.from(dedupedSalesMap.values());
+      const finalSales = Array.from(uniqueByContentMap.values());
       setStoreSales(finalSales.sort((a, b) => b.timestamp - a.timestamp));
     }
     setLoading(false);
+  };
+
+  // Helper para ranking de status
+  const statusRank = (status: string) => {
+    const ranks: Record<string, number> = {
+      [OrderStatus.WAITLIST]: 1,
+      [OrderStatus.PROCESSING]: 2,
+      [OrderStatus.PROCESSING_SUPPLIER]: 3,
+      [OrderStatus.SHIPPING]: 4,
+      [OrderStatus.DELIVERED]: 5,
+      [OrderStatus.COMPLETED]: 6,
+      [OrderStatus.DISPUTED]: 0
+    };
+    return ranks[status] || 0;
   };
 
   useEffect(() => {
@@ -696,20 +700,35 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                          )}
                                       </div>
 
-                                      <div className="bg-gray-100 dark:bg-white/5 p-6 rounded-[2rem] border dark:border-white/5">
+                                      <div className="bg-gray-100 dark:bg-white/5 p-6 rounded-[2rem] border dark:border-white/5 relative group">
                                          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                                             <TruckIcon className="h-4 w-4" /> Endereço de Entrega
                                          </p>
                                          {sale.shippingAddress ? (
-                                           <div className="space-y-1">
-                                              <p className="text-sm font-black text-gray-800 dark:text-gray-200 uppercase leading-snug">{sale.shippingAddress.address}</p>
-                                              <p className="text-xs text-gray-500 font-bold uppercase">{sale.shippingAddress.city}, {sale.shippingAddress.state}</p>
-                                              <p className="text-[10px] text-gray-400 font-mono tracking-widest">{sale.shippingAddress.zipCode}</p>
-                                           </div>
+                                           <>
+                                             <div className="space-y-1">
+                                                <p className="text-sm font-black text-gray-800 dark:text-gray-200 uppercase leading-snug">{sale.shippingAddress.address}</p>
+                                                <p className="text-xs text-gray-500 font-bold uppercase">{sale.shippingAddress.city}, {sale.shippingAddress.state}</p>
+                                                <p className="text-[10px] text-gray-400 font-mono tracking-widest">{sale.shippingAddress.zipCode}</p>
+                                             </div>
+                                             <button 
+                                               onClick={() => {
+                                                 const addr = sale.shippingAddress;
+                                                 if (addr) {
+                                                   navigator.clipboard.writeText(`${addr.address}, ${addr.city} - ${addr.state}, CEP: ${addr.zipCode}`);
+                                                   showAlert("Endereço copiado!", { type: 'success' });
+                                                 }
+                                               }}
+                                               className="absolute top-4 right-4 p-2 bg-white dark:bg-white/10 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                                               title="Copiar Endereço Completo"
+                                             >
+                                               <ShareIcon className="h-3 w-3 text-blue-600" />
+                                             </button>
+                                           </>
                                          ) : (
                                             <p className="text-xs text-gray-400 font-bold italic">Endereço não informado.</p>
                                          )}
-                                      </div>
+                                       </div>
                                    </div>
                                    
                                    <div className="flex flex-wrap items-center gap-6 mt-6">
