@@ -895,8 +895,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
 
        {/* MODAL DE IMPORTAÇÃO (CALCULADORA DE LUCRO) */}
        {importModal && (
-           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-fade-in" onClick={() => setImportModal(null)}>
-               <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10" onClick={e => e.stopPropagation()}>
+           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" onClick={() => setImportModal(null)}>
+               <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 my-auto" onClick={e => e.stopPropagation()}>
                    <button onClick={() => setImportModal(null)} className="absolute top-6 right-6 p-2 bg-gray-50 dark:bg-white/5 rounded-full text-gray-400 hover:text-red-500 transition-all"><XMarkIcon className="h-6 w-6" /></button>
                    
                    <div className="flex items-center gap-4 mb-8">
@@ -969,9 +969,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
 
        {/* Modal de Novo Produto Próprio (AliExpress Style) */}
        {isAddingProduct && (
-         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-fade-in" onClick={() => setIsAddingProduct(false)}>
+         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-start sm:items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto" onClick={() => setIsAddingProduct(false)}>
             <div 
-              className="bg-white dark:bg-[#1a1a1a] w-full max-w-3xl rounded-[2rem] shadow-2xl relative border border-white/10 max-h-[90vh] overflow-hidden flex flex-col" 
+              className="bg-white dark:bg-[#1a1a1a] w-full max-w-3xl rounded-[2rem] shadow-2xl relative border border-white/10 my-auto max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col" 
               onClick={e => e.stopPropagation()}
             >
                {/* Header */}
@@ -1372,8 +1372,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
        )}
 
        {trackingModal && (
-         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-fade-in" onClick={() => setTrackingModal(null)}>
-            <div className="bg-white dark:bg-darkcard w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10" onClick={e => e.stopPropagation()}>
+         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" onClick={() => setTrackingModal(null)}>
+            <div className="bg-white dark:bg-darkcard w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 my-auto" onClick={e => e.stopPropagation()}>
                <h3 className="text-xl font-black dark:text-white uppercase tracking-tight mb-6">Dados de Envio</h3>
                <div className="space-y-4">
                   <div>

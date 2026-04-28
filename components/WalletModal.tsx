@@ -98,9 +98,9 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-2 xs:p-4 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-start sm:items-center justify-center p-2 xs:p-4 animate-fade-in overflow-y-auto" onClick={onClose}>
       <div 
-        className="bg-white dark:bg-[#111318] w-full max-w-xl rounded-[2.5rem] xs:rounded-[3rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] p-5 xs:p-8 md:p-12 relative border border-white/10 overflow-y-auto max-h-[95vh] no-scrollbar"
+        className="bg-white dark:bg-[#111318] w-full max-w-xl rounded-[2.5rem] xs:rounded-[3rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] p-5 xs:p-8 md:p-12 relative border border-white/10 my-auto max-h-fit overflow-visible"
         onClick={e => e.stopPropagation()}
       >
         <button onClick={onClose} className="absolute top-5 right-5 xs:top-8 xs:right-8 p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 rounded-full transition-all">
