@@ -341,6 +341,8 @@ export interface AffiliateSale {
   supplierCost?: number;
   supplierOrderId?: string;
   trackingCode?: string;
+  sellerEarnings?: number;
+  affiliateEarnings?: number;
 }
 
 export interface ShippingAddress {

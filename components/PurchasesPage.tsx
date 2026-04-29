@@ -423,8 +423,8 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
 
        {/* Modal de Confirmação Rigorosa */}
        {rigorousConfirmModal && (
-         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto">
-           <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-6 xs:p-10 shadow-2xl relative border-2 border-green-500/30 my-4 sm:my-auto max-h-fit overflow-visible">
+         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto pt-10 pb-10">
+           <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-6 xs:p-10 shadow-2xl relative border-2 border-green-500/30 my-auto h-auto max-h-none overflow-visible">
               <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none hidden sm:block">
                  <ShieldCheckIcon className="h-32 w-32 text-green-500" />
               </div>

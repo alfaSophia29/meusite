@@ -1936,7 +1936,7 @@ export const getSalesByAffiliateId = async (uid: string) => {
 export const getAffiliateLinks = async (uid: string) => {
     if (!db) return [];
     const snap = await getDocs(query(collection(db, 'affiliate_links'), where('userId', '==', uid)));
-    return snap.docs.map(d => d.data());
+    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
 };
 
 export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string) => {
