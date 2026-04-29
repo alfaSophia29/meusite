@@ -1,5 +1,14 @@
 
-export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users';
+export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium';
+
+export type MonetizationStatus = 'INELIGIBLE' | 'ELIGIBLE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+
+export enum MonetizationTier {
+  LEVEL_1 = 'LEVEL_1', 
+  LEVEL_2 = 'LEVEL_2', 
+  LEVEL_3 = 'LEVEL_3', 
+  LEVEL_4 = 'LEVEL_4'  
+}
 
 export enum ChatType {
   PRIVATE = 'PRIVATE',
@@ -134,7 +143,8 @@ export interface User {
   lastSeen?: number;
   // Monetização
   isMonetized?: boolean;
-  monetizationStatus?: 'INELIGIBLE' | 'ELIGIBLE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  monetizationStatus?: MonetizationStatus;
+  monetizationTier?: MonetizationTier;
   monetizationGoals?: {
     followersGoal: number;
     watchHoursGoal: number;
@@ -145,6 +155,15 @@ export interface User {
     termsAccepted?: boolean;
     verificationStep?: boolean;
   };
+  creatorStats?: {
+    totalViews: number;
+    totalWatchHours: number;
+    revenueRPM: number; 
+    estimatedEarnings: number;
+    strikes?: number;
+  };
+  isPremium?: boolean;
+  premiumExpiry?: number;
   address?: ShippingAddress;
   country?: string;
 }
@@ -167,6 +186,8 @@ export interface Comment {
   reactions?: Record<string, string[]>; // emoji -> userIds
   replies?: Comment[];
   isAnonymous?: boolean;
+  isSuperChat?: boolean;
+  superChatAmount?: number;
 }
 
 export interface Post {
@@ -193,6 +214,7 @@ export interface Post {
   shares: string[];
   saves: string[];
   isPinned?: boolean;
+  isMonetized?: boolean;
   indicatedUserIds?: string[];
   reactions?: Record<string, string[]>;
   tags?: string[];
@@ -356,18 +378,65 @@ export interface ShippingAddress {
 export interface AdCampaign {
   id: string;
   professorId: string;
+  professorName?: string;
+  name?: string;
   title: string;
   description: string;
   targetAudience: string;
   budget: number;
+  dailyBudget?: number;
+  reachedUsers?: string[];
+  bidStrategy: 'CPM' | 'CPC';
+  bidAmount: number;
   isActive: boolean;
   imageUrl?: string;
+  videoUrl?: string; // NOVO: Suporte a anúncios em vídeo
   linkUrl?: string;
   ctaText?: string;
   timestamp: number;
   minAge?: number;
   maxAge?: number;
-  locations?: string[]; // Locais persistentes (Ex: "BR: São Paulo")
+  locations?: string[]; 
+  categories?: string[];
+  performance?: {
+    impressions: number;
+    clicks: number;
+    spend: number;
+  };
+}
+
+export interface EarningRecord {
+  id: string;
+  creatorId: string;
+  date: string; 
+  adRevenue: number;
+  donationsRevenue: number;
+  subscriptionsRevenue: number;
+  totalDaily: number;
+  viewsCount: number;
+}
+
+export interface UserSubscription {
+  id: string;
+  userId: string;
+  planId: 'FREE' | 'PREMIUM_MONTHLY' | 'PREMIUM_YEARLY';
+  status: 'ACTIVE' | 'CANCELED' | 'EXPIRED';
+  startDate: number;
+  expiryDate: number;
+  autoRenew: boolean;
+}
+
+export interface SuperChat {
+  id: string;
+  chatId: string;
+  userId: string;
+  userName: string;
+  userProfilePic?: string;
+  amount: number;
+  currency: string;
+  message: string;
+  color: string;
+  timestamp: number;
 }
 
 export interface CyberEvent {
@@ -398,6 +467,10 @@ export interface GlobalSettings {
   groupCreationFee?: number;
   storeCreationFee?: number;
   positioningMinBid?: number;
+  monetizationMinFollowers?: number;
+  monetizationMinWatchHours?: number;
+  monetizationMinReelViews?: number;
+  creatorRevenueShare?: number; // Percentual para o criador (ex: 0.7)
 }
 
 export interface CartItem {

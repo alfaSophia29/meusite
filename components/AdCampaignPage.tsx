@@ -136,12 +136,16 @@ const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, refreshUse
       const newAd: AdCampaign = {
         id: generateUUID(),
         professorId: currentUser.id,
+        professorName: `${currentUser.firstName} ${currentUser.lastName}`,
+        name: title,
         title,
         description,
         targetAudience,
         minAge,
         maxAge,
         budget: calculatedTotalBudget,
+        bidStrategy: 'CPM',
+        bidAmount: 0.5, // Default bid
         isActive: true,
         imageUrl,
         linkUrl: linkUrl || '#',

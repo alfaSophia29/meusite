@@ -329,6 +329,8 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({ currentUser, postId
     }
   };
 
+  const [donationMessage, setDonationMessage] = useState('');
+
   const executeDonation = async () => {
     if (!pendingAmount || !creator || !post) return;
     
@@ -339,25 +341,29 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({ currentUser, postId
     
     setIsProcessingDonation(true);
     
-    const success = await processDonation(currentUser.id, creator.id, pendingAmount, `Live: ${post.liveStream?.title || 'Aula'}`);
+    const success = await processDonation(currentUser.id, creator.id, pendingAmount, `Super Chat: ${post.liveStream?.title || 'Aula'}`);
     
     if (success) {
         refreshUser();
         setDonationAlert({ name: currentUser.firstName, amount: pendingAmount });
         
-        const sysMsg: Comment = {
+        const superChatMsg: Comment = {
             id: generateUUID(),
-            userId: 'system',
-            userName: 'Sistema',
-            text: `🎉 ${currentUser.firstName} doou $${pendingAmount}!`,
-            timestamp: Date.now()
+            userId: currentUser.id,
+            userName: currentUser.firstName,
+            text: donationMessage || `🎉 Doou $${pendingAmount}!`,
+            timestamp: Date.now(),
+            profilePic: currentUser.profilePicture,
+            isSuperChat: true,
+            superChatAmount: pendingAmount
         };
-        sendLiveMessage(postId, sysMsg);
+        sendLiveMessage(postId, superChatMsg);
         pulseLiveHeart(postId);
 
         setTimeout(() => setDonationAlert(null), 5000);
         setIsProcessingDonation(false);
         setPendingAmount(null);
+        setDonationMessage('');
         setShowDonationModal(false);
     } else {
         showAlert("Erro ao processar doação.", { type: 'error' });
@@ -503,13 +509,30 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({ currentUser, postId
       {showDonationModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[100] flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowDonationModal(false)}>
            <div className="bg-white dark:bg-[#12141c] w-full max-w-sm rounded-[3rem] p-10 shadow-2xl relative border border-white/5" onClick={e => e.stopPropagation()}>
-              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter text-center mb-8">Apoiar Mestre</h3>
-              <div className="grid grid-cols-3 gap-3 mb-8">
+              <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter text-center mb-8">Super Chat</h3>
+              <div className="grid grid-cols-3 gap-3 mb-6">
                  {[1, 5, 10, 20, 50, 100].map(val => (
-                   <button key={val} onClick={() => setPendingAmount(val)} className={`py-4 rounded-2xl font-black text-sm transition-all ${pendingAmount === val ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-white/5 text-gray-500'}`}>${val}</button>
+                   <button key={val} onClick={() => setPendingAmount(val)} className={`py-4 rounded-2xl font-black text-sm transition-all ${pendingAmount === val ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-white/5 text-gray-500'}`}>${val}</button>
                  ))}
               </div>
-              <button onClick={executeDonation} disabled={!pendingAmount || isProcessingDonation} className="w-full bg-blue-600 text-white py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl transition-all active:scale-95">
+
+              <div className="mb-8">
+                 <input 
+                   type="text" 
+                   placeholder="Enviar mensagem especial..." 
+                   value={donationMessage}
+                   onChange={(e) => setDonationMessage(e.target.value)}
+                   className="w-full bg-gray-100 dark:bg-white/5 border dark:border-white/10 rounded-2xl p-4 text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-blue-600"
+                   maxLength={100}
+                 />
+                 <p className="text-[10px] text-gray-400 font-bold mt-2 text-right">{donationMessage.length}/100</p>
+              </div>
+
+              <button 
+                onClick={executeDonation} 
+                disabled={!pendingAmount || isProcessingDonation} 
+                className="w-full bg-blue-600 text-white py-5 rounded-[2rem] font-black text-xs uppercase shadow-xl transition-all active:scale-95 disabled:grayscale"
+              >
                 {isProcessingDonation ? 'Processando...' : 'Confirmar Envio'}
               </button>
            </div>

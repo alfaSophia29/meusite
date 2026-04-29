@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Post, User, PostType, AudioTrack, Page } from '../types';
+import { Post, User, PostType, AudioTrack, Page, AdCampaign } from '../types';
 import { 
   getPosts, 
   findUserById, 
@@ -10,7 +10,8 @@ import {
   findAudioTrackById, 
   updatePostSaves,
   incrementPostViews,
-  incrementShortsView
+  incrementShortsView,
+  getActiveAds
 } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import {
@@ -437,27 +438,42 @@ const ReelVideo: React.FC<ReelVideoProps> = ({
 };
 
 const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshUser, startPostId }) => {
-  const [reels, setReels] = useState<Post[]>([]);
+  const [reels, setReels] = useState<(Post | AdCampaign)[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleIdx, setVisibleIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isMuted, setIsMuted] = useState(true); // Global mute state
 
   const fetchReels = useCallback(async () => {
-    const allPosts = await getPosts(currentUser.id);
-    const myFollows = currentUser.followedUsers || [];
+    const [allPosts, activeAds] = await Promise.all([
+      getPosts(currentUser.id),
+      getActiveAds()
+    ]);
     
-    // Filtrar por seguidores (ou próprio) e ordenar por visualizações (Trending)
+    const myFollows = currentUser.followedUsers || [];
     const myBlocked = currentUser.blockedUserIds || [];
-    const posts = allPosts
-      .filter(p => p.type === PostType.REEL && !myBlocked.includes(p.userId) && (p.userId === currentUser.id || myFollows.includes(p.userId) || p.isBoosted))
-      .sort((a, b) => (b.views || 0) - (a.views || 0));
-      
-    setReels(posts);
+    
+    const combined: (Post | AdCampaign)[] = [];
+    let adPointer = 0;
+
+    const reelPosts = allPosts
+      .filter((p: any) => p.type === PostType.REEL && !myBlocked.includes(p.userId) && (p.userId === currentUser.id || myFollows.includes(p.userId) || p.isBoosted))
+      .sort((a: any, b: any) => (b.views || 0) - (a.views || 0));
+
+    reelPosts.forEach((post: any, idx: number) => {
+        combined.push(post);
+        // Inject ads every 4 reels for non-premium
+        if (!currentUser.isPremium && (idx + 1) % 4 === 0 && adPointer < activeAds.length) {
+            combined.push(activeAds[adPointer]);
+            adPointer++;
+        }
+    });
+
+    setReels(combined);
     
     // Se houver um post inicial, encontrar o índice
     if (startPostId) {
-      const idx = posts.findIndex(p => p.id === startPostId);
+      const idx = combined.findIndex(p => 'id' in p && p.id === startPostId);
       if (idx !== -1) {
         setVisibleIdx(idx);
         // Pequeno delay para garantir que o DOM renderizou
@@ -469,7 +485,7 @@ const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshU
       }
     }
     setLoading(false);
-  }, [startPostId]);
+  }, [startPostId, currentUser.id, currentUser.followedUsers, currentUser.isPremium, currentUser.blockedUserIds]);
 
   useEffect(() => {
     fetchReels();
@@ -538,26 +554,70 @@ const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshU
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {reels.length > 0 ? (
-          reels.map((r, i) => (
-            <div 
-              key={r.id} 
-              data-idx={i} 
-              className="h-full w-full snap-start snap-always"
-            >
-              <ReelVideo 
-                post={r} 
-                currentUser={currentUser} 
-                onNavigate={onNavigate} 
-                onFollowToggle={handleFollowToggle} 
-                refreshUser={refreshUser} 
-                isIntersecting={i === visibleIdx}
-                onPostUpdate={fetchReels}
-                isMuted={isMuted}
-                onToggleMute={() => setIsMuted(!isMuted)}
-                onVideoEnd={() => handleNextReel(i)}
-              />
-            </div>
-          ))
+          reels.map((r, i) => {
+            const isAd = 'budget' in r;
+            
+            if (isAd) {
+              const ad = r as AdCampaign;
+              return (
+                <div key={ad.id} data-idx={i} className="h-full w-full snap-start snap-always relative flex flex-col items-center justify-center p-12 text-center text-white space-y-8 overflow-hidden bg-black">
+                   <div className="absolute inset-0 bg-gradient-to-br from-brand/20 via-black to-black opacity-60"></div>
+                   
+                   <div className="relative z-10 animate-fade-in group space-y-6">
+                      <img 
+                        src={ad.imageUrl} 
+                        onLoad={() => {
+                           // Contabilizar visualização quando a imagem carregar
+                           import('../services/monetizationService').then(m => {
+                              m.monetizationService.handleAdView(ad.id);
+                           });
+                        }}
+                        className="w-40 h-40 rounded-[2.5rem] object-cover mx-auto border-4 border-white/20 shadow-2xl group-hover:scale-105 transition-transform duration-500" 
+                        alt={ad.name}
+                      />
+                      <div className="space-y-2">
+                        <h2 className="text-3xl font-black uppercase tracking-tighter">{ad.name}</h2>
+                        <p className="text-gray-400 font-bold max-w-xs mx-auto leading-tight">{ad.description}</p>
+                      </div>
+                      <a 
+                        href={ad.linkUrl} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="inline-block bg-brand hover:bg-opacity-90 text-white px-10 py-4 rounded-full font-black text-xs uppercase tracking-widest shadow-xl shadow-brand/20 transition-all active:scale-95"
+                      >
+                         {ad.ctaText || 'Saiba Mais'}
+                      </a>
+                   </div>
+
+                   <div className="absolute bottom-10 left-10 z-10">
+                      <span className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10">Publicidade</span>
+                   </div>
+                </div>
+              );
+            }
+
+            const reel = r as Post;
+            return (
+              <div 
+                key={reel.id} 
+                data-idx={i} 
+                className="h-full w-full snap-start snap-always"
+              >
+                <ReelVideo 
+                  post={reel} 
+                  currentUser={currentUser} 
+                  onNavigate={onNavigate} 
+                  onFollowToggle={handleFollowToggle} 
+                  refreshUser={refreshUser} 
+                  isIntersecting={i === visibleIdx}
+                  onPostUpdate={fetchReels}
+                  isMuted={isMuted}
+                  onToggleMute={() => setIsMuted(!isMuted)}
+                  onVideoEnd={() => handleNextReel(i)}
+                />
+              </div>
+            );
+          })
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-white p-10 text-center">
             <MusicalNoteIcon className="h-20 w-20 text-gray-800 mb-6" />

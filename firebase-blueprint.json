@@ -24,7 +24,12 @@
         "isVerified": { "type": "boolean" },
         "isOnline": { "type": "boolean" },
         "lastSeen": { "type": "number" },
-        "country": { "type": "string" }
+        "country": { "type": "string" },
+        "isMonetized": { "type": "boolean" },
+        "monetizationStatus": { "type": "string", "enum": ["INELIGIBLE", "ELIGIBLE", "PENDING", "APPROVED", "REJECTED", "SUSPENDED"] },
+        "monetizationTier": { "type": "number" },
+        "isPremium": { "type": "boolean" },
+        "premiumExpiry": { "type": "number" }
       },
       "required": ["id", "firstName", "lastName", "email"]
     },
@@ -261,10 +266,74 @@
         "title": { "type": "string" },
         "description": { "type": "string" },
         "budget": { "type": "number" },
+        "dailyBudget": { "type": "number" },
+        "bidStrategy": { "type": "string", "enum": ["CPM", "CPC"] },
+        "bidAmount": { "type": "number" },
         "isActive": { "type": "boolean" },
-        "timestamp": { "type": "number" }
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "linkUrl": { "type": "string" },
+        "ctaText": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "performance": {
+          "type": "object",
+          "properties": {
+            "impressions": { "type": "number" },
+            "clicks": { "type": "number" },
+            "spend": { "type": "number" }
+          }
+        }
       },
       "required": ["id", "professorId", "title", "budget", "isActive", "timestamp"]
+    },
+    "EarningRecord": {
+      "title": "EarningRecord",
+      "description": "Daily earnings record for creators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "date": { "type": "string" },
+        "adRevenue": { "type": "number" },
+        "donationsRevenue": { "type": "number" },
+        "subscriptionsRevenue": { "type": "number" },
+        "totalDaily": { "type": "number" },
+        "viewsCount": { "type": "number" }
+      },
+      "required": ["id", "creatorId", "date", "totalDaily"]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Premium subscription details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "planId": { "type": "string", "enum": ["FREE", "PREMIUM_MONTHLY", "PREMIUM_YEARLY"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "CANCELED", "EXPIRED"] },
+        "startDate": { "type": "number" },
+        "expiryDate": { "type": "number" },
+        "autoRenew": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "planId", "status"]
+    },
+    "SuperChat": {
+      "title": "SuperChat",
+      "description": "Paid messages in live events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "message": { "type": "string" },
+        "color": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "chatId", "userId", "amount", "timestamp"]
     },
     "Store": {
       "title": "Store",
@@ -314,6 +383,18 @@
     }
   },
   "firestore": {
+    "/earnings/{recordId}": {
+      "schema": "EarningRecord",
+      "description": "Historical earnings data"
+    },
+    "/subscriptions/{subId}": {
+      "schema": "UserSubscription",
+      "description": "User premium subscriptions"
+    },
+    "/super_chats/{chatId}": {
+      "schema": "SuperChat",
+      "description": "Live super chats"
+    },
     "/profiles/{userId}": {
       "schema": "User",
       "description": "Private user profiles (PII)"

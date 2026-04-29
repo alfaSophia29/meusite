@@ -236,8 +236,13 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                             </h2>
                             {profile.isVerified && <CheckBadgeIcon className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />}
                             {profile.isMonetized && (
-                              <div className="bg-gradient-to-r from-yellow-400 to-orange-500 p-1 rounded-full shadow-lg" title="Usuário Monetizado">
+                              <div className="bg-gradient-to-r from-brand to-indigo-600 p-1.5 rounded-xl shadow-lg border border-white/20" title="Criador Parceiro CyberPhone">
                                 <BanknotesIcon className="h-4 w-4 md:h-5 md:w-5 text-white" />
+                              </div>
+                            )}
+                            {profile.isPremium && (
+                              <div className="bg-amber-400 px-2 py-0.5 rounded-lg shadow-sm" title="Usuário Premium">
+                                <span className="text-[9px] font-black text-black uppercase tracking-tighter">Premium</span>
                               </div>
                             )}
                         </div>
