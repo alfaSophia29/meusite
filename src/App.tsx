@@ -16,7 +16,7 @@ import {
     mapUserData,
     seedDatabase
 } from './services/storageService';
-import { safeJsonStringify } from './src/lib/utils';
+import { safeJsonStringify } from './lib/utils';
 import { showNotification, requestNotificationPermission, getNotificationContent, listenForNewSales } from './services/notificationService';
 import { auth } from './services/firebaseClient';
 import Header from './components/Header';

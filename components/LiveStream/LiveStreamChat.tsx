@@ -29,9 +29,25 @@ const LiveStreamChat: React.FC<LiveStreamChatProps> = ({ messages, currentUser, 
       <div className="flex-1 overflow-y-auto no-scrollbar mask-gradient-chat pb-2">
         {messages.map(msg => (
           <div key={msg.id} className="flex items-start gap-2 animate-slide-right-fade mb-2">
-            <div className={`px-3 py-1.5 rounded-2xl rounded-tl-none bg-black/40 backdrop-blur-sm border border-white/5 shadow-sm text-xs max-w-full break-words ${msg.userId === currentUser.id ? 'bg-blue-600/40 border-blue-500/30' : ''}`}>
-              <span className="font-black text-gray-300 mr-2 text-[10px] uppercase tracking-wide">{msg.userName}</span>
-              <span className="text-white font-medium text-[11px] leading-snug">{msg.text}</span>
+            <div className={`px-3 py-1.5 rounded-2xl rounded-tl-none backdrop-blur-sm border shadow-sm text-xs max-w-full break-words 
+              ${msg.isSuperChat 
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 border-blue-400 text-white shadow-lg shadow-blue-500/20' 
+                : msg.userId === currentUser.id 
+                  ? 'bg-blue-600/40 border-blue-500/30' 
+                  : 'bg-black/40 border-white/5'}`}>
+              <div className="flex items-baseline justify-between gap-4 mb-0.5">
+                <span className={`font-black mr-2 text-[10px] uppercase tracking-wide ${msg.isSuperChat ? 'text-white' : 'text-gray-300'}`}>
+                  {msg.userName}
+                </span>
+                {msg.isSuperChat && (
+                  <span className="text-[9px] font-black bg-white/20 px-1.5 py-0.5 rounded-md">
+                    ${msg.superChatAmount}
+                  </span>
+                )}
+              </div>
+              <span className={`font-medium text-[11px] leading-snug ${msg.isSuperChat ? 'text-white drop-shadow-sm' : 'text-white'}`}>
+                {msg.text}
+              </span>
             </div>
           </div>
         ))}

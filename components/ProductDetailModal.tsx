@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Product, User, ProductType, Page } from '../types';
 import { findUserById, findStoreById } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { COUNTRIES } from '../data/countries';
 import { useDialog } from '../services/DialogContext';
 import { getAoaExchangeRate } from '../services/currencyService';
 import { 
@@ -35,9 +36,22 @@ const ReviewItem: React.FC<{ rating: any }> = ({ rating }) => {
     findUserById(rating.userId).then(u => setUser(u || null));
   }, [rating.userId]);
 
+  const getFlag = (countryName?: string) => {
+    if (!countryName) return '';
+    const country = COUNTRIES.find(c => c.name === countryName);
+    return country ? country.flag : '';
+  };
+
   return (
     <div className="py-4 border-b border-gray-50 flex gap-3">
-       <img src={user?.profilePicture || DEFAULT_PROFILE_PIC} className="w-10 h-10 rounded-xl object-cover" />
+       <div className="relative">
+          <img src={user?.profilePicture || DEFAULT_PROFILE_PIC} className="w-10 h-10 rounded-xl object-cover" />
+          {user?.country && (
+            <span className="absolute -bottom-1 -right-1 text-[12px] bg-white dark:bg-darkcard rounded-full w-5 h-5 flex items-center justify-center shadow-lg border border-gray-100 dark:border-white/10">
+              {getFlag(user.country)}
+            </span>
+          )}
+       </div>
        <div className="flex-1">
           <div className="flex justify-between items-center mb-1">
              <p className="text-[10px] font-black dark:text-gray-900">{user?.firstName || 'Membro'} {user?.lastName || ''}</p>

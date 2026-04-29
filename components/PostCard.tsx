@@ -12,7 +12,8 @@ import {
   updatePostShares,
   deletePost,
   incrementWatchTime,
-  isUserOnline
+  isUserOnline,
+  updatePost
 } from '../services/storageService';
 import { translateText } from '../services/translationService';
 import { useTranslation } from 'react-i18next';
@@ -137,7 +138,7 @@ const PostCard: React.FC<PostCardProps> = ({
       if (watchStartTimeRef.current) {
         const elapsedSeconds = (Date.now() - watchStartTimeRef.current) / 1000;
         if (elapsedSeconds > 2 && post.userId !== currentUser.id) {
-          incrementWatchTime(post.userId, elapsedSeconds);
+          incrementWatchTime(post.userId, elapsedSeconds, currentUser.isPremium);
         }
         watchStartTimeRef.current = null;
       }
@@ -147,11 +148,11 @@ const PostCard: React.FC<PostCardProps> = ({
       if (watchStartTimeRef.current) {
         const elapsedSeconds = (Date.now() - watchStartTimeRef.current) / 1000;
         if (elapsedSeconds > 2 && post.userId !== currentUser.id) {
-          incrementWatchTime(post.userId, elapsedSeconds);
+          incrementWatchTime(post.userId, elapsedSeconds, currentUser.isPremium);
         }
       }
     };
-  }, [isPlaying, post.userId, currentUser.id]);
+  }, [isPlaying, post.userId, currentUser.id, currentUser.isPremium]);
 
   // Video Player Logic
   const formatTime = (seconds: number) => {
@@ -714,6 +715,14 @@ const PostCard: React.FC<PostCardProps> = ({
           onBoost={() => { setShowActionsModal(false); setShowBoostModal(true); }} 
           onFollow={() => { onFollowToggle(post.userId); setShowActionsModal(false); }} 
           onIndicate={() => { setShowActionsModal(false); setShowIndicateModal(true); }} 
+          isMonetized={!!post.isMonetized}
+          canMonetize={currentUser.isMonetized}
+          onToggleMonetization={async () => {
+            const updated = { ...post, isMonetized: !post.isMonetized };
+            await updatePost(updated);
+            onPostUpdatedOrDeleted();
+            setShowActionsModal(false);
+          }}
           onReport={async () => { 
             if(await showConfirm("Deseja realmente denunciar esta publicação?")) {
               await createReport({ reporterId: currentUser.id, targetId: post.id, targetType: 'POST', reason: 'DENÚNCIA', details: 'Via PostCard' }); 

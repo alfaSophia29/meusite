@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { User, Page } from '../types';
 import { loginUser, registerUser, saveCurrentUser } from '../services/storageService';
+import { COUNTRIES } from '../data/countries';
 import { AcademicCapIcon, UserIcon, CameraIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/solid';
 
 import { useTranslation } from 'react-i18next';
@@ -25,6 +26,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
   const [birthMonth, setBirthMonth] = useState('1');
   const [birthYear, setBirthYear] = useState('2000');
   const [gender, setGender] = useState<'Masculino' | 'Feminino' | 'Personalizado' | ''>('');
+  const [country, setCountry] = useState('Angola');
   
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
@@ -94,6 +96,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
           password,
           birthDate,
           gender,
+          country,
           profileImageFile
         });
         if (newUser) {
@@ -247,6 +250,19 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                       <input type="radio" name="gender" value="Personalizado" checked={gender === 'Personalizado'} onChange={e => setGender(e.target.value as any)} className="hidden" />
                     </label>
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">País</label>
+                  <select 
+                    value={country} 
+                    onChange={e => setCountry(e.target.value)} 
+                    className="w-full p-4 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-2xl text-gray-900 dark:text-white font-bold outline-none focus:border-[var(--brand-color)] appearance-none cursor-pointer"
+                  >
+                    {COUNTRIES.map(c => (
+                      <option key={`${c.code}-${c.name}`} value={c.name} className="bg-white dark:bg-[#12161f]">{c.name} {c.flag}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )}

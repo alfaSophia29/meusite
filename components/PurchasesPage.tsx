@@ -114,11 +114,16 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
   const handleRateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ratingModal) return;
-    await addProductRating(ratingModal.saleId, tempRating, tempComment);
-    setRatingModal(null);
-    setTempComment('');
-    loadData();
-    showSuccess('Avaliação enviada com sucesso!');
+    try {
+      await addProductRating(ratingModal.saleId, tempRating, tempComment);
+      setRatingModal(null);
+      setTempComment('');
+      await loadData();
+      showSuccess('Avaliação enviada com sucesso!');
+    } catch (error) {
+      console.error("Erro ao avaliar:", error);
+      showAlert("Erro ao enviar avaliação. Verifique as permissões.", { type: 'alert' });
+    }
   };
 
   const handleConfirmDelivery = async (saleId: string, productName: string) => {
@@ -386,9 +391,11 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
 
       {/* Modal de Avaliação Moderno */}
       {ratingModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-fade-in" onClick={() => setRatingModal(null)}>
-           <div className="bg-white dark:bg-darkcard w-full max-w-sm rounded-[3rem] p-10 shadow-2xl relative border border-white/10" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setRatingModal(null)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-600"><CheckIcon className="h-6 w-6 rotate-45" /></button>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" onClick={() => setRatingModal(null)}>
+           <div className="bg-white dark:bg-darkcard w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 my-auto" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setRatingModal(null)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors">
+                <XCircleIcon className="h-6 w-6" />
+              </button>
               
               <div className="text-center mb-8">
                  <div className="bg-blue-50 dark:bg-blue-900/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -421,13 +428,13 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
 
        {/* Modal de Confirmação Rigorosa */}
        {rigorousConfirmModal && (
-         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[150] flex items-center justify-center p-4 animate-fade-in">
-           <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[3rem] p-8 xs:p-12 shadow-2xl relative border-2 border-green-500/30 overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 opacity-10">
+         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto pt-10 pb-10">
+           <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-6 xs:p-10 shadow-2xl relative border-2 border-green-500/30 my-auto h-auto max-h-none overflow-visible">
+              <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none hidden sm:block">
                  <ShieldCheckIcon className="h-32 w-32 text-green-500" />
               </div>
 
-              <div className="relative z-10 space-y-8">
+              <div className="relative z-10 space-y-6">
                  <div className="text-center space-y-3">
                     <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mx-auto text-green-600">
                        <ShieldCheckIcon className="h-10 w-10" />

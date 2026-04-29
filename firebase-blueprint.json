@@ -23,7 +23,13 @@
         "isAdmin": { "type": "boolean" },
         "isVerified": { "type": "boolean" },
         "isOnline": { "type": "boolean" },
-        "lastSeen": { "type": "number" }
+        "lastSeen": { "type": "number" },
+        "country": { "type": "string" },
+        "isMonetized": { "type": "boolean" },
+        "monetizationStatus": { "type": "string", "enum": ["INELIGIBLE", "ELIGIBLE", "PENDING", "APPROVED", "REJECTED", "SUSPENDED"] },
+        "monetizationTier": { "type": "number" },
+        "isPremium": { "type": "boolean" },
+        "premiumExpiry": { "type": "number" }
       },
       "required": ["id", "firstName", "lastName", "email"]
     },
@@ -43,7 +49,8 @@
         "isAdmin": { "type": "boolean" },
         "isVerified": { "type": "boolean" },
         "isOnline": { "type": "boolean" },
-        "lastSeen": { "type": "number" }
+        "lastSeen": { "type": "number" },
+        "country": { "type": "string" }
       },
       "required": ["id", "firstName", "lastName"]
     },
@@ -220,6 +227,35 @@
       },
       "required": ["id", "recipientId", "actorId", "type", "timestamp", "isRead"]
     },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "PURCHASE", "SALE", "CHAT_FEE", "BOOST", "DROPSHIPPING_COST", "DONATION"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string", "enum": ["COMPLETED", "PENDING", "FAILED"] }
+      },
+      "required": ["id", "userId", "type", "amount", "timestamp", "status"]
+    },
+    "SystemLog": {
+      "title": "SystemLog",
+      "description": "Log of system actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminId": { "type": "string" },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "action", "timestamp"]
+    },
     "AdCampaign": {
       "title": "AdCampaign",
       "description": "Advertising campaign",
@@ -230,10 +266,74 @@
         "title": { "type": "string" },
         "description": { "type": "string" },
         "budget": { "type": "number" },
+        "dailyBudget": { "type": "number" },
+        "bidStrategy": { "type": "string", "enum": ["CPM", "CPC"] },
+        "bidAmount": { "type": "number" },
         "isActive": { "type": "boolean" },
-        "timestamp": { "type": "number" }
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "linkUrl": { "type": "string" },
+        "ctaText": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "performance": {
+          "type": "object",
+          "properties": {
+            "impressions": { "type": "number" },
+            "clicks": { "type": "number" },
+            "spend": { "type": "number" }
+          }
+        }
       },
       "required": ["id", "professorId", "title", "budget", "isActive", "timestamp"]
+    },
+    "EarningRecord": {
+      "title": "EarningRecord",
+      "description": "Daily earnings record for creators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "date": { "type": "string" },
+        "adRevenue": { "type": "number" },
+        "donationsRevenue": { "type": "number" },
+        "subscriptionsRevenue": { "type": "number" },
+        "totalDaily": { "type": "number" },
+        "viewsCount": { "type": "number" }
+      },
+      "required": ["id", "creatorId", "date", "totalDaily"]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Premium subscription details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "planId": { "type": "string", "enum": ["FREE", "PREMIUM_MONTHLY", "PREMIUM_YEARLY"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "CANCELED", "EXPIRED"] },
+        "startDate": { "type": "number" },
+        "expiryDate": { "type": "number" },
+        "autoRenew": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "planId", "status"]
+    },
+    "SuperChat": {
+      "title": "SuperChat",
+      "description": "Paid messages in live events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "message": { "type": "string" },
+        "color": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "chatId", "userId", "amount", "timestamp"]
     },
     "Store": {
       "title": "Store",
@@ -269,13 +369,32 @@
         "productId": { "type": "string" },
         "buyerId": { "type": "string" },
         "sellerId": { "type": "string" },
+        "affiliateUserId": { "type": "string" },
+        "storeId": { "type": "string" },
+        "commissionEarned": { "type": "number" },
         "saleAmount": { "type": "number" },
-        "timestamp": { "type": "number" }
+        "timestamp": { "type": "number" },
+        "status": { "type": "string" },
+        "sellerEarnings": { "type": "number" },
+        "affiliateEarnings": { "type": "number" },
+        "fundsReleased": { "type": "boolean" }
       },
       "required": ["id", "productId", "buyerId", "sellerId", "saleAmount", "timestamp"]
     }
   },
   "firestore": {
+    "/earnings/{recordId}": {
+      "schema": "EarningRecord",
+      "description": "Historical earnings data"
+    },
+    "/subscriptions/{subId}": {
+      "schema": "UserSubscription",
+      "description": "User premium subscriptions"
+    },
+    "/super_chats/{chatId}": {
+      "schema": "SuperChat",
+      "description": "Live super chats"
+    },
     "/profiles/{userId}": {
       "schema": "User",
       "description": "Private user profiles (PII)"

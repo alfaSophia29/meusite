@@ -66,10 +66,10 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   const Icon = theme.icon;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in" style={{ zIndex: 9999 }}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity" onClick={onClose}></div>
+    <div className="fixed inset-0 z-[9999] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" style={{ zIndex: 9999 }}>
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-md transition-opacity" onClick={onClose}></div>
       
-      <div className="bg-white dark:bg-[#1a1c23] w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl relative border border-gray-100 dark:border-white/5 overflow-hidden animate-scale-in transform transition-all">
+      <div className="bg-white dark:bg-[#1a1c23] w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl relative border border-gray-100 dark:border-white/5 overflow-hidden animate-scale-in transform transition-all my-auto">
         {/* Decorative Top Line */}
         <div className={`absolute top-0 left-0 w-full h-1.5 ${type === 'danger' ? 'bg-red-500' : type === 'success' ? 'bg-green-500' : type === 'warning' ? 'bg-orange-500' : 'bg-blue-600'}`}></div>
         

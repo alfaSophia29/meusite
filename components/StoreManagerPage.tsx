@@ -44,10 +44,24 @@ import {
   ShareIcon,
   AcademicCapIcon,
   RocketLaunchIcon,
-  LinkIcon
+  LinkIcon,
+  ChartBarIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
 import ConfirmationModal from './ConfirmationModal';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  LineChart, 
+  Line,
+  Cell
+} from 'recharts';
 
 interface StoreManagerPageProps {
   currentUser: User;
@@ -56,7 +70,7 @@ interface StoreManagerPageProps {
   params?: any;
 }
 
-type ManagerTab = 'inventory' | 'orders' | 'sourcing' | 'branding';
+type ManagerTab = 'dashboard' | 'inventory' | 'orders' | 'sourcing' | 'branding';
 
 const BRAND_COLORS = [
   { name: 'Azul CyBer', hex: '#2563eb' },
@@ -77,7 +91,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeSales, setStoreSales] = useState<AffiliateSale[]>([]);
   const [buyerProfiles, setBuyerProfiles] = useState<Record<string, User>>({});
-  const [activeTab, setActiveTab] = useState<ManagerTab>(params?.tab || 'inventory');
+  const [activeTab, setActiveTab] = useState<ManagerTab>(params?.tab || 'dashboard');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,6 +146,92 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   // Confirmation Modal
   const [deleteProductTarget, setDeleteProductTarget] = useState<string | null>(null);
   const [settings, setSettings] = useState<GlobalSettings | null>(null);
+
+  // Dashboard Metrics
+  const metrics = useMemo(() => {
+    const totalRevenue = storeSales.reduce((acc, sale) => acc + sale.saleAmount, 0);
+    const totalProfit = storeSales.reduce((acc, sale) => {
+      const profit = sale.supplierCost ? (sale.saleAmount - sale.supplierCost) : sale.saleAmount;
+      return acc + profit;
+    }, 0);
+    
+    const pendingOrders = storeSales.filter(s => s.status !== OrderStatus.COMPLETED).length;
+    const completedOrders = storeSales.filter(s => s.status === OrderStatus.COMPLETED).length;
+    
+    // Process stock
+    const lowStockProducts = storeProducts.filter(p => 
+      p.type === ProductType.PHYSICAL && 
+      p.physicalDetails && 
+      p.physicalDetails.stock < 10
+    );
+
+    // Sales by Period (Last 7 days)
+    const salesByDay: Record<string, number> = {};
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const key = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      salesByDay[key] = 0;
+    }
+
+    storeSales.forEach(sale => {
+      const date = new Date(sale.timestamp);
+      const key = date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      if (salesByDay[key] !== undefined) {
+        salesByDay[key] += sale.saleAmount;
+      }
+    });
+
+    const chartData = Object.entries(salesByDay).map(([name, value]) => ({ name, value }));
+
+    // Top Products
+    const productSales: Record<string, number> = {};
+    storeSales.forEach(s => {
+      productSales[s.productId] = (productSales[s.productId] || 0) + 1;
+    });
+
+    const topProducts = Object.entries(productSales)
+      .map(([id, count]) => ({
+        id,
+        count,
+        product: storeProducts.find(p => p.id === id)
+      }))
+      .filter(item => item.product)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const pendingEarnings = storeSales
+      .filter(s => s.status !== OrderStatus.COMPLETED && s.status !== OrderStatus.CANCELED)
+      .reduce((acc, sale) => acc + (sale.sellerEarnings || 0), 0);
+
+    const affiliateStats: Record<string, { count: number, revenue: number, user?: User }> = {};
+    storeSales.forEach(s => {
+      if (s.affiliateUserId) {
+        if (!affiliateStats[s.affiliateUserId]) {
+          affiliateStats[s.affiliateUserId] = { count: 0, revenue: 0, user: buyerProfiles[s.affiliateUserId] };
+        }
+        affiliateStats[s.affiliateUserId].count++;
+        affiliateStats[s.affiliateUserId].revenue += s.saleAmount;
+      }
+    });
+    const topAffiliates = Object.entries(affiliateStats)
+      .map(([id, stats]) => ({ id, ...stats }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+
+    return {
+      totalRevenue,
+      totalProfit,
+      pendingOrders,
+      completedOrders,
+      lowStockProducts,
+      chartData,
+      topProducts,
+      pendingEarnings,
+      topAffiliates
+    };
+  }, [storeSales, storeProducts, buyerProfiles]);
 
   const loadData = async () => {
     setLoading(true);
@@ -548,9 +648,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
           
           <div className="flex bg-gray-100 dark:bg-white/5 p-1.5 rounded-[1.8rem] shadow-inner overflow-x-auto no-scrollbar max-w-full">
              {[
-               { id: 'inventory', label: 'Meus Produtos', icon: ArchiveBoxIcon },
+               { id: 'dashboard', label: 'Resumo', icon: ChartBarIcon },
+               { id: 'inventory', label: 'Estoque', icon: ArchiveBoxIcon },
                { id: 'orders', label: 'Pedidos', icon: ClipboardDocumentListIcon },
-               { id: 'sourcing', label: 'Importar (Dropshipping)', icon: BoltIcon },
+               { id: 'sourcing', label: 'Importar', icon: BoltIcon },
                { id: 'branding', label: 'Marca', icon: PaintBrushIcon }
              ].map(t => (
                <button 
@@ -563,6 +664,231 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
              ))}
           </div>
        </div>
+
+       {activeTab === 'dashboard' && (
+         <div className="space-y-8 animate-fade-in pb-12">
+            {/* Header de Finanças Profissional */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-gradient-to-br from-blue-600 to-indigo-700 p-8 md:p-12 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden group">
+                    <div className="absolute -top-12 -right-12 p-8 opacity-10 transform scale-150 rotate-12 group-hover:scale-[1.6] transition-transform duration-700">
+                        <BanknotesIcon className="h-64 w-64" />
+                    </div>
+                    
+                    <div className="relative z-10">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="bg-white/20 backdrop-blur-md p-2 rounded-xl">
+                                <ShieldCheckIcon className="h-5 w-5 text-blue-200" />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100">Visão Financeira Geral</span>
+                        </div>
+
+                        <div className="flex flex-col md:flex-row md:items-end gap-10 md:gap-20">
+                            <div>
+                                <p className="text-[10px] font-black uppercase text-blue-200 mb-1">Lucro Estimado</p>
+                                <h4 className="text-5xl md:text-6xl font-black tracking-tighter">${metrics.totalProfit.toFixed(2)}</h4>
+                            </div>
+                            <div className="h-16 w-px bg-white/10 hidden md:block"></div>
+                            <div className="flex gap-12">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase text-blue-300 mb-1">Faturamento Bruto</p>
+                                    <p className="text-2xl font-black opacity-90">${metrics.totalRevenue.toFixed(2)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black uppercase text-blue-300 mb-1">A Liberar (Escrow)</p>
+                                    <p className="text-2xl font-black text-indigo-200">${metrics.pendingEarnings.toFixed(2)}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-12 flex flex-wrap gap-4">
+                            <button onClick={() => onNavigate('wallet')} className="px-8 py-4 bg-white text-blue-700 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all">Sacar Saldo Disponivel</button>
+                            <button onClick={() => setActiveTab('orders')} className="px-8 py-4 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-white/20 transition-all">Histórico de Vendas</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-darkcard p-8 rounded-[3.5rem] border border-gray-100 dark:border-white/5 shadow-xl flex flex-col justify-between group">
+                    <div>
+                        <div className="flex items-center justify-between mb-8">
+                            <div className="w-14 h-14 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center text-purple-600 shadow-inner">
+                                <ClipboardDocumentListIcon className="h-7 w-7" />
+                            </div>
+                            <span className="text-[10px] font-black text-green-500 bg-green-50 dark:bg-green-900/20 px-3 py-1.5 rounded-full uppercase">Ativo</span>
+                        </div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pedidos Ativos</p>
+                        <h4 className="text-5xl font-black dark:text-white tracking-tighter">{metrics.pendingOrders}</h4>
+                        <p className="text-[10px] font-bold text-gray-500 mt-2">Necessário processar {metrics.pendingOrders} envios no momento.</p>
+                    </div>
+                    <button onClick={() => setActiveTab('orders')} className="w-full mt-8 py-5 bg-gray-50 dark:bg-white/5 rounded-2xl text-[10px] font-black text-gray-500 uppercase hover:bg-indigo-600 hover:text-white transition-all shadow-sm">Processar Agora &rsaquo;</button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Gráfico de Vendas */}
+                <div className="lg:col-span-2 bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl">
+                    <div className="flex items-center justify-between mb-8">
+                        <div>
+                            <h3 className="font-black text-xl dark:text-white uppercase tracking-tighter">Fluxo de Caixa (7 Dias)</h3>
+                            <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Desempenho diário de faturamento</p>
+                        </div>
+                        <div className="bg-gray-100 dark:bg-white/5 p-2 rounded-xl">
+                            <ChartBarIcon className="h-5 w-5 text-blue-600" />
+                        </div>
+                    </div>
+                    
+                    <div className="h-[300px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={metrics.chartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#88888820" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 'bold', fill: '#888'}} />
+                                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 'bold', fill: '#888'}} />
+                                <Tooltip 
+                                    contentStyle={{ 
+                                        backgroundColor: '#111', 
+                                        borderRadius: '1rem', 
+                                        border: 'none', 
+                                        color: '#fff',
+                                        fontSize: '12px',
+                                        fontWeight: 'bold'
+                                    }} 
+                                    cursor={{fill: '#88888810'}}
+                                />
+                                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                                    {metrics.chartData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={index === metrics.chartData.length - 1 ? '#2563eb' : '#60a5fa'} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Dashboard de Estoque Critico */}
+                <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl flex flex-col">
+                    <div className="flex items-center justify-between mb-8">
+                        <h3 className="font-black text-xl dark:text-white uppercase tracking-tighter">Alertas de Estoque</h3>
+                        <div className="relative">
+                            <ExclamationTriangleIcon className="h-6 w-6 text-orange-500 animate-pulse" />
+                            {metrics.lowStockProducts.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-white dark:border-darkcard">{metrics.lowStockProducts.length}</span>}
+                        </div>
+                    </div>
+
+                    <div className="flex-1 space-y-4">
+                        {metrics.lowStockProducts.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center p-12 text-center h-full">
+                                <div className="w-16 h-16 bg-green-50 dark:bg-green-900/10 rounded-3xl flex items-center justify-center mb-4 shadow-inner">
+                                    <CheckBadgeIcon className="h-8 w-8 text-green-500" />
+                                </div>
+                                <p className="text-xs font-black text-gray-500 uppercase">Estoque Seguro</p>
+                                <p className="text-[9px] text-gray-400 uppercase mt-1 leading-relaxed">Não há itens com estoque<br/>abaixo do limite crítico de 10 unid.</p>
+                            </div>
+                        ) : (
+                            metrics.lowStockProducts.map(p => (
+                                <div key={p.id} className="flex items-center justify-between p-4 bg-orange-50 dark:bg-orange-950/20 rounded-[1.8rem] border border-orange-100 dark:border-orange-900/20">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <img src={p.imageUrls[0]} className="w-12 h-12 rounded-2xl object-cover shadow-sm" />
+                                        <div className="overflow-hidden">
+                                            <p className="text-[10px] font-black dark:text-white uppercase truncate">{p.name}</p>
+                                            <p className="text-[9px] font-bold text-orange-600 uppercase">Restam {p.physicalDetails?.stock} UNID.</p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => openEditModal(p)}
+                                        className="bg-white dark:bg-white/10 p-2.5 rounded-xl text-orange-600 hover:bg-orange-600 hover:text-white transition-all shadow-md active:scale-90"
+                                    >
+                                        <PlusIcon className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+                    <button 
+                        onClick={() => setActiveTab('inventory')}
+                        className="mt-8 w-full py-5 bg-gray-50 dark:bg-white/5 rounded-2xl text-[10px] font-black text-gray-500 uppercase hover:bg-gray-100 dark:hover:bg-white/10 transition-all border border-transparent hover:border-gray-200 dark:hover:border-white/5"
+                    >
+                        Ver Inventário Completo
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Ranking de Mais Vendidos */}
+                <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl">
+                    <div className="flex items-center justify-between mb-8">
+                        <h3 className="font-black text-xl dark:text-white uppercase tracking-tighter">Produtos Campeões</h3>
+                        <RocketLaunchIcon className="h-5 w-5 text-yellow-500" />
+                    </div>
+                    <div className="space-y-4">
+                        {metrics.topProducts.length === 0 ? (
+                            <p className="text-center p-12 text-gray-400 font-bold uppercase text-[10px] tracking-widest shadow-inner rounded-3xl bg-gray-50 dark:bg-white/5">Vendas aparecerão aqui assim que ocorrerem.</p>
+                        ) : (
+                            metrics.topProducts.map((item, idx) => (
+                                <div key={item.id} className="flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 rounded-[1.8rem] transition-colors group">
+                                    <div className="flex items-center gap-4">
+                                        <span className={`w-8 h-8 flex items-center justify-center rounded-xl font-black text-[10px] shadow-sm ${
+                                            idx === 0 ? 'bg-yellow-400 text-white' : 
+                                            idx === 1 ? 'bg-gray-300 text-white' : 
+                                            idx === 2 ? 'bg-orange-400 text-white' :
+                                            'bg-blue-50 text-blue-600'
+                                        }`}>
+                                            {idx + 1}
+                                        </span>
+                                        <img src={item.product?.imageUrls[0]} className="w-12 h-12 rounded-2xl object-cover shadow-md" />
+                                        <div>
+                                            <p className="text-xs font-black dark:text-white uppercase truncate max-w-[150px]">{item.product?.name}</p>
+                                            <p className="text-[10px] text-gray-500 font-bold uppercase">{item.count} vendas efetuadas</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-sm font-black text-blue-600">${(item.count * (item.product?.price || 0)).toFixed(2)}</p>
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">Receita Total</p>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                {/* Performance de Afiliados */}
+                <div className="bg-white dark:bg-darkcard p-8 rounded-[3.5rem] border border-gray-100 dark:border-white/5 shadow-xl">
+                    <div className="flex items-center justify-between mb-8">
+                        <h3 className="font-black text-xl dark:text-white uppercase tracking-tighter">Top Afiliados</h3>
+                        <AcademicCapIcon className="h-5 w-5 text-indigo-500" />
+                    </div>
+
+                    <div className="space-y-4">
+                        {metrics.topAffiliates.length === 0 ? (
+                            <div className="p-12 text-center bg-gray-50 dark:bg-white/5 rounded-3xl">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nenhum afiliado realizou vendas ainda.</p>
+                                <p className="text-[9px] text-gray-400 mt-2 uppercase">Recrute promotores para bombar sua vitrine!</p>
+                            </div>
+                        ) : (
+                            metrics.topAffiliates.map((aff, idx) => (
+                                <div key={aff.id} className="flex items-center justify-between p-4 bg-gray-50/50 dark:bg-white/5 rounded-2xl group hover:shadow-lg transition-all">
+                                    <div className="flex items-center gap-4">
+                                        <img src={aff.user?.profilePicture || 'https://ui-avatars.com/api/?name=Affiliate'} className="w-10 h-10 rounded-xl object-cover" />
+                                        <div>
+                                            <p className="text-xs font-black dark:text-white uppercase">{aff.user?.firstName} {aff.user?.lastName}</p>
+                                            <p className="text-[10px] font-bold text-gray-500 uppercase">{aff.count} CONVERSÕES</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-sm font-black text-indigo-600">${aff.revenue.toFixed(2)}</p>
+                                        <p className="text-[9px] text-gray-400 font-bold uppercase">GERADOS</p>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    
+                    <button className="mt-8 w-full py-4 bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
+                        Sistema de Afiliados Hub
+                    </button>
+                </div>
+            </div>
+         </div>
+       )}
 
        {activeTab === 'inventory' && (
          <div className="space-y-8 animate-fade-in">
@@ -895,8 +1221,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
 
        {/* MODAL DE IMPORTAÇÃO (CALCULADORA DE LUCRO) */}
        {importModal && (
-           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-fade-in" onClick={() => setImportModal(null)}>
-               <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10" onClick={e => e.stopPropagation()}>
+           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" onClick={() => setImportModal(null)}>
+               <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 my-auto" onClick={e => e.stopPropagation()}>
                    <button onClick={() => setImportModal(null)} className="absolute top-6 right-6 p-2 bg-gray-50 dark:bg-white/5 rounded-full text-gray-400 hover:text-red-500 transition-all"><XMarkIcon className="h-6 w-6" /></button>
                    
                    <div className="flex items-center gap-4 mb-8">
@@ -969,9 +1295,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
 
        {/* Modal de Novo Produto Próprio (AliExpress Style) */}
        {isAddingProduct && (
-         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-fade-in" onClick={() => setIsAddingProduct(false)}>
+         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-start sm:items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto" onClick={() => setIsAddingProduct(false)}>
             <div 
-              className="bg-white dark:bg-[#1a1a1a] w-full max-w-3xl rounded-[2rem] shadow-2xl relative border border-white/10 max-h-[90vh] overflow-hidden flex flex-col" 
+              className="bg-white dark:bg-[#1a1a1a] w-full max-w-3xl rounded-[2rem] shadow-2xl relative border border-white/10 my-auto max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col" 
               onClick={e => e.stopPropagation()}
             >
                {/* Header */}
@@ -1372,8 +1698,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
        )}
 
        {trackingModal && (
-         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-fade-in" onClick={() => setTrackingModal(null)}>
-            <div className="bg-white dark:bg-darkcard w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10" onClick={e => e.stopPropagation()}>
+         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" onClick={() => setTrackingModal(null)}>
+            <div className="bg-white dark:bg-darkcard w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 my-auto" onClick={e => e.stopPropagation()}>
                <h3 className="text-xl font-black dark:text-white uppercase tracking-tight mb-6">Dados de Envio</h3>
                <div className="space-y-4">
                   <div>

@@ -9,7 +9,8 @@ import {
   FlagIcon,
   UserPlusIcon,
   UserMinusIcon,
-  ShareIcon
+  ShareIcon,
+  BanknotesIcon
 } from '@heroicons/react/24/outline';
 
 interface PostActionsModalProps {
@@ -24,6 +25,9 @@ interface PostActionsModalProps {
   onFollow?: () => void;
   onIndicate?: () => void;
   onReport?: () => void;
+  isMonetized?: boolean;
+  onToggleMonetization?: () => void;
+  canMonetize?: boolean;
 }
 
 const PostActionsModal: React.FC<PostActionsModalProps> = ({ 
@@ -37,7 +41,10 @@ const PostActionsModal: React.FC<PostActionsModalProps> = ({
   onBoost,
   onFollow,
   onIndicate,
-  onReport
+  onReport,
+  isMonetized,
+  onToggleMonetization,
+  canMonetize
 }) => {
   return (
     <div className="fixed inset-0 z-[5000] flex items-center justify-center p-6 animate-fade-in overflow-hidden">
@@ -49,6 +56,18 @@ const PostActionsModal: React.FC<PostActionsModalProps> = ({
         <div className="p-3 flex flex-col gap-1">
           {isAuthor ? (
             <>
+              {canMonetize && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onToggleMonetization?.(); }}
+                  className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-[2rem] transition-all group ${isMonetized ? 'text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5'}`}
+                >
+                  <div className={`p-2 rounded-full group-hover:scale-110 transition-transform ${isMonetized ? 'bg-green-100 dark:bg-green-900/30' : 'bg-gray-100 dark:bg-white/10'}`}>
+                    <BanknotesIcon className="h-5 w-5" />
+                  </div>
+                  <span className="font-black text-[10px] uppercase tracking-widest">{isMonetized ? 'Monetizado' : 'Monetizar'}</span>
+                </button>
+              )}
+
               <button 
                 onClick={(e) => { e.stopPropagation(); onBoost(); }}
                 className="flex items-center gap-3 w-full px-4 py-3.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-[2rem] transition-all group"

@@ -12,7 +12,7 @@ import {
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
   subscribeToAdminSupportTickets, claimSupportTicket, getDisputedSales, confirmProductReceipt, cancelPurchaseAndRefund
 } from '../services/storageService';
-import { safeJsonStringify } from '../src/lib/utils';
+import { safeJsonStringify } from '../lib/utils';
 import { 
   BanknotesIcon, UserGroupIcon, ShieldCheckIcon, TrashIcon, 
   CheckBadgeIcon, ChartPieIcon, MagnifyingGlassIcon, CurrencyDollarIcon, 
