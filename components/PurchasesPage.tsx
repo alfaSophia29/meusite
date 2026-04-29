@@ -114,11 +114,16 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
   const handleRateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ratingModal) return;
-    await addProductRating(ratingModal.saleId, tempRating, tempComment);
-    setRatingModal(null);
-    setTempComment('');
-    loadData();
-    showSuccess('Avaliação enviada com sucesso!');
+    try {
+      await addProductRating(ratingModal.saleId, tempRating, tempComment);
+      setRatingModal(null);
+      setTempComment('');
+      await loadData();
+      showSuccess('Avaliação enviada com sucesso!');
+    } catch (error) {
+      console.error("Erro ao avaliar:", error);
+      showAlert("Erro ao enviar avaliação. Verifique as permissões.", { type: 'alert' });
+    }
   };
 
   const handleConfirmDelivery = async (saleId: string, productName: string) => {

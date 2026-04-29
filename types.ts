@@ -146,6 +146,7 @@ export interface User {
     verificationStep?: boolean;
   };
   address?: ShippingAddress;
+  country?: string;
 }
 
 export enum PostType {

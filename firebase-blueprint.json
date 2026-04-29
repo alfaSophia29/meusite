@@ -23,7 +23,8 @@
         "isAdmin": { "type": "boolean" },
         "isVerified": { "type": "boolean" },
         "isOnline": { "type": "boolean" },
-        "lastSeen": { "type": "number" }
+        "lastSeen": { "type": "number" },
+        "country": { "type": "string" }
       },
       "required": ["id", "firstName", "lastName", "email"]
     },
@@ -43,7 +44,8 @@
         "isAdmin": { "type": "boolean" },
         "isVerified": { "type": "boolean" },
         "isOnline": { "type": "boolean" },
-        "lastSeen": { "type": "number" }
+        "lastSeen": { "type": "number" },
+        "country": { "type": "string" }
       },
       "required": ["id", "firstName", "lastName"]
     },
@@ -220,6 +222,35 @@
       },
       "required": ["id", "recipientId", "actorId", "type", "timestamp", "isRead"]
     },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "PURCHASE", "SALE", "CHAT_FEE", "BOOST", "DROPSHIPPING_COST", "DONATION"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string", "enum": ["COMPLETED", "PENDING", "FAILED"] }
+      },
+      "required": ["id", "userId", "type", "amount", "timestamp", "status"]
+    },
+    "SystemLog": {
+      "title": "SystemLog",
+      "description": "Log of system actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminId": { "type": "string" },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "action", "timestamp"]
+    },
     "AdCampaign": {
       "title": "AdCampaign",
       "description": "Advertising campaign",
@@ -269,8 +300,15 @@
         "productId": { "type": "string" },
         "buyerId": { "type": "string" },
         "sellerId": { "type": "string" },
+        "affiliateUserId": { "type": "string" },
+        "storeId": { "type": "string" },
+        "commissionEarned": { "type": "number" },
         "saleAmount": { "type": "number" },
-        "timestamp": { "type": "number" }
+        "timestamp": { "type": "number" },
+        "status": { "type": "string" },
+        "sellerEarnings": { "type": "number" },
+        "affiliateEarnings": { "type": "number" },
+        "fundsReleased": { "type": "boolean" }
       },
       "required": ["id", "productId", "buyerId", "sellerId", "saleAmount", "timestamp"]
     }

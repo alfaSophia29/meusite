@@ -7,7 +7,7 @@ import { auth, db, storage, isFirebaseConfigured } from './firebaseClient';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { 
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, onSnapshot,
-  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion
+  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -156,7 +156,8 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
             verificationStep: dbData?.idVerificationStatus === 'APPROVED'
         },
         address: dbData?.address || undefined,
-        blockedUserIds: dbData?.blockedUserIds || []
+        blockedUserIds: dbData?.blockedUserIds || [],
+        country: dbData?.country || ''
     } as User;
 };
 
@@ -2074,23 +2075,30 @@ export const getDisputedSales = async () => {
 };
 
 export const releaseFundsToSeller = async (saleId: string) => {
-    if (!db) return false;
+    if (!db) return;
     try {
         const saleRef = doc(db, 'sales', saleId);
         const saleDoc = await getDoc(saleRef);
-        if (!saleDoc.exists()) return false;
+        if (!saleDoc.exists()) throw new Error("Venda não encontrada");
         const sale = saleDoc.data() as any;
 
-        if (sale.fundsReleased) return true; // Já liberado
+        if (sale.fundsReleased) return; // Já liberado
 
         // Liberar para o Vendedor
         if (sale.sellerEarnings > 0) {
             const sellerRef = doc(db, 'profiles', sale.sellerId);
-            const sellerDoc = await getDoc(sellerRef);
-            if (sellerDoc.exists()) {
-                const seller = sellerDoc.data() as User;
-                await updateDoc(sellerRef, { balance: (seller.balance || 0) + sale.sellerEarnings });
+            try {
+                // USANDO increment() PARA EVITAR READ PERMISSION ERROR (O comprador não pode ler o perfil do vendedor)
+                await updateDoc(sellerRef, { balance: increment(sale.sellerEarnings) });
                 
+                // Tenta sincronizar com public_profiles
+                try {
+                    const publicSellerRef = doc(db, 'public_profiles', sale.sellerId);
+                    await updateDoc(publicSellerRef, { balance: increment(sale.sellerEarnings) });
+                } catch (pErr) {
+                    console.warn("[STORAGE] Erro ao sincronizar saldo público (não crítico):", pErr);
+                }
+
                 const transId = generateUUID();
                 await setDoc(doc(db, 'transactions', transId), {
                     id: transId,
@@ -2101,16 +2109,24 @@ export const releaseFundsToSeller = async (saleId: string) => {
                     timestamp: Date.now(),
                     status: 'COMPLETED'
                 });
+            } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, `profiles/${sale.sellerId}`);
             }
         }
 
-        // Liberar para o Afiliado
+        // Liberar Para o Afiliado
         if (sale.affiliateEarnings > 0 && sale.affiliateUserId) {
             const affRef = doc(db, 'profiles', sale.affiliateUserId);
-            const affDoc = await getDoc(affRef);
-            if (affDoc.exists()) {
-                const affiliate = affDoc.data() as User;
-                await updateDoc(affRef, { balance: (affiliate.balance || 0) + sale.affiliateEarnings });
+            try {
+                await updateDoc(affRef, { balance: increment(sale.affiliateEarnings) });
+
+                // Tenta sincronizar com public_profiles
+                try {
+                    const publicAffRef = doc(db, 'public_profiles', sale.affiliateUserId);
+                    await updateDoc(publicAffRef, { balance: increment(sale.affiliateEarnings) });
+                } catch (pErr) {
+                    console.warn("[STORAGE] Erro ao sincronizar saldo público do afiliado (não crítico):", pErr);
+                }
 
                 const transId = generateUUID();
                 await setDoc(doc(db, 'transactions', transId), {
@@ -2122,19 +2138,20 @@ export const releaseFundsToSeller = async (saleId: string) => {
                     timestamp: Date.now(),
                     status: 'COMPLETED'
                 });
+            } catch (err) {
+                handleFirestoreError(err, OperationType.WRITE, `profiles/${sale.affiliateUserId}`);
             }
         }
 
         await updateDoc(saleRef, { fundsReleased: true, status: OrderStatus.COMPLETED });
-        return true;
     } catch (error) {
         console.error("Erro ao liberar fundos:", error);
-        return false;
+        throw error;
     }
 };
 
 export const confirmProductReceipt = async (saleId: string) => {
-    return releaseFundsToSeller(saleId);
+    await releaseFundsToSeller(saleId);
 };
 
 export const openOrderDispute = async (saleId: string, reason: string) => {
@@ -2212,43 +2229,48 @@ export const getPurchasesByBuyerId = async (uid: string) => {
 
 export const addProductRating = async (saleId: string, rating: number, comment: string) => {
     if (!db) return;
-    const saleRef = doc(db, 'sales', saleId);
-    const saleDoc = await getDoc(saleRef);
-    
-    if (saleDoc.exists()) {
-        const saleData = saleDoc.data() as AffiliateSale;
-        const productId = saleData.productId;
-        const userId = saleData.buyerId;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        const saleDoc = await getDoc(saleRef);
         
-        // 1. Atualizar a venda
-        await updateDoc(saleRef, { isRated: true, rating, ratingComment: comment });
-        
-        // 2. Adicionar avaliação ao produto (se o produto existir)
-        const productRef = doc(db, 'products', productId);
-        const productDoc = await getDoc(productRef);
-        
-        if (productDoc.exists()) {
-            const product = productDoc.data() as Product;
-            const newRatingObj: ProductRating = {
-                id: generateUUID(),
-                saleId,
-                userId,
-                rating,
-                comment,
-                timestamp: Date.now()
-            };
+        if (saleDoc.exists()) {
+            const saleData = saleDoc.data() as AffiliateSale;
+            const productId = saleData.productId;
+            const userId = saleData.buyerId;
             
-            const currentRatings = product.ratings || [];
-            const newRatings = [...currentRatings, newRatingObj];
-            const newCount = newRatings.length;
-            const newAvg = newRatings.reduce((acc, r) => acc + r.rating, 0) / newCount;
+            // 1. Atualizar a venda
+            await updateDoc(saleRef, { isRated: true, rating, ratingComment: comment });
             
-            await updateDoc(productRef, {
-                ratings: newRatings,
-                averageRating: newAvg,
-                ratingCount: newCount
-            });
+            // 2. Adicionar avaliação ao produto (se o produto existir)
+            const productRef = doc(db, 'products', productId);
+            const productDoc = await getDoc(productRef);
+            
+            if (productDoc.exists()) {
+                const product = productDoc.data() as Product;
+                const newRatingObj: ProductRating = {
+                    id: generateUUID(),
+                    saleId,
+                    userId,
+                    rating,
+                    comment,
+                    timestamp: Date.now()
+                };
+                
+                const currentRatings = product.ratings || [];
+                const newRatings = [...currentRatings, newRatingObj];
+                const newCount = newRatings.length;
+                const newAvg = newRatings.reduce((acc, r) => acc + r.rating, 0) / newCount;
+                
+                await updateDoc(productRef, {
+                    ratings: newRatings,
+                    averageRating: newAvg,
+                    ratingCount: newCount
+                });
+            }
         }
+    } catch (error) {
+        console.error("Erro ao adicionar avaliação:", error);
+        throw error; // Re-throw to be caught by UI
     }
 };
 

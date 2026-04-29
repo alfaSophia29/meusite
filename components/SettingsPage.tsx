@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { User, GroupTheme } from '../types';
 import { updateUser, uploadFile, deleteUser, updateUserPassword, saveCurrentUser } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { COUNTRIES } from '../data/countries';
 import { isFirebaseConfigured } from '../services/firebaseClient';
 import { useDialog } from '../services/DialogContext';
 import { Github } from 'lucide-react';
@@ -83,6 +84,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [coverPhoto, setCoverPhoto] = useState(currentUser.coverPhoto || '');
   const [email, setEmail] = useState(currentUser.email || '');
   const [phone, setPhone] = useState(currentUser.phone || '');
+  const [country, setCountry] = useState(currentUser.country || 'Angola');
   
   const [birthDate, setBirthDate] = useState(() => {
     const d = new Date(currentUser.birthDate);
@@ -170,6 +172,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           bio, 
           profilePicture,
           coverPhoto,
+          country,
           birthDate: new Date(birthDate).getTime()
       };
       
@@ -389,6 +392,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                  <div className="space-y-2">
                     <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Biografia</label>
                     <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Conte um pouco sobre você..." className="w-full p-5 bg-gray-50 dark:bg-white/5 rounded-[2rem] dark:text-white outline-none border-2 border-transparent focus:border-brand font-medium h-32 resize-none" />
+                 </div>
+
+                 <div className="space-y-2">
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">País de Residência</label>
+                    <div className="relative">
+                       <GlobeAltIcon className="h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                       <select value={country} onChange={e => setCountry(e.target.value)} className="w-full p-4 pl-12 bg-gray-50 dark:bg-white/5 rounded-2xl dark:text-white outline-none border-2 border-transparent focus:border-brand font-bold appearance-none cursor-pointer">
+                          {COUNTRIES.map(c => (
+                            <option key={`${c.code}-${c.name}`} value={c.name}>{c.name} {c.flag}</option>
+                          ))}
+                       </select>
+                       <ChevronDownIcon className="h-5 w-5 absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    </div>
                  </div>
               </div>
            </div>
