@@ -6,8 +6,10 @@
     "node": "22.x"
   },
   "description": "Rede Social Educacional",
+  "main": "index.tsx",
   "scripts": {
     "dev": "vite --port 3000 --host 0.0.0.0",
+    "start": "vite --port 3000 --host 0.0.0.0",
     "build": "vite build",
     "serve": "vite preview",
     "lint": "tsc --noEmit"
@@ -38,8 +40,10 @@
     "workbox-window": "^7.4.0"
   },
   "devDependencies": {
+    "@types/node": "^22.19.17",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
+    "@types/recharts": "^1.8.29",
     "@vitejs/plugin-react": "^4.2.1",
     "typescript": "^5.4.5",
     "vite": "^5.2.11"

@@ -1193,7 +1193,18 @@ export const getUsers = async (currentUser?: User) => {
     const path = isAdmin ? 'profiles' : 'public_profiles';
     
     try {
-        const snap = await getDocs(collection(db, path));
+        let snap: QuerySnapshot<DocumentData>;
+        try {
+            snap = await getDocs(collection(db, path));
+        } catch (initialError: any) {
+            if (isAdmin && path === 'profiles') {
+                console.warn("⚠️ Permissão insuficiente para 'profiles'. Tentando 'public_profiles'...");
+                snap = await getDocs(collection(db, 'public_profiles'));
+            } else {
+                throw initialError;
+            }
+        }
+        
         let users = snap.docs.map(d => mapUserData(d.id, d.data()));
 
         // Mutual Blocking Filter
@@ -1231,9 +1242,19 @@ export const findStoreById = async (id: string) => {
     const d = await getDoc(doc(db, 'stores', id));
     return d.exists() ? d.data() as Store : undefined;
 };
-export const saveAffiliateLink = async (u: string, p: string, l: string) => {
+export const saveAffiliateLink = async (u: string, p: string, l: string, s: string) => {
     if (!db) return;
-    await addDoc(collection(db, 'affiliate_links'), { userId: u, productId: p, link: l, timestamp: Date.now() });
+    try {
+        await addDoc(collection(db, 'affiliate_links'), { 
+            userId: u, 
+            productId: p, 
+            link: l, 
+            sellerId: s,
+            timestamp: Date.now() 
+        });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'affiliate_links');
+    }
 };
 export const updatePostSaves = async (pid: string, uid: string) => {
     if (!db) return;
@@ -1895,7 +1916,12 @@ export const processAdInvestment = async (userId: string, amount: number, title:
 
 export const getStores = async () => {
     if (!db) return [];
-    return (await getDocs(collection(db, 'stores'))).docs.map(d => d.data() as Store);
+    try {
+        return (await getDocs(collection(db, 'stores'))).docs.map(d => d.data() as Store);
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'stores');
+        return [];
+    }
 };
 
 export const createStore = async (store: Store) => {
@@ -1950,13 +1976,29 @@ export const getAudioTracks = async () => [];
 
 export const getSalesByAffiliateId = async (uid: string) => {
     if (!db) return [];
-    return (await getDocs(query(collection(db, 'sales'), where('affiliateUserId', '==', uid)))).docs.map(d => ({ ...d.data(), id: d.id } as AffiliateSale));
+    try {
+        return (await getDocs(query(collection(db, 'sales'), where('affiliateUserId', '==', uid)))).docs.map(d => ({ ...d.data(), id: d.id } as AffiliateSale));
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'sales (affiliate)');
+        return [];
+    }
 };
 
-export const getAffiliateLinks = async (uid: string) => {
+export const getAffiliateLinks = async (uid?: string, sellerId?: string) => {
     if (!db) return [];
-    const snap = await getDocs(query(collection(db, 'affiliate_links'), where('userId', '==', uid)));
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    try {
+        let q: any = collection(db, 'affiliate_links');
+        if (uid) {
+            q = query(q, where('userId', '==', uid));
+        } else if (sellerId) {
+            q = query(q, where('sellerId', '==', sellerId));
+        }
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'affiliate_links');
+        return [];
+    }
 };
 
 export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string) => {
@@ -2400,8 +2442,13 @@ export const deleteComment = async (pid: string, cid: string) => {
 
 export const getPlatformRevenue = async () => {
     if (!db) return 0;
-    const snap = await getDocs(collection(db, 'transactions'));
-    return snap.docs.reduce((acc, d) => acc + (d.data().amount || 0), 0);
+    try {
+        const snap = await getDocs(collection(db, 'transactions'));
+        return snap.docs.reduce((acc, d) => acc + (d.data().amount || 0), 0);
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'transactions (revenue)');
+        return 0;
+    }
 };
 
 export const getTransactions = async (uid?: string, currentAdmin?: User) => {
@@ -2426,7 +2473,12 @@ export const getTransactions = async (uid?: string, currentAdmin?: User) => {
 
 export const getReports = async () => {
     if (!db) return [];
-    return (await getDocs(collection(db, 'reports'))).docs.map(d => ({ ...(d.data() as any), id: d.id } as ContentReport));
+    try {
+        return (await getDocs(collection(db, 'reports'))).docs.map(d => ({ ...(d.data() as any), id: d.id } as ContentReport));
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'reports');
+        return [];
+    }
 };
 
 export const adminUpdateUser = async (u: User) => {
@@ -2762,6 +2814,11 @@ export const resolveSupportTicket = async (tid: string) => {
 
 export const getSystemLogs = async (): Promise<SystemLog[]> => {
     if (!isFirebaseConfigured || !db) return [];
-    const snap = await getDocs(query(collection(db, 'logs'), orderBy('timestamp', 'desc'), limit(100)));
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as SystemLog));
+    try {
+        const snap = await getDocs(query(collection(db, 'system_logs'), orderBy('timestamp', 'desc'), limit(100)));
+        return snap.docs.map(d => ({ ...d.data(), id: d.id } as SystemLog));
+    } catch (error) {
+        console.warn("[STORAGE] Error fetching system logs:", error);
+        return [];
+    }
 };

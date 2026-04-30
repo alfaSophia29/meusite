@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Product, User, ProductType, Page } from '../types';
-import { findUserById, findStoreById } from '../services/storageService';
+import { findUserById, findStoreById, saveAffiliateLink } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { COUNTRIES } from '../data/countries';
 import { useDialog } from '../services/DialogContext';
@@ -16,7 +16,8 @@ import {
   CheckIcon,
   BoltIcon,
   TruckIcon,
-  ChatBubbleLeftEllipsisIcon
+  ChatBubbleLeftEllipsisIcon,
+  CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 
@@ -380,6 +381,33 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
                   className="w-full py-3 bg-purple-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-purple-700 transition-all"
                 >
                   Fazer Dropshipping deste Produto
+                </button>
+              </div>
+            )}
+
+            {product.affiliateCommissionRate > 0 && currentUser.id !== owner?.id && (
+              <div className="mt-4 p-6 bg-green-50 rounded-3xl border border-green-100">
+                <div className="flex items-center gap-3 mb-2">
+                  <CurrencyDollarIcon className="h-5 w-5 text-green-600" />
+                  <h4 className="text-xs font-black text-green-900 uppercase">Programa de Afiliados</h4>
+                </div>
+                <p className="text-[10px] text-green-700 font-medium mb-4">
+                  Venda este produto e ganhe <span className="font-black text-sm">{product.affiliateCommissionRate}%</span> de comissão sobre o valor da venda!
+                </p>
+                <button 
+                  onClick={async () => {
+                    const affiliateLink = `${window.location.origin}?page=store&productId=${product.id}&affiliateId=${currentUser.id}`;
+                    if (owner?.id) {
+                      await saveAffiliateLink(currentUser.id, product.id, affiliateLink, owner.id);
+                      navigator.clipboard.writeText(affiliateLink);
+                      showAlert("Você agora é um afiliado! Link de rastreamento copiado para sua área de transferência.", { type: 'success' });
+                    } else {
+                      showAlert("Erro ao identificar o dono do produto.", { type: 'error' });
+                    }
+                  }}
+                  className="w-full py-3 bg-green-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-green-700 transition-all"
+                >
+                  Gerar meu Link de Afiliado
                 </button>
               </div>
             )}

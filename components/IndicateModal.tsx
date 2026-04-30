@@ -17,14 +17,20 @@ const IndicateModal: React.FC<IndicateModalProps> = ({ post, currentUser, onClos
   const { showAlert } = useDialog();
   const [searchTerm, setSearchTerm] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
-  const [followers, setFollowers] = useState<(User | undefined)[]>([]);
+  const [followers, setFollowers] = useState<User[]>([]);
 
   React.useEffect(() => {
     const loadFollowers = async () => {
+      const followedIds = currentUser.followedUsers || [];
       const loadedFollowers = await Promise.all(
-        currentUser.followedUsers.map(id => findUserById(id))
+        followedIds.map(id => findUserById(id))
       );
-      setFollowers(loadedFollowers.filter(u => u && `${u.firstName} ${u.lastName}`.toLowerCase().includes(searchTerm.toLowerCase())));
+      
+      const validFollowers = loadedFollowers.filter((u): u is User => u !== undefined && u !== null);
+      
+      setFollowers(validFollowers.filter(u => 
+        `${u.firstName} ${u.lastName}`.toLowerCase().includes(searchTerm.toLowerCase())
+      ));
     };
     loadFollowers();
   }, [currentUser.followedUsers, searchTerm]);

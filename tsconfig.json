@@ -10,7 +10,7 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
@@ -21,5 +21,17 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["src", "components", "services", "data", "types.ts", "App.tsx", "index.tsx"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "src/**/*",
+    "components/**/*",
+    "services/**/*",
+    "data/**/*",
+    "types.ts",
+    "App.tsx",
+    "index.tsx",
+    "i18n.ts",
+    "vite.config.ts"
+  ]
 }

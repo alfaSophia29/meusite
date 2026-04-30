@@ -25,7 +25,14 @@ const timeAgo = (timestamp: number, t: any): string => {
   return new Date(timestamp).toLocaleDateString();
 };
 
-const NotificationItem: React.FC<{ notification: Notification; onNavigate: Function; refreshUser: Function; currentUser: User; allPosts: Post[]; onDelete: (id: string) => void }> = ({ notification, onNavigate, refreshUser, currentUser, allPosts, onDelete }) => {
+const NotificationItem: React.FC<{ 
+  notification: Notification; 
+  onNavigate: (page: Page, params?: Record<string, string>) => void; 
+  refreshUser: () => void; 
+  currentUser: User; 
+  allPosts: Post[]; 
+  onDelete: (id: string) => void 
+}> = ({ notification, onNavigate, refreshUser, currentUser, allPosts, onDelete }) => {
   const { t, i18n } = useTranslation();
   const [actor, setActor] = useState<User | null>(null);
   const [translatedText, setTranslatedText] = useState<string | null>(null);
