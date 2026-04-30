@@ -7,6 +7,7 @@ import {
   createProduct,
   updateStore,
   getAffiliateSales,
+  getAffiliateLinks,
   updateSaleStatus,
   uploadFile,
   adminDeleteProduct,
@@ -70,7 +71,7 @@ interface StoreManagerPageProps {
   params?: any;
 }
 
-type ManagerTab = 'dashboard' | 'inventory' | 'orders' | 'sourcing' | 'branding';
+type ManagerTab = 'dashboard' | 'inventory' | 'orders' | 'sourcing' | 'branding' | 'affiliates';
 
 const BRAND_COLORS = [
   { name: 'Azul CyBer', hex: '#2563eb' },
@@ -90,6 +91,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [userStore, setUserStore] = useState<Store | null>(null);
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [storeSales, setStoreSales] = useState<AffiliateSale[]>([]);
+  const [storeAffiliateLinks, setStoreAffiliateLinks] = useState<any[]>([]);
   const [buyerProfiles, setBuyerProfiles] = useState<Record<string, User>>({});
   const [activeTab, setActiveTab] = useState<ManagerTab>(params?.tab || 'dashboard');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
@@ -129,6 +131,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [pDigitalUrl, setPDigitalUrl] = useState('');
   const [pIsAvailableForDropshipping, setPIsAvailableForDropshipping] = useState(false);
   const [pDropshippingPrice, setPDropshippingPrice] = useState('');
+  const [pAffiliateRate, setPAffiliateRate] = useState('10');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -295,6 +298,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       
       const finalSales = Array.from(uniqueByContentMap.values());
       setStoreSales(finalSales.sort((a, b) => b.timestamp - a.timestamp));
+
+      // Carregar Links de Afiliados
+      const links = await getAffiliateLinks(undefined, currentUser.id);
+      setStoreAffiliateLinks(links);
     }
     setLoading(false);
   };
@@ -380,7 +387,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       originalPrice: pOriginalPrice ? parseFloat(pOriginalPrice) : undefined,
       discountPercentage: pDiscount ? parseFloat(pDiscount) : undefined,
       imageUrls: pImageUrls.length > 0 ? pImageUrls : ['https://picsum.photos/400/400?random=prod'],
-      affiliateCommissionRate: 0.15,
+      affiliateCommissionRate: parseFloat(pAffiliateRate) || 0,
       type: pType,
       ratings: editingProduct ? editingProduct.ratings : [],
       averageRating: editingProduct ? editingProduct.averageRating : 0,
@@ -428,6 +435,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       setPPositioning('STANDARD'); setPBidAmount('');
       setPStock('100'); setPWeight(''); setPDimensions('');
       setPLessonsCount(''); setPTotalHours(''); setPHasCertificate(true); setPModules('');
+      setPAffiliateRate('10');
       setPIsAvailableForDropshipping(false); setPDropshippingPrice('');
       loadData();
       showAlert(editingProduct ? 'Produto atualizado!' : 'Produto criado com sucesso!', { type: 'success' });
@@ -453,6 +461,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       setPIsAvailableForDropshipping(p.isAvailableForDropshipping || false);
       setPDropshippingPrice(p.dropshippingPrice?.toString() || '');
       setPCondition(p.condition || 'NEW');
+      setPAffiliateRate(p.affiliateCommissionRate?.toString() || '10');
       
       setPOriginalPrice(p.originalPrice?.toString() || '');
       setPDiscount(p.discountPercentage?.toString() || '');
@@ -652,6 +661,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                { id: 'inventory', label: 'Estoque', icon: ArchiveBoxIcon },
                { id: 'orders', label: 'Pedidos', icon: ClipboardDocumentListIcon },
                { id: 'sourcing', label: 'Importar', icon: BoltIcon },
+               { id: 'affiliates', label: 'Afiliados', icon: LinkIcon },
                { id: 'branding', label: 'Marca', icon: PaintBrushIcon }
              ].map(t => (
                <button 
@@ -882,8 +892,11 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                         )}
                     </div>
                     
-                    <button className="mt-8 w-full py-4 bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
-                        Sistema de Afiliados Hub
+                    <button 
+                        onClick={() => setActiveTab('affiliates')}
+                        className="mt-8 w-full py-4 bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                    >
+                        Gerenciador de Afiliados
                     </button>
                 </div>
             </div>
@@ -1571,6 +1584,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Comissão de Afiliados (%)</label>
                        <input 
                         type="number" 
+                        value={pAffiliateRate}
+                        onChange={e => setPAffiliateRate(e.target.value)}
                         placeholder="Ex: 15"
                         className="w-full p-4 bg-gray-50 dark:bg-white/5 dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-transparent focus:border-[#ff4747]" 
                        />

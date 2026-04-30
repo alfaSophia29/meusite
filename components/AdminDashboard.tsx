@@ -133,19 +133,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   const fetchData = async () => {
     setLoading(true);
     try {
+      // Individual safe fetches to prevent one failure from blocking all data
+      const safeFetch = async <T,>(promise: Promise<T>, fallback: T): Promise<T> => {
+        try {
+          return await promise;
+        } catch (err) {
+          console.warn(`[ADMIN] Partial fetch failure:`, err);
+          return fallback;
+        }
+      };
+
       const [users, posts, products, stores, ads, transactions, reports, logs, revenue, globalSettings, tickets, disputes] = await Promise.all([
-        getUsers(currentUser),
-        getPosts(),
-        getProducts(),
-        getStores(),
-        getAds(),
-        getTransactions(undefined, currentUser),
-        getReports(),
-        getSystemLogs(),
-        getPlatformRevenue(),
-        getGlobalSettings(),
-        getAdminSupportTickets(currentUser.id),
-        getDisputedSales()
+        safeFetch(getUsers(currentUser), []),
+        safeFetch(getPosts(), []),
+        safeFetch(getProducts(), []),
+        safeFetch(getStores(), []),
+        safeFetch(getAds(), []),
+        safeFetch(getTransactions(undefined, currentUser), []),
+        safeFetch(getReports(), []),
+        safeFetch(getSystemLogs(), []),
+        safeFetch(getPlatformRevenue(), 0),
+        safeFetch(getGlobalSettings(), settings),
+        safeFetch(getAdminSupportTickets(currentUser.id), []),
+        safeFetch(getDisputedSales(), [])
       ]);
 
       setData({
@@ -154,16 +164,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
         products,
         stores,
         ads,
-        transactions: transactions.sort((a, b) => b.timestamp - a.timestamp),
-        reports: reports.sort((a, b) => b.timestamp - a.timestamp),
-        logs: logs.sort((a, b) => b.timestamp - a.timestamp),
-        tickets: tickets.sort((a, b) => b.updatedAt - a.updatedAt),
-        disputes: disputes.sort((a, b) => b.timestamp - a.timestamp),
+        transactions: transactions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
+        reports: reports.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
+        logs: logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
+        tickets: tickets.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+        disputes: disputes.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
         revenue
       });
       setSettings(globalSettings);
     } catch (error) {
-      console.error("Erro ao carregar dados do admin:", safeJsonStringify(error));
+      console.error("Erro crítico ao carregar dados do admin:", safeJsonStringify(error));
     } finally {
       setLoading(false);
     }

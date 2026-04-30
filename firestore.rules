@@ -19,7 +19,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.get('email', '').matches("(?i)^(ac926815124@gmail.com|alfaajmc@gmail.com)$") ||
+        (request.auth.token.email == 'ac926815124@gmail.com' || request.auth.token.email == 'alfaajmc@gmail.com') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -106,6 +106,17 @@ service cloud.firestore {
       );
     }
 
+    match /affiliate_links/{linkId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        (exists(/databases/$(database)/documents/products/$(resource.data.productId)) && 
+         get(/databases/$(database)/documents/products/$(resource.data.productId)).data.userId == request.auth.uid) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
     match /transactions/{transactionId} {
       allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       // Allows creating transaction for self or if it's a SALE record being synced
@@ -185,31 +196,6 @@ service cloud.firestore {
        allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
        allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']));
        allow delete: if isOwner(resource.data.userId) || isAdmin();
-    }
-    
-    match /earnings/{id} {
-      allow read: if isSignedIn() && (resource.data.creatorId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn(); // Allow creating earnings record 
-      allow update: if isSignedIn(); // Allow updating (for impressions/donations)
-    }
-
-    match /super_chats/{chatId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin();
-    }
-
-    match /subscriptions/{subId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow delete: if isAdmin();
-    }
-
-    match /affiliate_links/{linkId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
     
     match /settings/{settingId} {
