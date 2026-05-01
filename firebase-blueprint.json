@@ -380,6 +380,20 @@
         "fundsReleased": { "type": "boolean" }
       },
       "required": ["id", "productId", "buyerId", "sellerId", "saleAmount", "timestamp"]
+    },
+    "AffiliateLink": {
+      "title": "AffiliateLink",
+      "description": "Generated affiliate tracking links",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "productId": { "type": "string" },
+        "link": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["userId", "productId", "link", "sellerId", "timestamp"]
     }
   },
   "firestore": {
@@ -430,6 +444,10 @@
     "/sales/{saleId}": {
       "schema": "AffiliateSale",
       "description": "Sales records"
+    },
+    "/affiliate_links/{linkId}": {
+      "schema": "AffiliateLink",
+      "description": "Affiliate tracking links"
     },
     "/events/{eventId}": {
       "schema": "CyberEvent",

@@ -1,5 +1,5 @@
 
-import { User, Post, PostType, ChatConversation, AdCampaign, Store, Product, AffiliateSale, Comment, ShippingAddress, ProductType, AudioTrack, Notification, NotificationType, CartItem, ProductRating, OrderStatus, CyberEvent, Story, Transaction, ContentReport, SystemLog, GlobalSettings, TransactionType, ChatType, GroupTheme, Message, SupportTicket, SupportMessage } from '../types';
+import { User, Post, PostType, ChatConversation, AdCampaign, Store, Product, AffiliateSale, Comment, ShippingAddress, ProductType, AudioTrack, Notification, NotificationType, CartItem, ProductRating, OrderStatus, CyberEvent, Story, Transaction, ContentReport, SystemLog, GlobalSettings, TransactionType, ChatType, GroupTheme, Message, SupportTicket, SupportMessage, AffiliateLink } from '../types';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { safeJsonStringify } from '../src/lib/utils';
 import { checkContentSecurity } from './sentinelService';
@@ -1242,20 +1242,16 @@ export const findStoreById = async (id: string) => {
     const d = await getDoc(doc(db, 'stores', id));
     return d.exists() ? d.data() as Store : undefined;
 };
-export const saveAffiliateLink = async (u: string, p: string, l: string, s: string) => {
+
+export const updateUserProfile = async (uid: string, data: Partial<User>) => {
     if (!db) return;
     try {
-        await addDoc(collection(db, 'affiliate_links'), { 
-            userId: u, 
-            productId: p, 
-            link: l, 
-            sellerId: s,
-            timestamp: Date.now() 
-        });
+        await updateDoc(doc(db, 'users', uid), data);
     } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, 'affiliate_links');
+        handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
     }
 };
+
 export const updatePostSaves = async (pid: string, uid: string) => {
     if (!db) return;
     const ref = doc(db, 'posts', pid);
@@ -1446,87 +1442,7 @@ export const updateSaleTracking = async (id: string, c: string, sid?: string) =>
     if (!db) return;
     await updateDoc(doc(db, 'sales', id), { trackingCode: c, supplierOrderId: sid || '' });
 };
-export const fulfillDropshippingOrder = async (saleId: string, dropshipperId: string, cost: number) => {
-    if (!db) return false;
-    await checkUserFrozen(dropshipperId);
-    try {
-        const saleRef = doc(db, 'sales', saleId);
-        const saleDoc = await getDoc(saleRef);
-        if (!saleDoc.exists()) return false;
-        const sale = saleDoc.data() as AffiliateSale;
 
-        const productDoc = await getDoc(doc(db, 'products', sale.productId));
-        if (!productDoc.exists()) return false;
-        const dropshippedProduct = productDoc.data() as Product;
-
-        if (!dropshippedProduct.originalProductId) return false;
-
-        const originalProductDoc = await getDoc(doc(db, 'products', dropshippedProduct.originalProductId));
-        if (!originalProductDoc.exists()) return false;
-        const originalProduct = originalProductDoc.data() as Product;
-
-        const supplierStoreDoc = await getDoc(doc(db, 'stores', originalProduct.storeId));
-        if (!supplierStoreDoc.exists()) return false;
-        const supplierStore = supplierStoreDoc.data() as Store;
-        const supplierId = supplierStore.professorId;
-
-        const settings = await getGlobalSettings();
-        const platformTax = settings.platformTax / 100;
-
-        // 1. Deduct from Dropshipper
-        const dropshipperDoc = await getDoc(doc(db, 'profiles', dropshipperId));
-        if (dropshipperDoc.exists()) {
-            const ds = dropshipperDoc.data() as User;
-            if ((ds.balance || 0) < cost) return false;
-            await updateDoc(doc(db, 'profiles', dropshipperId), {
-                balance: (ds.balance || 0) - cost
-            });
-
-            const dsTransId = generateUUID();
-            await setDoc(doc(db, 'transactions', dsTransId), {
-                id: dsTransId,
-                userId: dropshipperId,
-                type: TransactionType.DROPSHIPPING_COST,
-                amount: -cost,
-                description: `Pagamento ao fornecedor: ${originalProduct.name}`,
-                timestamp: Date.now(),
-                status: 'COMPLETED'
-            });
-        }
-
-        // 2. Add to Supplier
-        const supplierEarnings = cost * (1 - platformTax);
-        const supplierDoc = await getDoc(doc(db, 'profiles', supplierId));
-        if (supplierDoc.exists()) {
-            const sup = supplierDoc.data() as User;
-            await updateDoc(doc(db, 'profiles', supplierId), {
-                balance: (sup.balance || 0) + supplierEarnings
-            });
-
-            const supTransId = generateUUID();
-            await setDoc(doc(db, 'transactions', supTransId), {
-                id: supTransId,
-                userId: supplierId,
-                type: TransactionType.SALE,
-                amount: supplierEarnings,
-                description: `Venda dropshipping: ${originalProduct.name}`,
-                timestamp: Date.now(),
-                status: 'COMPLETED'
-            });
-        }
-
-        // 3. Update Sale Status
-        await updateDoc(saleRef, {
-            status: OrderStatus.PROCESSING_SUPPLIER,
-            supplierOrderId: generateUUID().slice(0, 8).toUpperCase()
-        });
-
-        return true;
-    } catch (error) {
-        console.error("Erro ao processar fulfillment interno:", safeJsonStringify(error));
-        return false;
-    }
-};
 export const processUserUpgrade = async (uid: string, u: User, f: File, c: string) => {
     if (!db) return;
     await updateDoc(doc(db, 'profiles', uid), { isVerified: true });
@@ -1984,30 +1900,70 @@ export const getSalesByAffiliateId = async (uid: string) => {
     }
 };
 
-export const getAffiliateLinks = async (uid?: string, sellerId?: string) => {
+export const getAffiliateLinks = async (uid?: string, sellerId?: string): Promise<AffiliateLink[]> => {
     if (!db) return [];
     try {
         let q: any = collection(db, 'affiliate_links');
         if (uid) {
-            q = query(q, where('userId', '==', uid));
+            q = query(q, where('affiliateId', '==', uid));
         } else if (sellerId) {
             q = query(q, where('sellerId', '==', sellerId));
         }
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        return snap.docs.map(d => {
+            const data = d.data() as any;
+            return { ...data, id: d.id } as AffiliateLink;
+        });
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'affiliate_links');
         return [];
     }
 };
 
-export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string) => {
+export const saveAffiliateLink = async (affiliateId: string, productId: string, link: string, sellerId: string) => {
+    if (!db) return;
+    const id = `${affiliateId}_${productId}`;
+    const affiliateLink: AffiliateLink = {
+        id,
+        affiliateId,
+        productId,
+        sellerId,
+        link,
+        clicks: 0,
+        timestamp: Date.now()
+    };
+    await setDoc(doc(db, 'affiliate_links', id), affiliateLink);
+};
+
+export const removeAffiliateLink = async (id: string) => {
+    if (!db) return;
+    await deleteDoc(doc(db, 'affiliate_links', id));
+};
+
+export const trackAffiliateClick = async (affiliateId: string, productId: string) => {
+    if (!db) return;
+    const linkId = `${affiliateId}_${productId}`;
+    try {
+        const linkRef = doc(db, 'affiliate_links', linkId);
+        const linkDoc = await getDoc(linkRef);
+        if (linkDoc.exists()) {
+            await updateDoc(linkRef, {
+                clicks: increment(1)
+            });
+        }
+    } catch (error) {
+        console.error("Erro ao rastrear clique de afiliado:", error);
+    }
+};
+
+export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string, affiliateId?: string) => {
     const cart = getCart();
     const existingItem = cart.find((item: any) => item.productId === productId);
     if (existingItem) {
         existingItem.quantity += quantity;
+        if (affiliateId) existingItem.affiliateId = affiliateId;
     } else {
-        cart.push({ productId, quantity, selectedColor });
+        cart.push({ productId, quantity, selectedColor, affiliateId });
     }
     localStorage.setItem('cyberphone_cart', safeJsonStringify(cart));
 };
@@ -2064,7 +2020,9 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
             let sellerEarnings = totalAmount * (1 - platformTax);
             let affiliateEarnings = 0;
 
-            if (affiliateId && product.affiliateCommissionRate > 0) {
+            const finalAffiliateId = item.affiliateId || affiliateId;
+
+            if (finalAffiliateId && product.affiliateCommissionRate > 0) {
                 affiliateEarnings = totalAmount * (product.affiliateCommissionRate / 100);
                 sellerEarnings -= affiliateEarnings;
             }
@@ -2074,7 +2032,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                 productId: item.productId,
                 buyerId,
                 sellerId,
-                affiliateUserId: affiliateId || '',
+                affiliateUserId: finalAffiliateId || '',
                 storeId: product.storeId,
                 timestamp: batchTimestamp,
                 status: initialStatus,
@@ -2083,11 +2041,25 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                 sellerEarnings, // Guardamos para liberar depois
                 affiliateEarnings, // Guardamos para liberar depois
                 fundsReleased: false, // SISTEMA DE CUSTÓDIA ATIVADO
-                isDropshipping: product.isDropshipping || false,
-                supplierCost: product.originalPrice || 0,
                 carrierId: carrier?.id || '',
                 carrierName: carrier?.name || ''
             });
+
+            // 1.1 Update Pending Balances for Seller
+            const sellerRef = doc(db, 'profiles', sellerId);
+            await updateDoc(sellerRef, {
+                pendingBalance: increment(sellerEarnings),
+                totalEarnings: increment(sellerEarnings)
+            });
+
+            // 1.2 Update Pending Balances for Affiliate
+            if (finalAffiliateId && affiliateEarnings > 0) {
+                const affiliateRef = doc(db, 'profiles', finalAffiliateId);
+                await updateDoc(affiliateRef, {
+                    pendingBalance: increment(affiliateEarnings),
+                    totalEarnings: increment(affiliateEarnings)
+                });
+            }
 
             // 2. Handle Buyer Balance (Deducting immediately)
             const buyerDoc = await getDoc(doc(db, 'profiles', buyerId));
@@ -2149,8 +2121,11 @@ export const releaseFundsToSeller = async (saleId: string) => {
         if (sale.sellerEarnings > 0) {
             const sellerRef = doc(db, 'profiles', sale.sellerId);
             try {
-                // USANDO increment() PARA EVITAR READ PERMISSION ERROR (O comprador não pode ler o perfil do vendedor)
-                await updateDoc(sellerRef, { balance: increment(sale.sellerEarnings) });
+                // USANDO increment() PARA EVITAR READ PERMISSION ERROR
+                await updateDoc(sellerRef, { 
+                    balance: increment(sale.sellerEarnings),
+                    pendingBalance: increment(-sale.sellerEarnings)
+                });
                 
                 // Tenta sincronizar com public_profiles
                 try {
@@ -2179,7 +2154,10 @@ export const releaseFundsToSeller = async (saleId: string) => {
         if (sale.affiliateEarnings > 0 && sale.affiliateUserId) {
             const affRef = doc(db, 'profiles', sale.affiliateUserId);
             try {
-                await updateDoc(affRef, { balance: increment(sale.affiliateEarnings) });
+                await updateDoc(affRef, { 
+                    balance: increment(sale.affiliateEarnings),
+                    pendingBalance: increment(-sale.affiliateEarnings)
+                });
 
                 // Tenta sincronizar com public_profiles
                 try {
@@ -2385,7 +2363,7 @@ export const getAffiliateSales = async (filters?: { affiliateUserId?: string, st
                 throw initialError;
             }
         }
-        return snap.docs.map(d => ({ ...d.data(), id: d.id } as AffiliateSale));
+        return snap.docs.map(d => ({ ...d.data() as any, id: d.id } as AffiliateSale));
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'sales');
         return [];
@@ -2522,8 +2500,12 @@ export const handleWalletTransaction = async (uid: string, amt: number, type: st
         }
         if (type === 'withdraw' && u.balance! < amt) return false;
         const diff = type === 'deposit' ? amt : -amt;
-        await updateDoc(doc(db, 'profiles', uid), { balance: u.balance! + diff });
-        await updateDoc(doc(db, 'public_profiles', uid), { balance: u.balance! + diff });
+        const updateData: any = { balance: increment(diff) };
+        if (type === 'withdraw') {
+            updateData.totalWithdrawn = increment(amt);
+        }
+        await updateDoc(doc(db, 'profiles', uid), updateData);
+        await updateDoc(doc(db, 'public_profiles', uid), { balance: increment(diff) });
         
         const txId = generateUUID();
         await setDoc(doc(db, 'transactions', txId), {

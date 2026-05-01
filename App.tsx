@@ -14,7 +14,8 @@ import {
     saveAppTheme,
     updateUserStatus,
     mapUserData,
-    seedDatabase
+    seedDatabase,
+    trackAffiliateClick
 } from './services/storageService';
 import { safeJsonStringify } from './src/lib/utils';
 import { showNotification, requestNotificationPermission, getNotificationContent, listenForNewSales } from './services/notificationService';
@@ -236,8 +237,17 @@ const App: React.FC = () => {
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const affiliateId = params.get('affiliateId');
+        const productId = params.get('productId');
+        
         if (affiliateId) {
             localStorage.setItem('cyber_referrer_id', affiliateId);
+            
+            // Se houver um productId, rastreia o clique específico
+            if (productId) {
+                trackAffiliateClick(affiliateId, productId);
+            }
+            
+            // Limpa a URL para estética
             const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
             window.history.replaceState({ path: newUrl }, '', newUrl);
         }
@@ -553,8 +563,8 @@ const App: React.FC = () => {
               canInstallPWA={!!deferredPrompt}
               onInstallPWA={installApp}
             />;
-            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} onAddToCart={(pid, qty, color) => {
-                addToCart(pid, qty, color);
+            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string) => {
+                addToCart(pid, qty, color, aff || pageParams.affiliateId);
                 setCartItems(getCart());
             }} onOpenCart={() => setIsCartModalOpen(true)} />;
             case 'monetization': return <MonetizationPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;

@@ -22,7 +22,8 @@ interface StorePageProps {
   refreshUser: () => void;
   storeId?: string;
   productId?: string;
-  onAddToCart: (productId: string, quantity: number, selectedColor?: string) => void;
+  affiliateId?: string;
+  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string) => void;
   onOpenCart: () => void;
 }
 
@@ -129,7 +130,7 @@ const ProductCard: React.FC<{
   );
 };
 
-export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, storeId: propStoreId, productId: propProductId, onAddToCart, onOpenCart }) => {
+export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, storeId: propStoreId, productId: propProductId, affiliateId, onAddToCart, onOpenCart }) => {
   const [exchangeRate, setExchangeRate] = useState(930);
 
   useEffect(() => {
@@ -721,6 +722,7 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
           onClose={() => setSelectedProduct(null)} 
           onAddToCart={onAddToCart}
           onNavigate={onNavigate}
+          affiliateId={affiliateId}
           onShare={(p) => setShareContent({
             title: `Confira este produto: ${p.name}`,
             text: p.description,
