@@ -13,13 +13,11 @@ import {
   adminDeleteProduct,
   findUserById,
   generateUUID,
-  fulfillDropshippingOrder,
   updateSaleTracking,
   createStore,
   updateUser,
   getGlobalSettings
 } from '../services/storageService';
-import { sourceDropshippingProducts } from '../services/geminiService';
 import { 
   PlusIcon, 
   StarIcon,
@@ -71,7 +69,7 @@ interface StoreManagerPageProps {
   params?: any;
 }
 
-type ManagerTab = 'dashboard' | 'inventory' | 'orders' | 'sourcing' | 'branding' | 'affiliates';
+type ManagerTab = 'dashboard' | 'inventory' | 'orders' | 'branding' | 'affiliates';
 
 const BRAND_COLORS = [
   { name: 'Azul CyBer', hex: '#2563eb' },
@@ -82,7 +80,7 @@ const BRAND_COLORS = [
   { name: 'Rosa Shock', hex: '#db2777' }
 ];
 
-const CATEGORIES_SOURCING = [
+const CATEGORIES = [
     'Tech & Gadgets', 'Moda Masculina', 'Moda Feminina', 'Casa Inteligente', 'Fitness', 'Beleza'
 ];
 
@@ -105,6 +103,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   // Product Form
   const [pName, setPName] = useState('');
   const [pDesc, setPDesc] = useState('');
+  const [pCategory, setPCategory] = useState(CATEGORIES[0]);
   const [pPrice, setPPrice] = useState('');
   const [pType, setPType] = useState<ProductType>(ProductType.DIGITAL_COURSE);
   const [pImageUrls, setPImageUrls] = useState<string[]>([]);
@@ -129,18 +128,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const [pModules, setPModules] = useState('');
 
   const [pDigitalUrl, setPDigitalUrl] = useState('');
-  const [pIsAvailableForDropshipping, setPIsAvailableForDropshipping] = useState(false);
-  const [pDropshippingPrice, setPDropshippingPrice] = useState('');
   const [pAffiliateRate, setPAffiliateRate] = useState('10');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sourcing & Import Logic
-  const [searchQuery, setSearchQuery] = useState(params?.search || '');
-  const [sourcingResults, setSourcingResults] = useState<any[]>([]);
-  const [isSourcing, setIsSourcing] = useState(false);
-  const [importModal, setImportModal] = useState<any | null>(null); // Produto sendo importado
-  const [importPrice, setImportPrice] = useState<string>(''); // Preço final definido pelo usuário
 
   const [trackingModal, setTrackingModal] = useState<{saleId: string} | null>(null);
   const [trackingCode, setTrackingCode] = useState('');
@@ -153,10 +143,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   // Dashboard Metrics
   const metrics = useMemo(() => {
     const totalRevenue = storeSales.reduce((acc, sale) => acc + sale.saleAmount, 0);
-    const totalProfit = storeSales.reduce((acc, sale) => {
-      const profit = sale.supplierCost ? (sale.saleAmount - sale.supplierCost) : sale.saleAmount;
-      return acc + profit;
-    }, 0);
+    const totalProfit = storeSales.reduce((acc, sale) => acc + sale.saleAmount, 0);
     
     const pendingOrders = storeSales.filter(s => s.status !== OrderStatus.COMPLETED).length;
     const completedOrders = storeSales.filter(s => s.status === OrderStatus.COMPLETED).length;
@@ -252,9 +239,15 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       const allProds = await getProducts();
       setStoreProducts(allProds.filter(p => p.storeId === myStore.id));
       const allSales = await getAffiliateSales({ sellerId: currentUser.id });
+      const links = await getAffiliateLinks(undefined, currentUser.id);
+      setStoreAffiliateLinks(links);
       
-      // Carregar perfis dos compradores
-      const buyerIds = Array.from(new Set(allSales.map(s => s.buyerId)));
+      // Carregar perfis dos compradores e afiliados
+      const buyerIds = Array.from(new Set([
+        ...allSales.map(s => s.buyerId),
+        ...allSales.map(s => s.affiliateUserId).filter(Boolean) as string[],
+        ...links.map(l => l.affiliateId)
+      ]));
       const profiles: Record<string, User> = { ...buyerProfiles };
       await Promise.all(buyerIds.map(async (id) => {
         if (!profiles[id]) {
@@ -265,14 +258,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       setBuyerProfiles(profiles);
 
       // Deduplicação Avançada:
-      // 1. Primeiro por ID único (Garantia técnica absoluta contra duplicatas de rede)
-      // 2. Depois por Logica de Sessão (Mesmo comprador + mesmo produto + janela de 30 min) 
-      // Isso resolve o problema de múltiplos registros gerados por erro de processamento ou re-cliques
       const idDedupedMap = new Map<string, AffiliateSale>();
       allSales.forEach(s => {
         if (s.id) {
           const existing = idDedupedMap.get(s.id);
-          // Se tiver IDs duplicados, mantemos o que tiver status mais avançado
           if (!existing || statusRank(s.status) > statusRank(existing.status)) {
             idDedupedMap.set(s.id, s);
           }
@@ -283,14 +272,11 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       Array.from(idDedupedMap.values())
         .sort((a, b) => a.timestamp - b.timestamp)
         .forEach(sale => {
-          // Janela de 30 minutos para agrupar tentativas de compra repetidas
           const date = new Date(sale.timestamp);
           const hourKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
           const halfHour = Math.floor(date.getMinutes() / 30);
           const logicalKey = `${sale.buyerId}-${sale.productId}-${hourKey}-${halfHour}`;
-          
           const existing = uniqueByContentMap.get(logicalKey);
-          
           if (!existing || statusRank(sale.status) > statusRank(existing.status)) {
             uniqueByContentMap.set(logicalKey, sale);
           }
@@ -298,10 +284,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       
       const finalSales = Array.from(uniqueByContentMap.values());
       setStoreSales(finalSales.sort((a, b) => b.timestamp - a.timestamp));
-
-      // Carregar Links de Afiliados
-      const links = await getAffiliateLinks(undefined, currentUser.id);
-      setStoreAffiliateLinks(links);
     }
     setLoading(false);
   };
@@ -311,10 +293,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
     const ranks: Record<string, number> = {
       [OrderStatus.WAITLIST]: 1,
       [OrderStatus.PROCESSING]: 2,
-      [OrderStatus.PROCESSING_SUPPLIER]: 3,
-      [OrderStatus.SHIPPING]: 4,
-      [OrderStatus.DELIVERED]: 5,
-      [OrderStatus.COMPLETED]: 6,
+      [OrderStatus.SHIPPING]: 3,
+      [OrderStatus.DELIVERED]: 4,
+      [OrderStatus.COMPLETED]: 5,
       [OrderStatus.DISPUTED]: 0
     };
     return ranks[status] || 0;
@@ -322,17 +303,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
 
   useEffect(() => {
     loadData();
-    if (params?.tab === 'sourcing' && params?.search) {
-      handleSource(params.search);
-    }
   }, [currentUser.id, params]);
-
-  // Trigger sourcing on mount for generic categories
-  useEffect(() => {
-      if (activeTab === 'sourcing' && sourcingResults.length === 0) {
-          handleSource("Tendências de Tecnologia");
-      }
-  }, [activeTab]);
 
   const handleSaveBranding = async () => {
     if (!userStore) return;
@@ -381,8 +352,11 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
     const productData: Product = {
       id: editingProduct ? editingProduct.id : generateUUID(),
       storeId: userStore.id,
+      userId: currentUser.id,
       name: pName,
       description: pDesc,
+      category: pCategory,
+      status: 'active',
       price: parseFloat(pPrice),
       originalPrice: pOriginalPrice ? parseFloat(pOriginalPrice) : undefined,
       discountPercentage: pDiscount ? parseFloat(pDiscount) : undefined,
@@ -394,10 +368,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       ratingCount: editingProduct ? editingProduct.ratingCount : 0,
       soldCount: editingProduct ? editingProduct.soldCount : 0,
       digitalContentUrl: pType !== ProductType.PHYSICAL ? pDigitalUrl : undefined,
-      isAvailableForDropshipping: pIsAvailableForDropshipping,
-      dropshippingPrice: pIsAvailableForDropshipping ? parseFloat(pDropshippingPrice) : undefined,
-      isDropshipping: editingProduct ? editingProduct.isDropshipping : false,
-      originalProductId: editingProduct ? editingProduct.originalProductId : undefined,
       condition: pCondition,
 
       // Novos campos
@@ -436,7 +406,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
       setPStock('100'); setPWeight(''); setPDimensions('');
       setPLessonsCount(''); setPTotalHours(''); setPHasCertificate(true); setPModules('');
       setPAffiliateRate('10');
-      setPIsAvailableForDropshipping(false); setPDropshippingPrice('');
       loadData();
       showAlert(editingProduct ? 'Produto atualizado!' : 'Produto criado com sucesso!', { type: 'success' });
     } catch (err: any) {
@@ -453,13 +422,12 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
   const openEditModal = (p: Product) => {
       setEditingProduct(p);
       setPName(p.name);
+      setPCategory(p.category || CATEGORIES[0]);
       setPDesc(p.description);
       setPPrice(p.price.toString());
       setPType(p.type);
       setPImageUrls(p.imageUrls || []);
       setPDigitalUrl(p.digitalContentUrl || '');
-      setPIsAvailableForDropshipping(p.isAvailableForDropshipping || false);
-      setPDropshippingPrice(p.dropshippingPrice?.toString() || '');
       setPCondition(p.condition || 'NEW');
       setPAffiliateRate(p.affiliateCommissionRate?.toString() || '10');
       
@@ -494,29 +462,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
     }
   };
 
-  const handleFulfillOrder = async (sale: AffiliateSale) => {
-    if (!sale.supplierCost) {
-      showAlert("Custo do fornecedor não definido.", { type: 'error' });
-      return;
-    }
-    
-    if ((currentUser.balance || 0) < sale.supplierCost) {
-      showAlert(`Saldo insuficiente para pagar o fornecedor ($${sale.supplierCost}). Recarregue sua carteira.`, { type: 'error' });
-      return;
-    }
-
-    if (await showConfirm(`Confirmar pagamento de $${sale.supplierCost} ao fornecedor para iniciar o despacho?`)) {
-       const success = await fulfillDropshippingOrder(sale.id, currentUser.id, sale.supplierCost);
-       if (success) {
-         refreshUser(); 
-         loadData();
-         showAlert("Pedido enviado para processamento no fornecedor!", { type: 'success' });
-       } else {
-         showAlert("Erro ao processar pagamento.", { type: 'error' });
-       }
-    }
-  };
-
   const handleAddTracking = async () => {
     if (!trackingModal || !trackingCode) return;
     await updateSaleStatus(trackingModal.saleId, OrderStatus.SHIPPING);
@@ -527,67 +472,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
     loadData();
     showAlert("Código de rastreio atualizado!", { type: 'success' });
   }
-
-  const handleSource = async (queryOverride?: string) => {
-    const q = (queryOverride || searchQuery).toLowerCase();
-    setIsSourcing(true);
-    try {
-        const allProducts = await getProducts();
-        // Filtra produtos de OUTRAS lojas que estão disponíveis para dropshipping
-        const results = allProducts.filter(p => 
-            p.storeId !== userStore?.id && 
-            p.isAvailableForDropshipping && 
-            (p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
-        );
-        setSourcingResults(results);
-    } catch (err) {
-        console.error("Erro ao buscar catálogo de dropshipping:", err);
-    } finally {
-        setIsSourcing(false);
-    }
-  };
-
-  const openImportModal = (product: Product) => {
-      setImportModal(product);
-      // Sugestão: Preço de dropshipping + 30% de margem
-      const basePrice = product.dropshippingPrice || product.price;
-      setImportPrice((basePrice * 1.3).toFixed(2));
-  };
-
-  const confirmImport = async () => {
-    if (!userStore || !importModal) return;
-    
-    const finalPrice = parseFloat(importPrice);
-    const supplierCost = importModal.dropshippingPrice || importModal.price;
-
-    if (isNaN(finalPrice) || finalPrice <= supplierCost) {
-        showAlert("O preço de venda deve ser maior que o custo do fornecedor.", { type: 'error' });
-        return;
-    }
-
-    const newProduct: Product = {
-      id: generateUUID(),
-      storeId: userStore.id,
-      name: importModal.name,
-      description: importModal.description,
-      price: finalPrice,
-      imageUrls: importModal.imageUrls,
-      affiliateCommissionRate: 0.1,
-      type: importModal.type,
-      ratings: [],
-      averageRating: 0,
-      ratingCount: 0,
-      soldCount: 0,
-      isDropshipping: true,
-      originalProductId: importModal.id,
-      originalPrice: supplierCost
-    };
-    
-    await createProduct(newProduct);
-    setImportModal(null);
-    loadData();
-    showAlert('Item importado para sua vitrine com sucesso!', { type: 'success' });
-  };
 
   if (loading) {
     return <div className="h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-[#0a0c10]"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div></div>;
@@ -660,7 +544,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                { id: 'dashboard', label: 'Resumo', icon: ChartBarIcon },
                { id: 'inventory', label: 'Estoque', icon: ArchiveBoxIcon },
                { id: 'orders', label: 'Pedidos', icon: ClipboardDocumentListIcon },
-               { id: 'sourcing', label: 'Importar', icon: BoltIcon },
                { id: 'affiliates', label: 'Afiliados', icon: LinkIcon },
                { id: 'branding', label: 'Marca', icon: PaintBrushIcon }
              ].map(t => (
@@ -914,11 +797,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                {storeProducts.map(p => (
                  <div key={p.id} className="bg-white dark:bg-darkcard rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-white/5 shadow-sm group hover:shadow-2xl transition-all relative">
                     <img src={p.imageUrls[0]} className="h-48 w-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                    {p.isDropshipping && (
-                        <div className="absolute top-4 left-4 bg-purple-600 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase shadow-lg border border-white/20">
-                            Dropshipping
-                        </div>
-                    )}
                     <div className="p-6">
                        <div className="flex items-center gap-2 mb-2">
                           {p.ratingCount && p.ratingCount > 0 ? (
@@ -935,7 +813,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                        <h4 className="font-black text-sm dark:text-white uppercase truncate mb-1">{p.name}</h4>
                        <div className="mb-6 flex justify-between items-end">
                           <p className="text-2xl font-black text-blue-600">${p.price.toFixed(2)}</p>
-                          {p.isDropshipping && <p className="text-[10px] font-bold text-gray-400 bg-gray-100 dark:bg-white/10 px-2 py-1 rounded">Custo: ${p.originalPrice?.toFixed(2)}</p>}
                        </div>
                        <div className="flex gap-2">
                            <button onClick={() => openEditModal(p)} className="flex-1 p-3 bg-blue-50 text-blue-600 dark:bg-blue-900/10 rounded-xl hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center gap-2">
@@ -1005,17 +882,16 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                       <span className={`text-[10px] font-black uppercase px-4 py-2 rounded-2xl border shadow-sm ${
                                           sale.status === OrderStatus.COMPLETED ? 'bg-green-100 text-green-700 border-green-200' :
                                           sale.status === OrderStatus.DELIVERED ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 
-                                          sale.status === OrderStatus.PROCESSING_SUPPLIER || sale.status === OrderStatus.PROCESSING ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                          sale.status === OrderStatus.PROCESSING ? 'bg-purple-100 text-purple-700 border-purple-200' :
                                           sale.status === OrderStatus.SHIPPING ? 'bg-blue-100 text-blue-700 border-blue-200' : 
                                           'bg-orange-100 text-orange-700 border-orange-200'
                                       }`}>
                                             {sale.status === OrderStatus.WAITLIST ? 'Pendente' : 
                                              sale.status === OrderStatus.PROCESSING ? 'Em Processamento' :
-                                             sale.status === OrderStatus.PROCESSING_SUPPLIER ? 'Em Processamento (Fornecedor)' :
                                              sale.status === OrderStatus.SHIPPING ? 'A Caminho' : 
                                              sale.status === OrderStatus.DELIVERED ? 'No Destino' : 'Finalizado'}
                                       </span>
-                                   </div>
+                                   </div>                                 </div>
 
                                    {/* Informações do Cliente & Endereço */}
                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
@@ -1076,20 +952,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                              <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Valor da Venda</p>
                                              <p className="text-2xl font-black text-gray-900 dark:text-white">${sale.saleAmount.toFixed(2)}</p>
                                          </div>
-                                         {sale.isDropshipping && sale.supplierCost && (
-                                            <>
-                                               <div className="w-px h-8 bg-gray-300 dark:bg-white/10"></div>
-                                               <div>
-                                                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Custo</p>
-                                                   <p className="text-xl font-black text-red-500">-${sale.supplierCost.toFixed(2)}</p>
-                                               </div>
-                                               <div className="w-px h-8 bg-gray-300 dark:bg-white/10"></div>
-                                               <div>
-                                                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Lucro</p>
-                                                   <p className="text-xl font-black text-blue-600">${(sale.saleAmount - sale.supplierCost).toFixed(2)}</p>
-                                               </div>
-                                            </>
-                                         )}
                                       </div>
                                       
                                       <div className="flex flex-col gap-2">
@@ -1112,16 +974,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                 </div>
                                 
                                 <div className="flex flex-col gap-3 shrink-0 w-full lg:w-auto min-w-[240px]">
-                                      {sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
-                                         <button 
-                                          onClick={() => handleFulfillOrder(sale)}
-                                          className="bg-purple-600 shadow-purple-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-purple-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
-                                         >
-                                            <CurrencyDollarIcon className="h-5 w-5" /> Pagar Fornecedor
-                                         </button>
-                                      )}
-
-                                      {!sale.isDropshipping && sale.status === OrderStatus.WAITLIST && (
+                                      {sale.status === OrderStatus.WAITLIST && (
                                          <button 
                                           onClick={async () => {
                                             await updateSaleStatus(sale.id, OrderStatus.PROCESSING);
@@ -1134,7 +987,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                          </button>
                                       )}
 
-                                      {((sale.isDropshipping && sale.status === OrderStatus.PROCESSING_SUPPLIER) || (!sale.isDropshipping && sale.status === OrderStatus.PROCESSING)) && (
+                                      {(sale.status === OrderStatus.PROCESSING) && (
                                          <button 
                                           onClick={() => setTrackingModal({saleId: sale.id})}
                                           className="bg-blue-600 shadow-blue-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
@@ -1163,7 +1016,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                                       )}
                                 </div>
                              </div>
-                          </div>
                         );
                      })
                   )}
@@ -1172,113 +1024,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
          </div>
        )}
 
-       {activeTab === 'sourcing' && (
-         <div className="space-y-8 animate-fade-in">
-            <div className="bg-gradient-to-r from-gray-900 to-gray-800 p-10 rounded-[3rem] shadow-2xl relative overflow-hidden text-white">
-               <GlobeAmericasIcon className="absolute -right-6 -bottom-6 h-64 w-64 text-white opacity-5" />
-               <h3 className="text-3xl font-black uppercase tracking-tighter mb-2">Fornecedores Internos</h3>
-               <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mb-8">Importe produtos de outros criadores da CyBerPhone para sua loja</p>
-               
-               <div className="flex flex-col sm:flex-row gap-4 mb-6 relative z-10">
-                  <div className="flex-1 relative">
-                    <MagnifyingGlassIcon className="h-5 w-5 absolute left-5 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input 
-                        type="text" 
-                        value={searchQuery} 
-                        onChange={e => setSearchQuery(e.target.value)} 
-                        placeholder="Buscar produtos disponíveis para dropshipping..." 
-                        className="w-full pl-12 pr-6 py-5 bg-white text-gray-900 rounded-2xl outline-none font-black border-4 border-transparent focus:border-blue-500 transition-all text-sm shadow-xl" 
-                    />
-                  </div>
-                  <button 
-                    onClick={() => handleSource()} 
-                    disabled={isSourcing} 
-                    className="bg-blue-600 text-white px-10 py-5 rounded-2xl font-black uppercase text-xs shadow-xl disabled:opacity-50 transition-all active:scale-95 hover:bg-blue-500"
-                  >
-                    {isSourcing ? 'Buscando...' : 'Pesquisar Catálogo'}
-                  </button>
-               </div>
-            </div>
 
-            {sourcingResults.length > 0 ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
-                {sourcingResults.map((res: Product, i) => (
-                  <div key={i} className="bg-white dark:bg-darkcard rounded-[2.5rem] p-6 flex flex-col sm:flex-row gap-6 border border-gray-100 dark:border-white/5 shadow-lg group transition-all hover:shadow-2xl hover:-translate-y-1">
-                     <div className="w-full sm:w-40 h-48 shrink-0 rounded-[2rem] overflow-hidden shadow-md relative">
-                        <img src={res.imageUrls[0]} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                        <div className="absolute bottom-0 left-0 w-full bg-black/60 backdrop-blur-sm p-2 text-center">
-                            <p className="text-[9px] font-black text-white uppercase tracking-widest">Custo Dropshipping: ${(res.dropshippingPrice || res.price).toFixed(2)}</p>
-                        </div>
-                     </div>
-                     <div className="flex-1 flex flex-col">
-                        <h4 className="font-black text-base dark:text-white mb-2 uppercase leading-tight line-clamp-2">{res.name}</h4>
-                        <p className="text-xs text-gray-500 line-clamp-2 mb-auto leading-relaxed">{res.description}</p>
-                        
-                        <div className="mt-6 pt-6 border-t border-gray-100 dark:border-white/5 flex gap-3">
-                           <button onClick={() => openImportModal(res)} className="flex-1 bg-black dark:bg-white dark:text-black text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
-                               <BoltIcon className="h-4 w-4 text-yellow-400" /> Importar e Editar
-                           </button>
-                        </div>
-                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : searchQuery && !isSourcing && (
-                <div className="text-center py-20">
-                    <ArchiveBoxIcon className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500 font-black uppercase text-xs tracking-widest">Nenhum produto encontrado para dropshipping interno.</p>
-                </div>
-            )}
-         </div>
-       )}
 
-       {/* MODAL DE IMPORTAÇÃO (CALCULADORA DE LUCRO) */}
-       {importModal && (
-           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[150] flex items-start sm:items-center justify-center p-4 animate-fade-in overflow-y-auto" onClick={() => setImportModal(null)}>
-               <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl relative border border-white/10 my-auto" onClick={e => e.stopPropagation()}>
-                   <button onClick={() => setImportModal(null)} className="absolute top-6 right-6 p-2 bg-gray-50 dark:bg-white/5 rounded-full text-gray-400 hover:text-red-500 transition-all"><XMarkIcon className="h-6 w-6" /></button>
-                   
-                   <div className="flex items-center gap-4 mb-8">
-                       <img src={importModal.imageUrl} className="w-16 h-16 rounded-xl object-cover shadow-md border-2 border-white dark:border-white/10" />
-                       <div>
-                           <h3 className="text-lg font-black dark:text-white uppercase tracking-tight line-clamp-1">{importModal.name}</h3>
-                           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Defina sua margem de lucro</p>
-                       </div>
-                   </div>
 
-                   <div className="space-y-6 bg-gray-50 dark:bg-white/5 p-6 rounded-3xl border border-gray-100 dark:border-white/5">
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs font-black text-gray-500 uppercase tracking-widest">Custo do Fornecedor</span>
-                            <span className="text-lg font-black text-red-400">-${importModal.originalPrice.toFixed(2)}</span>
-                        </div>
-                        
-                        <div className="relative">
-                            <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest absolute -top-2.5 left-4 bg-white dark:bg-[#1a1c23] px-2">Seu Preço de Venda</label>
-                            <input 
-                                type="number" 
-                                value={importPrice} 
-                                onChange={e => setImportPrice(e.target.value)} 
-                                className="w-full p-4 bg-white dark:bg-black/20 border-2 border-blue-500 rounded-2xl text-2xl font-black text-center dark:text-white outline-none focus:shadow-lg transition-all" 
-                            />
-                        </div>
-
-                        <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-white/10">
-                            <span className="text-xs font-black text-gray-500 uppercase tracking-widest">Lucro Estimado / Venda</span>
-                            <span className={`text-2xl font-black ${parseFloat(importPrice) - importModal.originalPrice > 0 ? 'text-green-500' : 'text-gray-400'}`}>
-                                +${(parseFloat(importPrice || '0') - importModal.originalPrice).toFixed(2)}
-                            </span>
-                        </div>
-                   </div>
-
-                   <button 
-                    onClick={confirmImport} 
-                    className="w-full mt-8 py-5 bg-green-600 hover:bg-green-700 text-white rounded-2xl font-black text-sm uppercase shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-                   >
-                       <CheckBadgeIcon className="h-5 w-5" /> Confirmar Importação
-                   </button>
-               </div>
-           </div>
-       )}
 
        {activeTab === 'branding' && (
          <div className="max-w-4xl mx-auto space-y-10 animate-fade-in">
@@ -1306,6 +1054,78 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
          </div>
        )}
 
+       {activeTab === 'affiliates' && (
+         <div className="space-y-8 animate-fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+               <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total de Promotores</p>
+                  <h4 className="text-4xl font-black dark:text-white tracking-tighter">{new Set(storeAffiliateLinks.map(l => l.userId)).size}</h4>
+               </div>
+               <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Vendas via Afiliados</p>
+                  <h4 className="text-4xl font-black dark:text-white tracking-tighter">{storeSales.filter(s => s.affiliateUserId).length}</h4>
+               </div>
+               <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Comissões Pagas</p>
+                  <h4 className="text-4xl font-black text-indigo-600 tracking-tighter">
+                    ${storeSales.filter(s => s.affiliateUserId).reduce((acc, s) => acc + (s.saleAmount * (storeProducts.find(p => p.id === s.productId)?.affiliateCommissionRate || 0) / 100), 0).toFixed(2)}
+                  </h4>
+               </div>
+            </div>
+
+            <div className="bg-white dark:bg-darkcard rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-white/5 shadow-xl">
+               <div className="p-6 border-b dark:border-white/5 bg-gray-50 dark:bg-white/5">
+                  <h3 className="font-black text-sm uppercase tracking-widest text-gray-900 dark:text-white">Links Ativos de Afiliados</h3>
+               </div>
+               <div className="p-0">
+                  {storeAffiliateLinks.length === 0 ? (
+                    <div className="p-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest">Nenhum afiliado gerou links ainda.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50 dark:bg-white/5 border-b dark:border-white/5">
+                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase">Afiliado</th>
+                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase">Produto</th>
+                            <th className="px-6 py-4 text-[10px] font-black text-gray-500 uppercase">Data de Criação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y dark:divide-white/5">
+                          {storeAffiliateLinks.map((link, idx) => {
+                            const affiliate = buyerProfiles[link.userId];
+                            const product = storeProducts.find(p => p.id === link.productId);
+                            return (
+                              <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <img src={affiliate?.profilePicture || `https://ui-avatars.com/api/?name=${affiliate?.firstName || 'A'}`} className="w-8 h-8 rounded-full" />
+                                    <div>
+                                      <p className="text-xs font-black dark:text-white uppercase">{affiliate ? `${affiliate.firstName} ${affiliate.lastName}` : 'Afiliado Externo'}</p>
+                                      <p className="text-[10px] text-gray-500">{affiliate?.email || 'N/A'}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <img src={product?.imageUrls[0]} className="w-8 h-8 rounded-lg object-cover" />
+                                    <p className="text-xs font-bold dark:text-white uppercase">{product?.name || 'Produto Removido'}</p>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <p className="text-[10px] font-bold text-gray-400">{new Date(link.timestamp).toLocaleDateString()}</p>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+               </div>
+            </div>
+         </div>
+       )}
+
        {/* Modal de Novo Produto Próprio (AliExpress Style) */}
        {isAddingProduct && (
          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-start sm:items-center justify-center p-2 sm:p-4 animate-fade-in overflow-y-auto" onClick={() => setIsAddingProduct(false)}>
@@ -1327,9 +1147,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                {/* Form Content */}
                <form onSubmit={handleCreateProduct} className="flex-1 overflow-y-auto p-8 space-y-8 no-scrollbar">
                   {/* Categoría y Tipo */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="space-y-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Categoria Principal</label>
+                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tipo de Produto</label>
                        <select 
                         value={pType} 
                         onChange={e => setPType(e.target.value as ProductType)} 
@@ -1339,6 +1159,19 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                           <option value={ProductType.DIGITAL_COURSE}>🎓 Curso Online</option>
                           <option value={ProductType.DIGITAL_EBOOK}>📚 E-book / PDF</option>
                           <option value={ProductType.DIGITAL_OTHER}>⚡ Outros Digitais</option>
+                       </select>
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nicho / Categoria</label>
+                       <select 
+                        value={pCategory} 
+                        onChange={e => setPCategory(e.target.value)} 
+                        className="w-full p-4 bg-gray-50 dark:bg-white/5 dark:text-white rounded-xl outline-none font-bold text-sm cursor-pointer border-2 border-transparent focus:border-[#ff4747]"
+                       >
+                          {CATEGORIES.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                          <option value="Outros">Outros</option>
                        </select>
                     </div>
                     <div className="space-y-2">
@@ -1590,41 +1423,6 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, refres
                         className="w-full p-4 bg-gray-50 dark:bg-white/5 dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-transparent focus:border-[#ff4747]" 
                        />
                     </div>
-                  </div>
-
-                  {/* Internal Dropshipping Settings */}
-                  <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-3xl border border-blue-100 dark:border-blue-800/30 space-y-6">
-                      <div className="flex items-center justify-between">
-                          <div>
-                              <h4 className="text-sm font-black dark:text-white uppercase tracking-tight">Permitir Dropshipping Interno</h4>
-                              <p className="text-[9px] text-gray-500 font-bold uppercase">Outros usuários poderão vender seu produto em suas próprias lojas</p>
-                          </div>
-                          <button 
-                            type="button"
-                            onClick={() => setPIsAvailableForDropshipping(!pIsAvailableForDropshipping)}
-                            className={`w-14 h-8 rounded-full transition-all relative ${pIsAvailableForDropshipping ? 'bg-blue-600' : 'bg-gray-300 dark:bg-white/10'}`}
-                          >
-                              <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${pIsAvailableForDropshipping ? 'left-7' : 'left-1'}`}></div>
-                          </button>
-                      </div>
-
-                      {pIsAvailableForDropshipping && (
-                          <div className="space-y-2 animate-fade-in">
-                              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-1">Preço para Dropshippers (Custo)</label>
-                              <div className="relative">
-                                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-400 font-bold text-sm">$</span>
-                                  <input 
-                                    type="number" 
-                                    required={pIsAvailableForDropshipping}
-                                    value={pDropshippingPrice} 
-                                    onChange={e => setPDropshippingPrice(e.target.value)} 
-                                    className="w-full pl-10 pr-4 py-4 bg-white dark:bg-black/20 dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-blue-200 dark:border-blue-800/30 focus:border-blue-500 transition-all" 
-                                    placeholder="Quanto você quer receber por venda?"
-                                  />
-                              </div>
-                              <p className="text-[9px] text-blue-500 font-medium ml-1">Este é o valor que você receberá quando um dropshipper vender seu produto.</p>
-                          </div>
-                      )}
                   </div>
 
                   {/* Media Upload */}

@@ -72,8 +72,8 @@ export enum TransactionType {
   SALE = 'SALE',
   CHAT_FEE = 'CHAT_FEE',
   BOOST = 'BOOST',
-  DROPSHIPPING_COST = 'DROPSHIPPING_COST',
-  DONATION = 'DONATION'
+  DONATION = 'DONATION',
+  TICKET = 'TICKET'
 }
 
 export interface Transaction {
@@ -106,6 +106,16 @@ export interface ContentReport {
   timestamp: number;
 }
 
+export interface AffiliateLink {
+  id: string;
+  affiliateId: string;
+  productId: string;
+  sellerId: string;
+  link: string;
+  clicks: number;
+  timestamp: number;
+}
+
 export interface User {
   id: string;
   firstName: string;
@@ -120,6 +130,9 @@ export interface User {
   followedUsers: string[]; 
   followers: string[];     
   balance?: number;
+  pendingBalance?: number;
+  totalEarnings?: number;
+  totalWithdrawn?: number;
   bio?: string;
   storeId?: string | null;
   isAdmin?: boolean;
@@ -166,6 +179,9 @@ export interface User {
   premiumExpiry?: number;
   address?: ShippingAddress;
   country?: string;
+  resellerName?: string;
+  resellerBio?: string;
+  resellerBanner?: string;
 }
 
 export enum PostType {
@@ -260,11 +276,12 @@ export interface Product {
   averageRating: number;
   ratingCount: number;
   soldCount?: number;
+  category: string;
+  status: 'active' | 'inactive';
+  userId: string;
   digitalContentUrl?: string;
   digitalDownloadInstructions?: string;
   colors?: string[];
-  isDropshipping?: boolean;
-  externalProviderId?: string;
   // Dados de Preço e Promoção
   originalPrice?: number;
   discountPercentage?: number;
@@ -288,9 +305,6 @@ export interface Product {
     stock: number;
   };
   
-  originalProductId?: string; // ID do produto original no sistema
-  isAvailableForDropshipping?: boolean; // Se o dono permite que outros façam dropshipping
-  dropshippingPrice?: number; // Preço base para dropshippers
   condition?: 'NEW' | 'USED';
 }
 
@@ -315,7 +329,6 @@ export interface Store {
 export enum OrderStatus {
   WAITLIST = 'WAITLIST',
   PROCESSING = 'PROCESSING',
-  PROCESSING_SUPPLIER = 'PROCESSING_SUPPLIER',
   SHIPPING = 'SHIPPING',
   DELIVERED = 'DELIVERED',
   COMPLETED = 'COMPLETED',
@@ -360,12 +373,12 @@ export interface AffiliateSale {
   shippingAddress?: ShippingAddress;
   digitalContentUrl?: string;
   digitalDownloadInstructions?: string;
-  isDropshipping?: boolean;
-  supplierCost?: number;
   supplierOrderId?: string;
   trackingCode?: string;
+  sellerId: string;
   sellerEarnings?: number;
   affiliateEarnings?: number;
+  fundsReleased?: boolean;
 }
 
 export interface ShippingAddress {
@@ -477,6 +490,7 @@ export interface CartItem {
   productId: string;
   quantity: number;
   selectedColor?: string;
+  affiliateId?: string;
 }
 
 export enum NotificationType {

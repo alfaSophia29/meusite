@@ -25,9 +25,10 @@ interface ProductDetailModalProps {
   product: Product;
   currentUser: User;
   onClose: () => void;
-  onAddToCart: (productId: string, quantity: number, selectedColor?: string) => void;
+  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string) => void;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
   onShare: (product: Product) => void;
+  affiliateId?: string;
 }
 
 const ReviewItem: React.FC<{ rating: any }> = ({ rating }) => {
@@ -69,7 +70,7 @@ const ReviewItem: React.FC<{ rating: any }> = ({ rating }) => {
   );
 };
 
-const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, currentUser, onClose, onAddToCart, onNavigate, onShare }) => {
+const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, currentUser, onClose, onAddToCart, onNavigate, onShare, affiliateId }) => {
   const { showAlert } = useDialog();
   const [exchangeRate, setExchangeRate] = useState(930);
   const [owner, setOwner] = useState<User | null>(null);
@@ -101,7 +102,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
   const [isAdded, setIsAdded] = useState(false);
 
   const handleAddToCartClick = () => {
-    onAddToCart(product.id, quantity, selectedColor);
+    onAddToCart(product.id, quantity, selectedColor, affiliateId);
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2000);
   };
@@ -209,11 +210,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
                   {product.condition === 'NEW' ? 'Novo' : 'Usado'}
                 </span>
               )}
-              {product.isAvailableForDropshipping && (
-                <span className="bg-purple-600 text-white text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg shadow-sm">
-                  Dropshipping
-                </span>
-              )}
+
               <div className="flex items-center">
                 {product.ratingCount > 0 ? (
                   <>
@@ -364,26 +361,7 @@ const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, curren
               </div>
             )}
 
-            {product.isAvailableForDropshipping && (
-              <div className="mt-6 p-6 bg-purple-50 rounded-3xl border border-purple-100">
-                <div className="flex items-center gap-3 mb-2">
-                  <BoltIcon className="h-5 w-5 text-purple-600" />
-                  <h4 className="text-xs font-black text-purple-900 uppercase">Oportunidade de Dropshipping</h4>
-                </div>
-                <p className="text-[10px] text-purple-700 font-medium mb-4">
-                  Você pode importar este produto para sua própria loja e vendê-lo com sua margem de lucro.
-                </p>
-                <button 
-                  onClick={() => {
-                    onClose();
-                    onNavigate('manage-store', { tab: 'sourcing', search: product.name });
-                  }}
-                  className="w-full py-3 bg-purple-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-purple-700 transition-all"
-                >
-                  Fazer Dropshipping deste Produto
-                </button>
-              </div>
-            )}
+
 
             {product.affiliateCommissionRate > 0 && currentUser.id !== owner?.id && (
               <div className="mt-4 p-6 bg-green-50 rounded-3xl border border-green-100">

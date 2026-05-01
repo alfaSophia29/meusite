@@ -212,6 +212,7 @@ export const monetizationService = {
       
       const updateData = {
         "creatorStats.estimatedEarnings": increment(amount),
+        "totalEarnings": increment(amount),
         "balance": increment(amount)
       };
 
@@ -351,7 +352,7 @@ export const monetizationService = {
       const snap = await getDocs(q);
       return snap.docs.map(d => d.data() as EarningRecord).reverse();
     } catch (err) {
-      console.error("[MONETIZATION] Error fetching history:", err);
+      handleFirestoreError(err, OperationType.LIST, 'earnings');
       return [];
     }
   }

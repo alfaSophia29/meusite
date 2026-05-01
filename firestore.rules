@@ -109,11 +109,13 @@ service cloud.firestore {
     match /affiliate_links/{linkId} {
       allow read: if isSignedIn() && (
         resource.data.userId == request.auth.uid || 
-        (exists(/databases/$(database)/documents/products/$(resource.data.productId)) && 
-         get(/databases/$(database)/documents/products/$(resource.data.productId)).data.userId == request.auth.uid) ||
+        resource.data.sellerId == request.auth.uid ||
         isAdmin()
       );
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && 
+                    request.resource.data.userId == request.auth.uid &&
+                    request.resource.data.sellerId is string &&
+                    request.resource.data.productId is string;
       allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
@@ -172,6 +174,22 @@ service cloud.firestore {
     match /tickets/{ticketId} {
       allow read, update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn();
+    }
+
+    match /earnings/{recordId} {
+      allow read: if isSignedIn() && (resource.data.creatorId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /subscriptions/{subId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /super_chats/{chatId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
     }
 
     match /reports/{reportId} {

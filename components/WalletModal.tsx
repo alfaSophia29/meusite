@@ -6,7 +6,8 @@ import { useDialog } from '../services/DialogContext';
 import { getAoaExchangeRate } from '../services/currencyService';
 import CryptomusPaymentForm from './CryptomusPaymentForm';
 import AngolaPaymentForm from './AngolaPaymentForm';
-import { XMarkIcon, ShieldCheckIcon, BanknotesIcon, GlobeAltIcon, CalculatorIcon, MapPinIcon } from '@heroicons/react/24/solid';
+import TransactionHistory from './TransactionHistory';
+import { XMarkIcon, ShieldCheckIcon, BanknotesIcon, GlobeAltIcon, CalculatorIcon, MapPinIcon, ClockIcon } from '@heroicons/react/24/solid';
 
 interface WalletModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
   const [taxPercentage, setTaxPercentage] = useState(0.1); // Default 10%
   const [walletRegion, setWalletRegion] = useState<'global' | 'angola'>('global');
   const [exchangeRate, setExchangeRate] = useState(930);
+  const [showHistory, setShowHistory] = useState(false);
 
   React.useEffect(() => {
     const fetchSettings = async () => {
@@ -107,13 +109,13 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
           <XMarkIcon className="h-6 w-6" />
         </button>
 
-        <div className="mb-6 xs:mb-8 flex items-center justify-between">
+         <div className="mb-6 xs:mb-8 flex items-center justify-between">
            <div className="flex items-center gap-3 xs:gap-5">
-              <div className={`p-3 xs:p-5 rounded-[1.2rem] xs:rounded-[1.8rem] ${mode === 'deposit' ? 'bg-green-600 shadow-green-200' : 'bg-red-600 shadow-red-200'} text-white shadow-xl xs:shadow-2xl flex-shrink-0`}>
-                <BanknotesIcon className="h-6 w-6 xs:h-8 xs:w-8" />
+              <div className={`p-3 xs:p-5 rounded-[1.2rem] xs:rounded-[1.8rem] ${showHistory ? 'bg-brand' : mode === 'deposit' ? 'bg-green-600 shadow-green-200' : 'bg-red-600 shadow-red-200'} text-white shadow-xl xs:shadow-2xl flex-shrink-0 transition-colors`}>
+                {showHistory ? <ClockIcon className="h-6 w-6 xs:h-8 xs:w-8" /> : <BanknotesIcon className="h-6 w-6 xs:h-8 xs:w-8" />}
               </div>
               <div>
-                 <h2 className="text-xl xs:text-3xl font-black dark:text-white uppercase tracking-tighter leading-none">{mode === 'deposit' ? 'Recarregar' : 'Resgatar'} Fundos</h2>
+                 <h2 className="text-xl xs:text-3xl font-black dark:text-white uppercase tracking-tighter leading-none">{showHistory ? 'Histórico' : mode === 'deposit' ? 'Recarregar' : 'Resgatar'}</h2>
                  <p className="text-[8px] xs:text-[10px] text-gray-400 font-bold uppercase tracking-[0.15em] xs:tracking-[0.2em] mt-1 xs:mt-2 flex items-center gap-1.5">
                    <ShieldCheckIcon className="h-3 w-3 xs:h-4 xs:w-4 text-blue-500" /> Sistema Seguro CyBer
                  </p>
@@ -121,6 +123,54 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
            </div>
            
            <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-xl">
+              <button 
+                onClick={() => setShowHistory(!showHistory)}
+                className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${showHistory ? 'bg-white dark:bg-darkcard text-brand shadow-sm' : 'text-gray-500'}`}
+              >
+                {showHistory ? 'Fazer Transação' : 'Histórico'}
+              </button>
+           </div>
+        </div>
+
+        {showHistory ? (
+          <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            <TransactionHistory userId={currentUser.id} limitCount={30} />
+          </div>
+        ) : (
+          <>
+            <div className="mb-6 p-4 xs:p-6 bg-gray-50 dark:bg-white/5 rounded-[1.5rem] xs:rounded-[2rem] flex flex-row justify-between items-center border border-gray-100 dark:border-white/5 shadow-inner gap-4">
+              <div className="min-w-0 flex-1 flex flex-col gap-4 sm:flex-row sm:items-center">
+                 <div className="flex-1">
+                   <p className="text-[8px] xs:text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Saldo Disponível</p>
+                   <div className="flex flex-col">
+                     <p className="text-xl xs:text-3xl font-black text-green-600 break-all leading-tight">
+                       ${(currentUser.balance || 0).toFixed(2)}
+                     </p>
+                     <p className="text-[10px] xs:text-xs font-bold text-gray-500">
+                         ≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ
+                     </p>
+                   </div>
+                 </div>
+
+                 {currentUser.pendingBalance && currentUser.pendingBalance > 0 && (
+                   <div className="flex-1 border-t sm:border-t-0 sm:border-l border-gray-100 dark:border-white/5 pt-4 sm:pt-0 sm:pl-6">
+                     <p className="text-[8px] xs:text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Em Custódia (Pendente)</p>
+                     <p className="text-xl font-black text-brand break-all leading-tight">
+                       ${currentUser.pendingBalance.toFixed(2)}
+                     </p>
+                     <p className="text-[8px] font-bold text-brand/60 uppercase">Liberação Automática</p>
+                   </div>
+                 )}
+              </div>
+              <div className="text-right flex-shrink-0 self-start sm:self-center">
+                 <p className="text-[8px] xs:text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Região</p>
+                 <span className="text-lg xs:text-xl font-black dark:text-white uppercase flex items-center gap-1.5">
+                    {walletRegion === 'angola' ? 'AO' : 'GL'} <MapPinIcon className="h-4 w-4 text-blue-500" />
+                 </span>
+              </div>
+           </div>
+
+           <div className="flex bg-gray-100 dark:bg-white/5 p-1 rounded-xl mb-6 w-fit">
               <button 
                 onClick={() => setWalletRegion('global')}
                 className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${walletRegion === 'global' ? 'bg-white dark:bg-darkcard text-blue-600 shadow-sm' : 'text-gray-500'}`}
@@ -134,89 +184,52 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, mode, onClose, curren
                 🇦🇴 Angola (KZ)
               </button>
            </div>
-        </div>
-
-        <div className="mb-6 p-4 xs:p-6 bg-gray-50 dark:bg-white/5 rounded-[1.5rem] xs:rounded-[2rem] flex flex-row justify-between items-center border border-gray-100 dark:border-white/5 shadow-inner gap-4">
-           <div className="min-w-0 flex-1">
-              <p className="text-[8px] xs:text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Saldo Disponível</p>
-              <div className="flex flex-col">
-                 <p className="text-xl xs:text-3xl font-black text-blue-600 break-all leading-tight">
-                   ${(currentUser.balance || 0).toFixed(2)}
-                 </p>
-                 <p className="text-[10px] xs:text-xs font-bold text-green-600">
-                    ≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ
-                 </p>
-                 {(currentUser.balance || 0) < 5 && (
-                   <button 
-                     onClick={async () => {
-                       const success = await handleWalletTransaction(currentUser.id, 50, 'deposit');
-                       if (success) {
-                         refreshUser();
-                         showAlert("Bônus de teste de $50 adicionado!", { type: 'success' });
-                       }
-                     }}
-                     className="mt-2 text-[10px] font-black uppercase text-blue-500 hover:underline text-left"
-                   >
-                     Solicitar Bônus de Teste ($50)
-                   </button>
-                 )}
-              </div>
-           </div>
-           <div className="text-right flex-shrink-0">
-              <p className="text-[8px] xs:text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Região</p>
-              <span className="text-lg xs:text-xl font-black dark:text-white uppercase flex items-center gap-1.5">
-                 {walletRegion === 'angola' ? 'AO' : 'GL'} <MapPinIcon className="h-4 w-4 text-blue-500" />
-              </span>
-           </div>
-        </div>
-
-        {/* Conversor Rápido */}
-        <div className="mb-6 p-4 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[1.5rem] text-white overflow-hidden relative group">
-           <CalculatorIcon className="absolute -right-4 -bottom-4 h-24 w-24 text-white/10 group-hover:scale-110 transition-transform duration-500" />
-           <div className="relative z-10">
-              <p className="text-[8px] font-black uppercase tracking-widest text-blue-100 mb-2">Monitor de Câmbio em Tempo Real</p>
-              <div className="flex items-center justify-between gap-4">
-                 <div className="flex-1">
-                    <p className="text-[10px] font-bold text-blue-200">1 USDT (Palo)</p>
-                    <p className="text-xl font-black tracking-tighter">{exchangeRate.toLocaleString()} KZ</p>
-                 </div>
-                 <div className="h-8 w-[1px] bg-white/20" />
-                 <div className="flex-1">
-                    <p className="text-[10px] font-bold text-blue-200">1.000 KZ</p>
-                    <p className="text-xl font-black tracking-tighter">${(1000 / exchangeRate).toFixed(2)} USDT</p>
+           
+           {/* Conversor Rápido */}
+           <div className="mb-6 p-4 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[1.5rem] text-white overflow-hidden relative group">
+              <CalculatorIcon className="absolute -right-4 -bottom-4 h-24 w-24 text-white/10 group-hover:scale-110 transition-transform duration-500" />
+              <div className="relative z-10">
+                 <p className="text-[8px] font-black uppercase tracking-widest text-blue-100 mb-2">Monitor de Câmbio em Tempo Real</p>
+                 <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                       <p className="text-[10px] font-bold text-blue-200">1 USDT (Palo)</p>
+                       <p className="text-xl font-black tracking-tighter">{exchangeRate.toLocaleString()} KZ</p>
+                    </div>
+                    <div className="h-8 w-[1px] bg-white/20" />
+                    <div className="flex-1">
+                       <p className="text-[10px] font-bold text-blue-200">1.000 KZ</p>
+                       <p className="text-xl font-black tracking-tighter">${(1000 / exchangeRate).toFixed(2)} USDT</p>
+                    </div>
                  </div>
               </div>
-              <div className="mt-3 flex items-center gap-1.5">
-                 <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                 <p className="text-[7px] font-bold uppercase text-blue-100">Atualizado via API Oficial</p>
-              </div>
            </div>
-        </div>
 
-        {mode === 'withdraw' && (
-          <div className="mb-6 p-4 xs:p-6 bg-blue-50 dark:bg-blue-900/10 rounded-[1.5rem] xs:rounded-[2rem] border border-blue-100 dark:border-blue-900/20">
-             <div className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400">
-                 <CalculatorIcon className="h-4 w-4" />
-                 <span className="text-[8px] xs:text-[10px] font-black uppercase tracking-widest">Política de Saque</span>
+           {mode === 'withdraw' && (
+             <div className="mb-6 p-4 xs:p-6 bg-blue-50 dark:bg-blue-900/10 rounded-[1.5rem] xs:rounded-[2rem] border border-blue-100 dark:border-blue-900/20">
+                <div className="flex items-center gap-2 mb-2 text-blue-600 dark:text-blue-400">
+                    <CalculatorIcon className="h-4 w-4" />
+                    <span className="text-[8px] xs:text-[10px] font-black uppercase tracking-widest">Política de Saque</span>
+                </div>
+                <p className="text-[10px] xs:text-xs text-blue-800 dark:text-blue-300 leading-relaxed font-medium">
+                  Taxa de <strong>{(taxPercentage * 100).toFixed(0)}%</strong> inclusa no processamento.
+                </p>
              </div>
-             <p className="text-[10px] xs:text-xs text-blue-800 dark:text-blue-300 leading-relaxed font-medium">
-               Taxa de <strong>{(taxPercentage * 100).toFixed(0)}%</strong> inclusa no processamento.
-             </p>
-          </div>
-        )}
+           )}
 
-        {walletRegion === 'angola' ? (
-          <AngolaPaymentForm 
-            mode={mode}
-            onConfirm={handleTransaction}
-            onCancel={onClose}
-          />
-        ) : (
-          <CryptomusPaymentForm 
-             mode={mode} 
-             onConfirm={handleTransaction} 
-             onCancel={onClose} 
-          />
+           {walletRegion === 'angola' ? (
+             <AngolaPaymentForm 
+               mode={mode}
+               onConfirm={handleTransaction}
+               onCancel={onClose}
+             />
+           ) : (
+             <CryptomusPaymentForm 
+                mode={mode} 
+                onConfirm={handleTransaction} 
+                onCancel={onClose} 
+             />
+           )}
+          </>
         )}
 
         <div className="mt-8 xs:mt-10 pt-6 xs:pt-8 border-t border-gray-100 dark:border-white/5">

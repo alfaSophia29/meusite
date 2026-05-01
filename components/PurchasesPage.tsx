@@ -64,11 +64,10 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
       [OrderStatus.CANCELED]: -1,
       [OrderStatus.WAITLIST]: 0,
       [OrderStatus.PROCESSING]: 1,
-      [OrderStatus.PROCESSING_SUPPLIER]: 2,
-      [OrderStatus.SHIPPING]: 3,
-      [OrderStatus.DELIVERED]: 4,
-      [OrderStatus.COMPLETED]: 5,
-      [OrderStatus.DISPUTED]: 6,
+      [OrderStatus.SHIPPING]: 2,
+      [OrderStatus.DELIVERED]: 3,
+      [OrderStatus.COMPLETED]: 4,
+      [OrderStatus.DISPUTED]: 5,
     };
 
     // 1. Primeiro removemos duplicatas absolutas por ID de venda (saleId)
@@ -104,8 +103,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
       // Aba Pendentes (Waitlist) agora inclui também os estados de Processamento
       if (activeTab === OrderStatus.WAITLIST) {
         return p.status === OrderStatus.WAITLIST || 
-               p.status === OrderStatus.PROCESSING || 
-               p.status === OrderStatus.PROCESSING_SUPPLIER;
+               p.status === OrderStatus.PROCESSING;
       }
       return p.status === activeTab;
     });
@@ -175,7 +173,6 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
           description: 'Aguardando o início do processamento.' 
         };
       case OrderStatus.PROCESSING:
-      case OrderStatus.PROCESSING_SUPPLIER:
         return { 
           label: 'Processando', 
           color: 'text-purple-600', 
@@ -346,7 +343,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate }
                     )}
 
                     <div className="flex flex-wrap gap-3 pt-2">
-                       {isPhysical && (sale.status === OrderStatus.WAITLIST || sale.status === OrderStatus.PROCESSING || sale.status === OrderStatus.PROCESSING_SUPPLIER || sale.status === OrderStatus.SHIPPING) && (
+                       {isPhysical && (sale.status === OrderStatus.WAITLIST || sale.status === OrderStatus.PROCESSING || sale.status === OrderStatus.SHIPPING) && (
                           <button 
                             onClick={() => handleOpenDispute(sale.id)}
                             className="flex-1 bg-white dark:bg-white/5 text-red-600 border border-red-100 dark:border-red-900/30 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-50 dark:hover:bg-red-900/10 transition-all flex items-center justify-center gap-2"
