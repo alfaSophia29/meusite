@@ -27,7 +27,7 @@ import IDVerification from './components/IDVerification';
 import FeedPage from './components/FeedPage';
 import ProfilePage from './components/ProfilePage';
 import ChatPage from './components/ChatPage';
-import AdCampaignPage from './components/AdCampaignPage';
+import { AdCampaignPage } from './components/AdCampaignPage';
 import LiveStreamViewer from './components/LiveStreamViewer';
 import { StorePage } from './components/StorePage';
 import StoreManagerPage from './components/StoreManagerPage';

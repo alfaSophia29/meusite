@@ -81,6 +81,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     maintenanceMode: false, 
     boostFee: 5,
     boostMinBid: 5,
+    boostDailyMin: 0.5,
     adMinBudget: 5,
     adReachCost: 2,
     verificationFee: 10,

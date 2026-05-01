@@ -41,7 +41,7 @@ interface AdCampaignPageProps {
 
 type Step = 'objective' | 'creative' | 'targeting' | 'budget';
 
-const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, refreshUser, onNavigate }) => {
+export const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, refreshUser, onNavigate }) => {
   const { showAlert } = useDialog();
   const [currentStep, setCurrentStep] = useState<Step>('objective');
   const [loading, setLoading] = useState(false);
@@ -586,4 +586,5 @@ const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, refreshUse
   );
 };
 
-export default AdCampaignPage;
+
+

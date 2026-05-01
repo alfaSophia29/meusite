@@ -35,22 +35,28 @@ const BoostPostModal: React.FC<BoostPostModalProps> = ({ post, currentUser, onCl
   useEffect(() => {
     getGlobalSettings().then(s => {
       setSettings(s);
-      if (s?.boostMinBid) {
-        setBidAmount(s.boostMinBid);
-      } else {
-        setBidAmount(10); // Valor padrão se não houver nas configs
-      }
+      const dailyMin = s?.boostDailyMin || 0.50;
+      const initialDays = BOOST_PACKS.find(p => p.id === selectedPackId)?.days || 7;
+      setBidAmount(initialDays * dailyMin);
     });
   }, []);
 
   const selectedPack = useMemo(() => BOOST_PACKS.find(p => p.id === selectedPackId)!, [selectedPackId]);
 
+  useEffect(() => {
+    if (settings) {
+      const dailyMin = settings.boostDailyMin || 0.50;
+      setBidAmount(selectedPack.days * dailyMin);
+    }
+  }, [selectedPackId, settings]);
+
   const handleBoost = async () => {
     if (!settings) return;
-    const minBid = settings.boostMinBid || 5;
+    const dailyMin = settings.boostDailyMin || 0.50;
+    const requiredMin = selectedPack.days * dailyMin;
     
-    if (bidAmount < minBid) {
-      showError(`O lance mínimo para impulsionar é $${minBid.toFixed(2)}`);
+    if (bidAmount < requiredMin) {
+      showError(`O lance mínimo para ${selectedPack.days} dias é $${requiredMin.toFixed(2)} ($${dailyMin.toFixed(2)}/dia)`);
       return;
     }
 
@@ -116,7 +122,7 @@ const BoostPostModal: React.FC<BoostPostModalProps> = ({ post, currentUser, onCl
                   placeholder="0.00"
                 />
                 <div className="flex justify-between text-[10px] font-bold text-gray-500 uppercase tracking-tight px-1">
-                  <span>Mínimo: ${ (settings?.boostMinBid || 5).toFixed(2) }</span>
+                  <span>Mínimo para {selectedPack.days} dias: ${ (selectedPack.days * (settings?.boostDailyMin || 0.5)).toFixed(2) }</span>
                   <span>Seu Saldo: ${ (currentUser.balance || 0).toFixed(2) }</span>
                 </div>
               </div>

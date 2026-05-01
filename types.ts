@@ -474,6 +474,7 @@ export interface GlobalSettings {
   maintenanceMode: boolean;
   boostFee: number;
   boostMinBid?: number; // Lance mínimo inicial
+  boostDailyMin?: number; // Lance mínimo por dia
   adMinBudget?: number;
   adReachCost?: number;
   verificationFee?: number;
