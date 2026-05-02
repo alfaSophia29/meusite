@@ -586,5 +586,7 @@ export const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, ref
   );
 };
 
+export default AdCampaignPage;
+
 
 

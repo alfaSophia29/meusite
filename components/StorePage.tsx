@@ -745,3 +745,5 @@ export const StorePage: React.FC<StorePageProps> = ({ currentUser, onNavigate, s
     </div>
   );
 };
+
+export default StorePage;
