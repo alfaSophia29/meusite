@@ -1097,6 +1097,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Boost Diário Mínimo (USD)</label>
+                               <input 
+                                 type="number" 
+                                 step="0.1" 
+                                 value={settings.boostDailyMin ?? 0.5} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, boostDailyMin: isNaN(val) ? 0 : val});
+                                 }}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Mínimo Anúncio (USD)</label>
                                <input 
                                  type="number" 

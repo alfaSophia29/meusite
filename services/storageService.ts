@@ -1022,7 +1022,8 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
             verificationFee: data.verificationFee ?? 10,
             groupCreationFee: data.groupCreationFee ?? 5,
             storeCreationFee: data.storeCreationFee ?? 50,
-            positioningMinBid: data.positioningMinBid ?? 1
+            positioningMinBid: data.positioningMinBid ?? 1,
+            boostDailyMin: data.boostDailyMin ?? 0.5
         } as GlobalSettings;
     }
     return { 
@@ -1031,6 +1032,7 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
         maintenanceMode: false, 
         boostFee: 5,
         boostMinBid: 5,
+        boostDailyMin: 0.5,
         adMinBudget: 5,
         adReachCost: 2,
         verificationFee: 10,
