@@ -60,12 +60,11 @@ const StoryCreator: React.FC<StoryCreatorProps> = ({ currentUser, onClose, onSuc
     }
   }, [text]);
 
-  const handleClose = async () => {
+  const handleClose = () => {
     if (text.trim() || image) {
-      const confirmed = await showConfirm('Descartar alterações?');
-      if (confirmed) {
+      showConfirm('Descartar alterações?', () => {
         onClose();
-      }
+      });
     } else {
       onClose();
     }

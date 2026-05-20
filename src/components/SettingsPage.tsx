@@ -32,7 +32,7 @@ import {
   NoSymbolIcon,
   BellIcon
 } from '@heroicons/react/24/outline';
-import ConfirmationModal from './ConfirmationModal';
+import ConfirmationModal, { ConfirmationType } from './ConfirmationModal';
 
 interface SettingsPageProps {
   currentUser: User;
@@ -568,7 +568,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
                <div className="text-center opacity-30 hover:opacity-100 transition-opacity cursor-pointer select-none">
                   <p className="text-[9px] font-black uppercase tracking-[0.3em] text-gray-400">
-                     CyBerPhone v1.3.3 (Stable)
+                     FacePhone v1.3.3 (Stable)
                      {currentUser.isAdmin && <span className="text-red-500 ml-2">ROOT ACCESS</span>}
                   </p>
                </div>
@@ -583,7 +583,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         title="Excluir Conta?"
         message="Esta ação é irreversível. Todos os seus dados, saldo e conteúdo serão apagados permanentemente."
         confirmText="Sim, Apagar Tudo"
-        type="danger"
+        type={ConfirmationType.DANGER}
         loading={isSaving}
       />
     </div>

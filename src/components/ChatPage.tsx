@@ -1,6 +1,63 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { User, Message, ChatConversation, ChatType, GroupTheme, Page } from '../types';
+
+export const AnimatedEmoji = ({ emoji, className = "", animateWhileInView = true }: { emoji: string, className?: string, animateWhileInView?: boolean }) => {
+  const getAnimation = () => {
+    switch (emoji) {
+      case '❤️':
+        return {
+          scale: [1, 1.3, 1, 1.3, 1],
+          transition: { duration: 0.8, repeat: Infinity, times: [0, 0.2, 0.4, 0.6, 1], ease: "easeInOut" as any }
+        };
+      case '👍':
+        return {
+          y: [0, -5, 0],
+          scale: [1, 1.2, 1],
+          transition: { duration: 0.6, repeat: Infinity, ease: "easeOut" as any }
+        };
+      case '🔥':
+        return {
+          scale: [1, 1.15, 1],
+          y: [0, -2, 0],
+          transition: { duration: 0.8, repeat: Infinity }
+        };
+      case '😂':
+        return {
+          rotate: [0, -5, 5, -5, 0],
+          scale: [1, 1.1, 1],
+          transition: { duration: 1.5, repeat: Infinity }
+        };
+      case '😮':
+        return {
+          scale: [1, 1.15, 1],
+          transition: { duration: 2, repeat: Infinity }
+        };
+      case '😢':
+        return {
+          y: [0, 1, 0],
+          opacity: [1, 0.8, 1],
+          transition: { duration: 3, repeat: Infinity }
+        };
+      default:
+        return {
+          scale: [1, 1.05, 1],
+          transition: { duration: 2, repeat: Infinity }
+        };
+    }
+  };
+
+  return (
+    <motion.span
+      animate={animateWhileInView ? getAnimation() : {}}
+      whileHover={{ scale: 1.4, zIndex: 10 }}
+      className={`inline-block ${className}`}
+    >
+      {emoji}
+    </motion.span>
+  );
+};
 import {
   getChats,
   findUserById,
@@ -65,6 +122,7 @@ interface ChatPageProps {
   params?: Record<string, string>;
   onMessagesRead?: () => void;
   refreshUser?: () => void;
+  onStartCall: (call: { partner: User, type: 'voice' | 'video', callId: string }) => void;
 }
  
 // Configuração expandida de Temas
@@ -81,9 +139,9 @@ const THEME_CONFIG: Record<GroupTheme, { primary: string, secondary: string, bg:
   cyan: { primary: 'bg-cyan-600', secondary: 'bg-cyan-500', bg: 'bg-[#4dd0e1]', bubble: 'bg-[#e0f7fa]', text: 'text-cyan-600' }
 };
  
-const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, onMessagesRead, refreshUser }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, onMessagesRead, refreshUser, onStartCall }) => {
   const { t, i18n } = useTranslation();
-  const { showAlert, showConfirm } = useDialog();
+  const { showAlert, showConfirm, showSuccess } = useDialog();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatConversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
@@ -116,7 +174,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
 
-  const [activeCall, setActiveCall] = useState<{partner?: User, group?: ChatConversation, type: 'voice' | 'video', callId?: string} | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [followedUsersData, setFollowedUsersData] = useState<User[]>([]);
@@ -286,16 +343,53 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = (event) => {
+      recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
 
-      mediaRecorderRef.current.start();
+      recorder.onstop = async () => {
+        if (audioChunksRef.current.length === 0) return;
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioFile = new File([audioBlob], `audio_msg_${Date.now()}.webm`, { type: 'audio/webm' });
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+        
+        setIsRecording(false);
+        setIsSending(true);
+
+        try {
+          const uploadedUrl = await uploadFile(audioFile, 'chat_audio');
+          
+          const msg: Message = {
+            id: generateUUID(),
+            senderId: currentUser.id,
+            timestamp: Date.now(),
+            fileUrl: uploadedUrl,
+            fileType: 'audio' as any,
+            fileName: 'Mensagem de Voz',
+            groupId: selectedChat?.type === ChatType.GROUP ? selectedChat.id : undefined,
+            isRead: false
+          };
+
+          await sendMessage(selectedChat!.id, msg);
+          loadData();
+        } catch (err) {
+          console.error("Falha ao enviar áudio", err);
+          showAlert("Falha ao enviar áudio.", { type: 'error' });
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      recorder.start();
       setIsRecording(true);
       setRecordingDuration(0);
 
@@ -309,56 +403,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
     }
   };
 
-  const handleStopAndSendRecording = () => {
-    if (!mediaRecorderRef.current || !selectedChat) return;
-
-    mediaRecorderRef.current.onstop = async () => {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const audioFile = new File([audioBlob], `audio_msg_${Date.now()}.webm`, { type: 'audio/webm' });
-      
-      // Stop timer and stream
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
-      
-      setIsRecording(false);
-      setIsSending(true);
-
-      try {
-        const uploadedUrl = await uploadFile(audioFile, 'chat_audio');
-        
-        const msg: Message = {
-          id: generateUUID(),
-          senderId: currentUser.id,
-          timestamp: Date.now(),
-          fileUrl: uploadedUrl,
-          fileType: 'audio',
-          fileName: 'Mensagem de Voz',
-          groupId: selectedChat.type === ChatType.GROUP ? selectedChat.id : undefined,
-          isRead: false
-        };
-
-        await sendMessage(selectedChat.id, msg);
-        loadData();
-      } catch (err) {
-        console.error("Falha ao enviar áudio", err);
-        showAlert("Falha ao enviar áudio.", { type: 'error' });
-      } finally {
-        setIsSending(false);
-      }
-    };
-
-    mediaRecorderRef.current.stop();
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+        mediaRecorderRef.current.stop();
+    }
   };
 
   const handleCancelRecording = () => {
-    if (!mediaRecorderRef.current) return;
-    
-    mediaRecorderRef.current.stop();
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    
-    setIsRecording(false);
-    audioChunksRef.current = [];
+    if (mediaRecorderRef.current) {
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+        }
+        audioChunksRef.current = [];
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        setIsRecording(false);
+    }
   };
 
   const formatRecordingTime = (seconds: number) => {
@@ -468,7 +533,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
                 ? t('delete_historical')
                 : t('delete_confirm'),
               confirmText: isHardDelete ? t('remove') : t('delete'),
-              type: 'danger',
+              type: ConfirmationType.DANGER,
               onConfirm: async () => {
                 await deleteMessage(selectedChat.id, msg.id, isHardDelete);
                 loadData();
@@ -505,7 +570,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
       title: 'Sair do Grupo',
       message: 'Você tem certeza que deseja sair desta comunidade? Você não receberá mais mensagens.',
       confirmText: 'Sair Agora',
-      type: 'warning',
+      type: ConfirmationType.WARNING,
       onConfirm: async () => {
         await leaveGroup(selectedChat.id, currentUser.id);
         setSelectedChat(null);
@@ -526,7 +591,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
         ? 'ATENÇÃO: O grupo será dissolvido e todas as mensagens serão apagadas permanentemente para todos os membros.'
         : 'Tem certeza que deseja apagar esta conversa? O histórico será perdido permanentemente.',
       confirmText: 'Excluir Tudo',
-      type: 'danger',
+      type: ConfirmationType.DANGER,
       onConfirm: async () => {
         await deleteChat(selectedChat.id);
         setSelectedChat(null);
@@ -546,14 +611,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
             if (partner) {
                 // Send signal to the recipient 
                 const callId = await startCall(currentUser, partner, type);
-                // Show traditional call layout for the caller
-                setActiveCall({ partner, type: type === CallType.VIDEO ? 'video' : 'voice', callId });
+                onStartCall({ partner, type: type === CallType.VIDEO ? 'video' : 'voice', callId });
             }
         }
-    } else {
-        const partnerId = selectedChat.participants.find(p => p !== currentUser.id);
-        const partner = await findUserById(partnerId!);
-        if (partner) setActiveCall({ partner, type: type === CallType.VIDEO ? 'video' : 'voice' });
     }
   };
 
@@ -707,22 +767,26 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
               )}
 
             {/* Reactions Display */}
-            {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                <div className={`flex flex-wrap gap-1 mt-1.5 ${msg.senderId === currentUser.id ? 'justify-end' : 'justify-start'}`}>
-                    {Object.entries(msg.reactions).map(([emoji, users]) => (
-                        users.length > 0 && (
-                            <button 
-                                key={emoji}
-                                onClick={() => msg.senderId !== currentUser.id && handleReaction(msg.id, emoji)}
-                                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] border transition-all ${users.includes(currentUser.id) ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700' : 'bg-white/50 border-gray-100 dark:bg-white/5 dark:border-white/10'} ${msg.senderId === currentUser.id ? 'cursor-default opacity-80' : 'cursor-pointer hover:scale-110'}`}
-                            >
-                                <span>{emoji}</span>
-                                <span className="font-bold dark:text-white">{users.length}</span>
-                            </button>
-                        )
-                    ))}
-                </div>
-            )}
+                        {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                            <div className={`flex flex-wrap gap-1 mt-1.5 ${msg.senderId === currentUser.id ? 'justify-end' : 'justify-start'}`}>
+                                {Object.entries(msg.reactions).map(([emoji, users]) => (
+                                    users.length > 0 && (
+                                        <motion.button 
+                                            initial={{ scale: 0, opacity: 0 }}
+                                            animate={{ scale: 1, opacity: 1 }}
+                                            whileHover={{ scale: 1.2 }}
+                                            whileTap={{ scale: 0.9 }}
+                                            key={emoji}
+                                            onClick={() => msg.senderId !== currentUser.id && handleReaction(msg.id, emoji)}
+                                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] border transition-all ${users.includes(currentUser.id) ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700' : 'bg-white/50 border-gray-100 dark:bg-white/5 dark:border-white/10'} ${msg.senderId === currentUser.id ? 'cursor-default opacity-80' : 'cursor-pointer'}`}
+                                        >
+                                            <AnimatedEmoji emoji={emoji} className="text-sm" />
+                                            <span className="font-bold dark:text-white">{users.length}</span>
+                                        </motion.button>
+                                    )
+                                ))}
+                            </div>
+                        )}
           </div>
       );
   };
@@ -933,27 +997,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
                                 <>
                                     <div className="border-t border-gray-100 dark:border-white/5 my-1"></div>
                                     <button 
-                                        onClick={async () => {
+                                        onClick={() => {
                                             const partnerId = selectedChat.participants.find(p => p !== currentUser.id);
                                             if (partnerId) {
                                                 const isBlocked = currentUser.blockedUserIds?.includes(partnerId);
-                                                const confirmed = await showConfirm(
+                                                showConfirm(
                                                     isBlocked 
-                                                        ? 'Ao desbloquear, vocês poderão trocar mensagens, ver posts e receber notificações um do outro novamente.' 
-                                                        : 'Ao bloquear, este usuário não poderá te enviar mensagens, ver seus posts ou te notificar. Tudo será ocultado para ambos.',
-                                                    {
-                                                        title: isBlocked ? 'Desbloquear Usuário?' : 'Bloquear Usuário?',
-                                                        confirmText: isBlocked ? 'Desbloquear' : 'Bloquear',
-                                                        type: isBlocked ? 'confirm' : 'confirm', // 'confirm' is the correct type for showConfirm as per DialogContext but it uses it internally.
+                                                        ? 'Deseja desbloquear este usuário? Vocês poderão trocar mensagens e ver posts novamente.' 
+                                                        : 'Deseja bloquear este usuário? Ele não poderá mais te enviar mensagens ou ver seus posts.',
+                                                    async () => {
+                                                        await toggleBlockUser(currentUser.id, partnerId);
+                                                        if (refreshUser) refreshUser();
+                                                        setShowGroupMenu(false);
+                                                        showSuccess(isBlocked ? "Usuário Desbloqueado." : "Usuário Bloqueado.");
                                                     }
                                                 );
-
-                                                if (confirmed) {
-                                                    await toggleBlockUser(currentUser.id, partnerId);
-                                                    if (refreshUser) refreshUser();
-                                                    setShowGroupMenu(false);
-                                                    showAlert(isBlocked ? "Usuário Desbloqueado." : "Usuário Bloqueado. Posts e mensagens serão ocultados.");
-                                                }
                                             }
                                         }} 
                                         className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/5 flex items-center gap-2 text-xs font-bold rounded-xl transition-all ${currentUser.blockedUserIds?.includes(selectedChat.participants.find(p => p !== currentUser.id) || '') ? 'text-blue-500' : 'text-orange-600'}`}
@@ -1004,14 +1062,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
                             {/* Reaction Picker Overlay */}
                             {!isMine && !msg.isDeleted && (
                               <div className={`absolute -top-12 ${isMine ? 'right-0' : 'left-0'} opacity-0 group-hover/message:opacity-100 transition-all flex items-center gap-0.5 bg-white dark:bg-[#1a1c23] p-1.5 rounded-full shadow-2xl border border-gray-100 dark:border-white/10 z-50`}>
-                                {REACTION_EMOJIS.map(emoji => (
-                                  <button 
+                                {REACTION_EMOJIS.map((emoji, idx) => (
+                                  <motion.button 
                                     key={emoji}
-                                    onClick={(e) => { e.stopPropagation(); handleReaction(msg.id, emoji); }}
-                                    className="hover:scale-125 transition-transform p-0.5"
+                                    initial={{ opacity: 0, scale: 0.5 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: idx * 0.03 }}
+                                    whileHover={{ scale: 1.5, y: -8 }}
+                                    whileTap={{ scale: 0.8 }}
+                                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleReaction(msg.id, emoji); }}
+                                    className="p-1 transition-all"
                                   >
-                                    {emoji}
-                                  </button>
+                                    <AnimatedEmoji emoji={emoji} className="text-xl" />
+                                  </motion.button>
                                 ))}
                               </div>
                             )}
@@ -1120,7 +1183,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
                        <span className="font-black text-red-600 text-sm tracking-widest">{t('recording')} {formatRecordingTime(recordingDuration)}</span>
                     </div>
 
-                    <button onClick={handleStopAndSendRecording} className="p-3 bg-red-600 text-white rounded-full hover:bg-red-700 transition-all shadow-lg active:scale-95">
+                    <button onClick={handleStopRecording} className="p-3 bg-red-600 text-white rounded-full hover:bg-red-700 transition-all shadow-lg active:scale-95">
                        <PaperAirplaneIcon className="h-6 w-6 -rotate-45" />
                     </button>
                  </div>
@@ -1198,14 +1261,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
                        {/* Reaction Picker in Modal for other's messages */}
                        {selectedMessageForAction.senderId !== currentUser.id && !selectedMessageForAction.isDeleted && (
                          <div className="flex justify-between items-center bg-gray-50 dark:bg-white/5 p-4 rounded-2xl mb-2">
-                           {REACTION_EMOJIS.map(emoji => (
-                             <button
+                           {REACTION_EMOJIS.map((emoji, idx) => (
+                             <motion.button
                                key={emoji}
+                               initial={{ opacity: 0, y: 15 }}
+                               animate={{ opacity: 1, y: 0 }}
+                               transition={{ delay: idx * 0.05 }}
+                               whileHover={{ scale: 1.6, y: -10 }}
+                               whileTap={{ scale: 0.8 }}
                                onClick={() => { handleReaction(selectedMessageForAction.id, emoji); setSelectedMessageForAction(null); }}
-                               className="text-2xl hover:scale-125 transition-transform p-1"
+                               className="text-2xl transition-all p-1"
                              >
-                               {emoji}
-                             </button>
+                               <AnimatedEmoji emoji={emoji} className="" />
+                             </motion.button>
                            ))}
                          </div>
                        )}
@@ -1262,8 +1330,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
           </div>
         )}
       </div>
-
-      {activeCall && <CallModal currentUser={currentUser} partner={activeCall.partner} group={activeCall.group} type={activeCall.type} callId={activeCall.callId} onClose={() => setActiveCall(null)} />}
       
       <ConfirmationModal
         isOpen={confirmConfig.isOpen}

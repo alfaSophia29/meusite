@@ -39,13 +39,6 @@
         } else {
           console.log('[PWA] Service Worker suportado.');
         }
-        
-        fetch('/manifest.json')
-          .then(r => {
-            if (!r.ok) console.error('[PWA] Erro ao carregar manifest.json: status ' + r.status + (isIframe ? ' (Pode ser bloqueado em iFrames)' : ''));
-            else console.log('[PWA] manifest.json carregado com sucesso.');
-          })
-          .catch(e => console.error('[PWA] Erro ao buscar manifest.json:', e));
       });
     </script>
     

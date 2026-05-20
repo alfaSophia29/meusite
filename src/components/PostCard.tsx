@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Post, PostType, User, Page } from '../types';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, ANONYMOUS_MASK_PIC } from '../data/constants';
 import { 
   findUserById, 
   updatePostLikes, 
@@ -33,6 +33,7 @@ import {
   ArrowsPointingOutIcon,
   LockClosedIcon,
   ArrowPathIcon,
+  ArrowTrendingUpIcon,
   LanguageIcon,
 } from '@heroicons/react/24/outline';
 import { 
@@ -44,6 +45,7 @@ import {
 } from '@heroicons/react/24/solid';
 import { useDialog } from '../services/DialogContext';
 import { translateText as translateAI } from '../services/translationService';
+import { motion, AnimatePresence } from 'motion/react';
 import PostDetailModal from './PostDetailModal';
 import BoostPostModal from './BoostPostModal';
 import DeleteConfirmModal from './DeleteConfirmModal';
@@ -72,7 +74,7 @@ const PostCard: React.FC<PostCardProps> = ({
   onPostUpdatedOrDeleted,
 }) => {
   const { t, i18n } = useTranslation();
-  const { showAlert, showConfirm } = useDialog();
+  const { showAlert, showConfirm, showSuccess } = useDialog();
   const [postAuthor, setPostAuthor] = useState<User | null>(null);
   const [showActionsModal, setShowActionsModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -87,6 +89,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const [isLiked, setIsLiked] = useState(post.likes?.includes(currentUser.id) || false);
   const [localSaves, setLocalSaves] = useState<string[]>(post.saves || []);
   const [isSaved, setIsSaved] = useState(post.saves?.includes(currentUser.id) || false);
+  const [localFollowing, setLocalFollowing] = useState(currentUser.followedUsers?.includes(post.userId));
   
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -94,11 +97,11 @@ const PostCard: React.FC<PostCardProps> = ({
   const [showHeartBurst, setShowHeartBurst] = useState(false);
 
   const isRecordedLive = post.type === PostType.LIVE && post.liveStream?.status === 'ENDED' && post.liveStream.recordingUrl;
-  const isFollowing = currentUser.followedUsers?.includes(post.userId);
+  const isFollowing = localFollowing;
 
   const isAnonymous = post.isAnonymous;
   const authorDisplayName = isAnonymous ? t('anonymous_user') : `${postAuthor?.firstName || ''} ${postAuthor?.lastName || ''}`;
-  const authorDisplayPic = isAnonymous ? DEFAULT_PROFILE_PIC : (postAuthor?.profilePicture || DEFAULT_PROFILE_PIC);
+  const authorDisplayPic = isAnonymous ? ANONYMOUS_MASK_PIC : (postAuthor?.profilePicture || DEFAULT_PROFILE_PIC);
   const isActuallyOnline = !isAnonymous && isUserOnline(postAuthor?.lastSeen, postAuthor?.isOnline);
 
   // Gera um delay aleatório para a animação de flutuação, para que os cards não se movam em uníssono.
@@ -112,7 +115,8 @@ const PostCard: React.FC<PostCardProps> = ({
     setIsLiked(post.likes?.includes(currentUser.id) || false);
     setLocalSaves(post.saves || []);
     setIsSaved(post.saves?.includes(currentUser.id) || false);
-  }, [post.likes, post.saves, currentUser.id]);
+    setLocalFollowing(currentUser.followedUsers?.includes(post.userId));
+  }, [post.likes, post.saves, currentUser.id, currentUser.followedUsers, post.userId]);
 
   useEffect(() => {
     const fetchAuthor = async () => {
@@ -126,7 +130,7 @@ const PostCard: React.FC<PostCardProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const watchStartTimeRef = useRef<number | null>(null);
   useEffect(() => {
-    if (isPlaying) {
+    if (isPlaying && currentUser && currentUser.id !== 'anonymous' && currentUser.id !== 'guest') {
       watchStartTimeRef.current = Date.now();
     } else {
       if (watchStartTimeRef.current) {
@@ -148,8 +152,17 @@ const PostCard: React.FC<PostCardProps> = ({
     };
   }, [isPlaying, post.userId, currentUser.id, currentUser.isPremium]);
 
-  // Video Player Logic
-  // Handled by VideoPlayer component
+  // Video Player Sync
+  const [videoStats, setVideoStats] = useState({ currentTime: 0, isPlaying: false });
+
+  const handleVideoPlayChange = React.useCallback((playing: boolean) => {
+    setIsPlaying(playing);
+    setVideoStats(v => v.isPlaying === playing ? v : ({ ...v, isPlaying: playing }));
+  }, []);
+
+  const handleVideoTimeUpdate = React.useCallback((time: number) => {
+    setVideoStats(v => v.currentTime === time ? v : ({ ...v, currentTime: time }));
+  }, []);
 
   const hasBg = post?.backgroundColor && post.backgroundColor !== 'transparent' && post.backgroundColor !== 'bg-transparent';
   
@@ -221,6 +234,12 @@ const PostCard: React.FC<PostCardProps> = ({
       setIsSaved(prevIsSaved);
       setLocalSaves(prevSaves);
     }
+  };
+
+  const handleFollowInternal = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setLocalFollowing(!localFollowing);
+    onFollowToggle(post.userId);
   };
 
   const handleTranslate = async (e: React.MouseEvent) => {
@@ -338,6 +357,14 @@ const PostCard: React.FC<PostCardProps> = ({
                     {authorDisplayName}
                   </span>
                   {!isAnonymous && postAuthor?.isVerified && <BoltIcon className="h-4 w-4 text-brand shrink-0" />}
+                  {!isAnonymous && !isAuthor && !isFollowing && (
+                    <button 
+                      onClick={handleFollowInternal}
+                      className="ml-2 text-[10px] font-black uppercase text-brand bg-brand/10 hover:bg-brand hover:text-white px-2.5 py-1 rounded-lg transition-all"
+                    >
+                      {t('follow')}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-gray-500 text-[11px] font-bold uppercase tracking-wider">
                   <span>{new Date(post.timestamp).toLocaleDateString()}</span>
@@ -397,7 +424,7 @@ const PostCard: React.FC<PostCardProps> = ({
                      <div className="flex items-center gap-4">
                         <button 
                             onClick={handleTranslate}
-                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${hasBg ? 'text-white/80 hover:text-white' : 'text-brand'}`}
+                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${hasBg ? 'text-white/80 hover:text-white' : 'text-gray-500 dark:text-gray-400'}`}
                         >
                             {isTranslating ? (
                                 <ArrowPathIcon className="h-3 w-3 animate-spin" />
@@ -408,7 +435,7 @@ const PostCard: React.FC<PostCardProps> = ({
 
                         <button 
                             onClick={handleReadAloud}
-                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${hasBg ? 'text-white/80 hover:text-white' : 'text-brand'}`}
+                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${hasBg ? 'text-white/80 hover:text-white' : (isReadingVoice ? 'text-brand' : 'text-gray-500 dark:text-gray-400')}`}
                         >
                             {isReadingVoice ? (
                                 <><div className="flex gap-0.5"><div className="w-0.5 h-2 bg-current animate-bounce" style={{animationDelay: '0s'}}></div><div className="w-0.5 h-2 bg-current animate-bounce" style={{animationDelay: '0.1s'}}></div><div className="w-0.5 h-2 bg-current animate-bounce" style={{animationDelay: '0.2s'}}></div></div> {t('stop_reading')}</>
@@ -462,20 +489,94 @@ const PostCard: React.FC<PostCardProps> = ({
                      src={post.liveStream!.recordingUrl!} 
                      className="rounded-2xl shadow-xl aspect-video"
                      autoPlay={true}
-                     onPlayChange={setIsPlaying}
+                     onPlayChange={handleVideoPlayChange}
+                     onTimeUpdate={handleVideoTimeUpdate}
                    />
                 ) :
                 
-                /* REEL ou VIDEO */
-                (post.type === PostType.REEL || post.type === PostType.VIDEO) && post.reel ? (
+                /* REEL */
+                post.type === PostType.REEL && post.reel ? (
+                  <div className="relative group/player rounded-3xl overflow-hidden shadow-2xl bg-black">
+                    <VideoPlayer 
+                      src={post.reel.videoUrl} 
+                      poster={post.reel.coverImageUrl}
+                      className="aspect-[9/16] max-h-[700px] w-full object-cover"
+                      isReel={true}
+                      loop={true}
+                      autoPlay={true}
+                      onPlayChange={handleVideoPlayChange}
+                      onTimeUpdate={handleVideoTimeUpdate}
+                    />
+                    
+                    {/* IG-STYLE OVERLAY: Right Side Actions */}
+                    <div className="absolute right-3 bottom-0 top-0 flex flex-col justify-end items-center gap-6 pb-6 pr-1 z-30 pointer-events-none">
+                      <div className="flex flex-col items-center gap-1 pointer-events-auto">
+                        <button onClick={handleLike} className={`p-2.5 rounded-full transition-all backdrop-blur-md active:scale-75 ${isLiked ? 'bg-pink-600/30 text-pink-500' : 'bg-black/30 text-white hover:bg-black/40'}`}>
+                           {isLiked ? <HeartIconSolid className="h-7 w-7" /> : <HeartIconOutline className="h-7 w-7" />}
+                        </button>
+                        <span className="text-[11px] font-black text-white drop-shadow-lg">{localLikes.length}</span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-1 pointer-events-auto">
+                        <button onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }} className="p-2.5 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/40 transition-all active:scale-75">
+                           <ChatIconOutline className="h-7 w-7" />
+                        </button>
+                        <span className="text-[11px] font-black text-white drop-shadow-lg">{post.comments?.length || 0}</span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-1 pointer-events-auto">
+                        <button onClick={(e) => { e.stopPropagation(); setShowShareModal(true); }} className="p-2.5 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/40 transition-all active:scale-75">
+                           <ShareIcon className="h-7 w-7" />
+                        </button>
+                        <span className="text-[11px] font-black text-white drop-shadow-lg">{post.shares?.length || 0}</span>
+                      </div>
+
+                      <div className="pointer-events-auto">
+                        <button onClick={handleSave} className={`p-2.5 rounded-full backdrop-blur-md transition-all active:scale-75 ${isSaved ? 'bg-brand/30 text-brand' : 'bg-black/30 text-white hover:bg-black/40'}`}>
+                           {isSaved ? <BookmarkIconSolid className="h-7 w-7" /> : <BookmarkIconOutline className="h-7 w-7" />}
+                        </button>
+                      </div>
+
+                      <div className="pointer-events-auto pt-2">
+                        <button onClick={(e) => { e.stopPropagation(); setShowActionsModal(true); }} className="p-2.5 rounded-full bg-black/30 backdrop-blur-md text-white hover:bg-black/40 transition-all active:scale-75">
+                           <EllipsisHorizontalIcon className="h-7 w-7" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* IG-STYLE OVERLAY: Bottom Info */}
+                    <div className="absolute left-0 right-16 bottom-0 p-6 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-20 pointer-events-none">
+                      <div className={`flex items-center gap-3 mb-4 pointer-events-auto ${isAnonymous ? 'cursor-default' : 'cursor-pointer'}`} onClick={(e) => { e.stopPropagation(); if (!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
+                        <img src={authorDisplayPic} className="h-10 w-10 rounded-full border-2 border-white/40 shadow-xl" />
+                        <span className="text-white font-black text-[15px] drop-shadow-md">
+                          {authorDisplayName}
+                        </span>
+                        {!isAuthor && !isFollowing && (
+                          <button onClick={handleFollowInternal} className="border-2 border-white/40 bg-white/10 px-3 py-1 rounded-lg text-[10px] font-black text-white hover:bg-white/20 transition-all">SEGUIR</button>
+                        )}
+                      </div>
+                      
+                      {post.content && (
+                        <div className="pointer-events-auto">
+                          <p className={`text-white text-[14px] leading-relaxed line-clamp-2 drop-shadow-md font-medium ${post.fontFamily || ''}`}>
+                            {post.content}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : 
+                
+                /* NORMAL VIDEO */
+                post.type === PostType.VIDEO && post.reel ? (
                    <VideoPlayer 
                      src={post.reel.videoUrl} 
                      poster={post.reel.coverImageUrl}
-                     className={`rounded-2xl shadow-xl ${post.type === PostType.REEL ? 'aspect-[9/16] max-h-[550px]' : 'aspect-video'}`}
-                     isReel={post.type === PostType.REEL}
-                     loop={post.type === PostType.REEL}
+                     className="rounded-2xl shadow-xl aspect-video w-full bg-black"
+                     isReel={false}
                      autoPlay={true}
-                     onPlayChange={setIsPlaying}
+                     onPlayChange={handleVideoPlayChange}
+                     onTimeUpdate={handleVideoTimeUpdate}
                    />
                 ) : (
                   /* IMAGE OR OTHER */
@@ -487,54 +588,67 @@ const PostCard: React.FC<PostCardProps> = ({
                 )}
               </div>
             </div>
-          </div>
-
-            {/* Actions Bar (X Style) */}
-            <div className="mt-5 pt-4 border-t border-gray-50 dark:border-white/5 flex items-center justify-between max-w-sm text-gray-500">
-               <button 
-                 onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }}
-                 className="flex items-center gap-1 group"
-               >
-                  <div className="p-2 rounded-full group-hover:bg-brand/10 group-hover:text-brand transition-colors">
-                    <ChatIconOutline className="h-[18px] w-[18px]" />
-                  </div>
-                  <span className="text-[13px] group-hover:text-brand">{post.comments?.length || 0}</span>
-               </button>
-
-               <button 
-                 onClick={handleLike}
-                 className={`flex items-center gap-1 group transition-all ${isLiked ? 'text-pink-600' : ''}`}
-               >
-                  <div className={`p-2 rounded-full ${isLiked ? 'group-hover:bg-pink-600/10' : 'group-hover:bg-pink-600/10 group-hover:text-pink-600'} transition-colors`}>
-                    <div>
-                      {isLiked ? <HeartIconSolid className="h-[18px] w-[18px]" /> : <HeartIconOutline className="h-[18px] w-[18px]" />}
-                    </div>
-                  </div>
-                  <span className={`text-[13px] ${isLiked ? '' : 'group-hover:text-pink-600'}`}>{localLikes.length}</span>
-               </button>
-
-               <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setShowShareModal(true);
-                  }}
+                 {/* Actions Bar (X Style) - HIDDEN for Reels as it uses IG-style overlay */}
+            {post.type !== PostType.REEL && (
+              <div className="mt-5 pt-4 border-t border-gray-50 dark:border-white/5 flex items-center justify-between max-w-sm text-gray-500">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }}
                   className="flex items-center gap-1 group"
-               >
-                  <div className="p-2 rounded-full group-hover:bg-brand/10 group-hover:text-brand transition-colors">
-                    <ShareIcon className="h-[18px] w-[18px]" />
-                  </div>
-                  <span className="text-[13px] group-hover:text-brand">{post.shares?.length || 0}</span>
-               </button>
+                >
+                    <div className="p-2 rounded-full group-hover:bg-brand/10 group-hover:text-brand transition-colors">
+                      <ChatIconOutline className="h-[18px] w-[18px]" />
+                    </div>
+                    <span className="text-[13px] group-hover:text-brand">{post.comments?.length || 0}</span>
+                </button>
 
-               <button 
-                 onClick={handleSave}
-                 className={`flex items-center gap-1 group transition-all ${isSaved ? 'text-brand' : ''}`}
-               >
-                  <div className={`p-2 rounded-full ${isSaved ? 'group-hover:bg-brand/10' : 'group-hover:bg-brand/10 group-hover:text-brand'} transition-colors`}>
-                    {isSaved ? <BookmarkIconSolid className="h-[18px] w-[18px]" /> : <BookmarkIconOutline className="h-[18px] w-[18px]" />}
-                  </div>
-               </button>
-            </div>
+                <button 
+                  onClick={handleLike}
+                  className={`flex items-center gap-1 group transition-all ${isLiked ? 'text-pink-600' : ''}`}
+                >
+                    <motion.div 
+                      whileTap={{ scale: 0.7 }}
+                      className={`p-2 rounded-full ${isLiked ? 'group-hover:bg-pink-600/10' : 'group-hover:bg-pink-600/10 group-hover:text-pink-600'} transition-colors`}
+                    >
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={isLiked ? 'liked' : 'unliked'}
+                          initial={{ scale: 0.5, opacity: 0 }}
+                          animate={{ scale: 1.2, opacity: 1 }}
+                          transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                        >
+                          <motion.div animate={{ scale: isLiked ? [1, 1.2, 1] : 1 }} transition={{ duration: 0.3 }}>
+                            {isLiked ? <HeartIconSolid className="h-[18px] w-[18px]" /> : <HeartIconOutline className="h-[18px] w-[18px]" />}
+                          </motion.div>
+                        </motion.div>
+                      </AnimatePresence>
+                    </motion.div>
+                    <span className={`text-[13px] ${isLiked ? '' : 'group-hover:text-pink-600'}`}>{localLikes.length}</span>
+                </button>
+
+                <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setShowShareModal(true);
+                    }}
+                    className="flex items-center gap-1 group"
+                >
+                    <div className="p-2 rounded-full group-hover:bg-brand/10 group-hover:text-brand transition-colors">
+                      <ShareIcon className="h-[18px] w-[18px]" />
+                    </div>
+                    <span className="text-[13px] group-hover:text-brand">{post.shares?.length || 0}</span>
+                </button>
+
+                <button 
+                  onClick={handleSave}
+                  className={`flex items-center gap-1 group transition-all ${isSaved ? 'text-brand' : ''}`}
+                >
+                    <div className={`p-2 rounded-full ${isSaved ? 'group-hover:bg-brand/10' : 'group-hover:bg-brand/10 group-hover:text-brand'} transition-colors`}>
+                      {isSaved ? <BookmarkIconSolid className="h-[18px] w-[18px]" /> : <BookmarkIconOutline className="h-[18px] w-[18px]" />}
+                    </div>
+                </button>
+              </div>
+            )}
+      </div>
           </div>
         </div>
 
@@ -543,12 +657,14 @@ const PostCard: React.FC<PostCardProps> = ({
           isAuthor={isAuthor} 
           isPinned={!!post.isPinned}
           isFollowing={isFollowing}
+          isSaved={isSaved}
+          onSave={() => handleSave({ stopPropagation: () => {} } as any)}
           onClose={() => setShowActionsModal(false)} 
           onEdit={() => { setShowActionsModal(false); setShowEditModal(true); }} 
           onDelete={() => { setShowActionsModal(false); setShowDeleteModal(true); }} 
           onPin={() => { if(post.isPinned) unpinPost(post.id); else pinPost(post.id); onPostUpdatedOrDeleted(); setShowActionsModal(false); }} 
           onBoost={() => { setShowActionsModal(false); setShowBoostModal(true); }} 
-          onFollow={() => { onFollowToggle(post.userId); setShowActionsModal(false); }} 
+          onFollow={() => { handleFollowInternal(); setShowActionsModal(false); }} 
           onIndicate={() => { setShowActionsModal(false); setShowIndicateModal(true); }} 
           isMonetized={!!post.isMonetized}
           canMonetize={currentUser.isMonetized}
@@ -558,21 +674,25 @@ const PostCard: React.FC<PostCardProps> = ({
             onPostUpdatedOrDeleted();
             setShowActionsModal(false);
           }}
-          onReport={async () => { 
-            if(await showConfirm("Deseja realmente denunciar esta publicação?")) {
-              await createReport({ reporterId: currentUser.id, targetId: post.id, targetType: 'POST', reason: 'DENÚNCIA', details: 'Via PostCard' }); 
-              showAlert("Denúncia enviada com sucesso. Nossa equipe irá analisar.", { type: 'success' });
-              setShowActionsModal(false); 
-            }
+          onReport={() => { 
+            showConfirm(
+              "Deseja realmente denunciar esta publicação?",
+              async () => {
+                await createReport({ reporterId: currentUser.id, targetId: post.id, targetType: 'POST', reason: 'DENÚNCIA', details: 'Via PostCard' }); 
+                showSuccess("Denúncia enviada com sucesso. Nossa equipe irá analisar.");
+                setShowActionsModal(false); 
+              }
+            );
           }} 
         />
       )}
 
-      {showDetailModal && <PostDetailModal post={post} currentUser={currentUser} onClose={() => setShowDetailModal(false)} onUpdate={onPostUpdatedOrDeleted} onNavigate={onNavigate} refreshUser={refreshUser} />}
+      {showDetailModal && <PostDetailModal post={post} currentUser={currentUser} onClose={() => setShowDetailModal(false)} onUpdate={onPostUpdatedOrDeleted} onNavigate={onNavigate} refreshUser={refreshUser} initialVideoStats={videoStats} />}
       {showBoostModal && <BoostPostModal post={post} currentUser={currentUser} onClose={() => setShowBoostModal(false)} onSuccess={() => { refreshUser(); onPostUpdatedOrDeleted(); }} />}
       
       {showDeleteModal && (
         <DeleteConfirmModal 
+          isOpen={showDeleteModal}
           onClose={() => setShowDeleteModal(false)} 
           onConfirm={async () => { 
             await deletePost(post.id); 

@@ -14,65 +14,32 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       VitePWA({
+        registerType: 'autoUpdate',
+        injectRegister: false,
         strategies: 'injectManifest',
         srcDir: 'src',
         filename: 'sw.js',
-        manifestFilename: 'manifest.json',
-        injectManifest: {
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        },
-        registerType: 'autoUpdate',
-        injectRegister: 'script',
-        includeAssets: ['icon-192x192.png', 'icon-512x512.png'],
         devOptions: {
           enabled: false,
-          type: 'module'
         },
         manifest: {
-          id: "cyberphone-pwa-v1",
-          short_name: "CyberPhone",
-          name: "CyberPhone",
-          description: "A próxima geração da rede social CyBerPhone. Conectando mentes e transformando o futuro.",
-          theme_color: "#0a0c10",
-          background_color: "#0a0c10",
-          display: "standalone",
-          orientation: "portrait",
-          scope: "/",
-          start_url: "/",
+          name: 'CyberPhone',
+          short_name: 'CyberPhone',
+          description: 'Rede Social Educacional',
+          theme_color: '#0a0c10',
+          background_color: '#0a0c10',
+          display: 'standalone',
+          start_url: '/',
           icons: [
             {
-              src: "icon-192x192.png",
-              sizes: "192x192",
-              type: "image/png",
-              purpose: "any"
+              src: '/icon-192x192.png',
+              sizes: '192x192',
+              type: 'image/png'
             },
             {
-              src: "icon-192x192.png",
-              sizes: "192x192",
-              type: "image/png",
-              purpose: "maskable"
-            },
-            {
-              src: "icon-512x512.png",
-              sizes: "512x512",
-              type: "image/png",
-              purpose: "any"
-            }
-          ],
-          shortcuts: [
-            {
-              name: "Feed Principal",
-              short_name: "Feed",
-              description: "Veja o que há de novo no CyberPhone",
-              url: "/?page=feed",
-              icons: [{ "src": "icon-192x192.png", "sizes": "192x192" }]
-            },
-            {
-              name: "Ver Reels",
-              short_name: "Reels",
-              description: "Assista vídeos curtos",
-              url: "/?page=reels-page",
-              icons: [{ "src": "icon-192x192.png", "sizes": "192x192" }]
+              src: '/icon-512x512.png',
+              sizes: '512x512',
+              type: 'image/png'
             }
           ]
         }
@@ -84,10 +51,8 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: true,
-      commonjsOptions: {
-        transformMixedEsModules: true,
-      },
+      sourcemap: false,
+      emptyOutDir: true
     },
     server: {
       host: true,

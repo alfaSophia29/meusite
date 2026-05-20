@@ -11,7 +11,8 @@ import {
   toggleAdActive,
   formatLastSeen,
   isUserOnline,
-  getMutualBlockedUserIds
+  getMutualBlockedUserIds,
+  getSavedPosts
 } from '../services/storageService';
 import { getAoaExchangeRate } from '../services/currencyService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
@@ -38,7 +39,9 @@ import {
   MapPinIcon,
   VideoCameraIcon,
   BanknotesIcon,
-  ChartBarIcon
+  ChartBarIcon,
+  BookmarkIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/solid';
 import PostCard from './PostCard';
 import AdCard from './AdCard';
@@ -55,9 +58,10 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
   const profileId = userId || currentUser.id;
   
   const [profile, setProfile] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'posts' | 'classes' | 'about' | 'store' | 'ads'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'classes' | 'about' | 'store' | 'ads' | 'saved'>('posts');
   const [userPosts, setUserPosts] = useState<Post[]>([]);
   const [userClasses, setUserClasses] = useState<Post[]>([]);
+  const [userSavedPosts, setUserSavedPosts] = useState<Post[]>([]);
   const [userAds, setUserAds] = useState<AdCampaign[]>([]);
   const [userProducts, setUserProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,8 +98,8 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
           }
 
           setIsFollowing(targetUser.followers?.includes(currentUser.id) || false);
-          const allPosts = await getPosts(currentUser.id);
-          const filteredPosts = allPosts.filter(p => p.userId === profileId).sort((a, b) => b.timestamp - a.timestamp);
+          const postsRes = await getPosts(currentUser.id, 100, undefined, profileId);
+          const filteredPosts = postsRes.items;
           
           const recordedLives = filteredPosts.filter(p => p.type === PostType.LIVE && p.liveStream?.status === 'ENDED' && p.liveStream?.recordingUrl);
           const normalFeed = filteredPosts.filter(p => !(p.type === PostType.LIVE && p.liveStream?.status === 'ENDED'));
@@ -107,8 +111,13 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
           setUserAds(allAds.filter(a => a.professorId === profileId));
 
           if (targetUser.storeId) {
-              const allProducts = await getProducts();
-              setUserProducts(allProducts.filter(p => p.storeId === targetUser.storeId));
+              const productsRes = await getProducts(100, undefined, targetUser.storeId);
+              setUserProducts(productsRes.items);
+          }
+
+          if (profileId === currentUser.id) {
+              const saved = await getSavedPosts(currentUser.id);
+              setUserSavedPosts(saved);
           }
       }
       
@@ -119,20 +128,32 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
 
   const handleToggleFollow = async () => {
     if (!profile) return;
+    
+    // Optimistic Update
+    const prevIsFollowing = isFollowing;
+    setIsFollowing(!prevIsFollowing);
+    
+    setProfile(prev => {
+        if (!prev) return null;
+        const newFollowers = prevIsFollowing 
+          ? (prev.followers || []).filter(id => id !== currentUser.id)
+          : [...(prev.followers || []), currentUser.id];
+        return { ...prev, followers: newFollowers };
+    });
+
     try {
       await toggleFollowUser(currentUser.id, profile.id);
-      setIsFollowing(!isFollowing);
       refreshUser();
-      
-      // Update local profile state to reflect new follower count
+    } catch (error) {
+      // Rollback on error
+      setIsFollowing(prevIsFollowing);
       setProfile(prev => {
         if (!prev) return null;
-        const newFollowers = isFollowing 
-          ? prev.followers.filter(id => id !== currentUser.id)
-          : [...prev.followers, currentUser.id];
-        return { ...prev, followers: newFollowers };
+        const rolledBackFollowers = !prevIsFollowing 
+          ? (prev.followers || []).filter(id => id !== currentUser.id)
+          : [...(prev.followers || []), currentUser.id];
+        return { ...prev, followers: rolledBackFollowers };
       });
-    } catch (error) {
       console.error("Erro ao seguir usuário:", error);
     }
   };
@@ -237,7 +258,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                             </h2>
                             {profile.isVerified && <CheckBadgeIcon className="h-6 w-6 md:h-8 md:w-8 text-blue-600" />}
                             {profile.isMonetized && (
-                              <div className="bg-gradient-to-r from-brand to-indigo-600 p-1.5 rounded-xl shadow-lg border border-white/20" title="Criador Parceiro CyberPhone">
+                              <div className="bg-gradient-to-r from-brand to-indigo-600 p-1.5 rounded-xl shadow-lg border border-white/20" title="Criador Parceiro FacePhone">
                                 <BanknotesIcon className="h-4 w-4 md:h-5 md:w-5 text-white" />
                               </div>
                             )}
@@ -258,7 +279,22 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                     
                     {/* Botões de Ação */}
                     <div className="flex gap-3 w-full md:w-auto mt-4 md:mt-0 justify-center">
-                        {!isOwnProfile ? (
+                        {isOwnProfile ? (
+                            <>
+                            <button 
+                                onClick={() => onNavigate('settings')}
+                                className="flex-1 md:flex-none px-8 py-3 bg-gray-100 dark:bg-white/10 dark:text-white rounded-2xl font-black uppercase text-xs hover:border-gray-300 dark:hover:bg-white/20 transition-all border border-transparent flex items-center justify-center gap-2"
+                            >
+                                <ArrowPathIcon className="h-4 w-4" /> Editar Perfil
+                            </button>
+                            <button 
+                                onClick={() => onNavigate('wallet')}
+                                className="flex-1 md:flex-none px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs shadow-xl shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <WalletIcon className="h-4 w-4 text-white" /> Carteira
+                            </button>
+                            </>
+                        ) : (
                             <>
                             <button 
                                 onClick={handleToggleFollow}
@@ -283,10 +319,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                                 <EnvelopeIcon className="h-4 w-4" /> Msg
                             </button>
                             </>
-                        ) : (
-                            <button onClick={() => onNavigate('settings')} className="bg-gray-100 dark:bg-white/5 dark:text-white px-8 py-3 rounded-2xl font-black uppercase text-xs border border-gray-200 dark:border-white/10 active:scale-95 transition-all hover:bg-gray-200 dark:hover:bg-white/10">
-                                Editar Perfil
-                            </button>
                         )}
                     </div>
                 </div>
@@ -310,36 +342,31 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
 
              {/* Carteira (Apenas Dono) */}
              {isOwnProfile && (
-                <div className="mt-8 w-full bg-blue-50 dark:bg-blue-900/10 rounded-[2rem] p-6 border border-blue-100 dark:border-blue-900/30 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group">
-                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                      <WalletIcon className="h-32 w-32 text-blue-600" />
-                   </div>
-                   
-                   <div className="flex items-center gap-4 relative z-10">
-                      <div className="p-4 bg-white dark:bg-white/10 rounded-2xl shadow-sm text-blue-600">
-                         <WalletIcon className="h-8 w-8" />
+                <div className="mt-8 w-full">
+                   <button 
+                     onClick={() => onNavigate('wallet')}
+                     className="w-full bg-blue-600 hover:bg-blue-700 text-white p-8 rounded-[2.5rem] shadow-xl shadow-blue-600/20 transition-all flex items-center justify-between group overflow-hidden relative"
+                   >
+                      <div className="absolute -right-4 top-1/2 -translate-y-1/2 opacity-10 group-hover:scale-110 transition-transform">
+                         <WalletIcon className="h-32 w-32 text-white" />
                       </div>
-                      <div>
-                         <p className="text-[10px] font-black text-blue-800 dark:text-blue-300 uppercase tracking-widest">Saldo Disponível</p>
-                         <p className="text-3xl font-black text-blue-900 dark:text-white">${(currentUser.balance || 0).toFixed(2)}</p>
-                        <p className="text-[10px] font-black text-green-600 uppercase tracking-tighter mt-1">≈ {((currentUser.balance || 0) * exchangeRate).toLocaleString()} KZ</p>
+                      
+                      <div className="flex items-center gap-6 relative z-10 text-left">
+                         <div className="p-4 bg-white/20 backdrop-blur-md rounded-[1.5rem] text-white">
+                            <WalletIcon className="h-8 w-8" />
+                         </div>
+                         <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-100">Ganhos e Finanças</p>
+                            <h4 className="text-2xl font-black text-white uppercase tracking-tighter">Minha Carteira Digital</h4>
+                         </div>
                       </div>
-                   </div>
-
-                   <div className="flex gap-3 w-full md:w-auto relative z-10">
-                      <button 
-                        onClick={() => onOpenWallet('deposit')} 
-                        className="flex-1 md:flex-none px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-[10px] uppercase shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2 active:scale-95"
-                      >
-                         <ArrowDownCircleIcon className="h-4 w-4" /> Depósito
-                      </button>
-                      <button 
-                        onClick={() => onOpenWallet('withdraw')} 
-                        className="flex-1 md:flex-none px-6 py-3 bg-white dark:bg-white/10 hover:bg-gray-50 dark:hover:bg-white/20 text-blue-600 dark:text-white rounded-xl font-black text-[10px] uppercase transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95"
-                      >
-                         <ArrowUpCircleIcon className="h-4 w-4" /> Saque
-                      </button>
-                   </div>
+                      
+                      <div className="relative z-10 pr-4">
+                         <div className="p-3 bg-white/10 rounded-full group-hover:bg-white group-hover:text-blue-600 transition-all">
+                            <ChevronRightIcon className="h-6 w-6 stroke-[3]" />
+                         </div>
+                      </div>
+                   </button>
                 </div>
              )}
           </div>
@@ -349,6 +376,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
              <div className="flex bg-gray-50 dark:bg-white/5 p-1.5 rounded-2xl w-full overflow-x-auto no-scrollbar">
                 {[
                   { id: 'posts', label: 'Feed', icon: Squares2X2Icon },
+                  { id: 'saved', label: 'Salvos', icon: BookmarkIcon, hidden: !isOwnProfile },
                   { id: 'classes', label: 'Aulas', icon: VideoCameraIcon, hidden: userClasses.length === 0 },
                   { id: 'about', label: 'Sobre', icon: UserIcon },
                   { id: 'store', label: 'Loja', icon: ShoppingBagIcon, hidden: userProducts.length === 0 },
@@ -396,6 +424,27 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                     )}
                  </div>
               )}
+
+             {/* ABA SALVOS */}
+             {activeTab === 'saved' && isOwnProfile && (
+                <div className="space-y-6 animate-slide-up">
+                   <div className="p-4 bg-brand/5 border border-brand/10 rounded-2xl flex items-center gap-3">
+                      <BookmarkIcon className="h-6 w-6 text-brand" />
+                      <div>
+                         <h4 className="font-black text-gray-900 dark:text-white text-sm uppercase">Itens Salvos</h4>
+                         <p className="text-[10px] text-gray-400 uppercase tracking-widest">Apenas você pode ver o que salvou.</p>
+                      </div>
+                   </div>
+                   {userSavedPosts.length > 0 ? userSavedPosts.map(post => (
+                      <PostCard key={post.id} post={post} currentUser={currentUser} onNavigate={onNavigate} onFollowToggle={handleToggleFollow} refreshUser={refreshUser} onPostUpdatedOrDeleted={() => { refreshUser(); getSavedPosts(currentUser.id).then(setUserSavedPosts); }} onPinToggle={() => {}} />
+                   )) : (
+                      <div className="bg-white dark:bg-darkcard p-16 rounded-[3rem] text-center border-2 border-dashed border-gray-100 dark:border-white/5">
+                         <BookmarkIcon className="h-12 w-12 text-gray-200 mx-auto mb-4" />
+                         <p className="text-gray-400 font-black uppercase text-xs tracking-widest">Nada salvo ainda</p>
+                      </div>
+                   )}
+                </div>
+             )}
 
              {/* ABA AULAS */}
              {activeTab === 'classes' && (
@@ -567,6 +616,47 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                   </div>
                </div>
              )}
+
+             {/* Conquistas Widget */}
+             <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border border-gray-100 dark:border-white/5 relative overflow-hidden">
+                <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                   <ShieldCheckIcon className="h-4 w-4 text-blue-600" /> Verificação de Identidade
+                </h4>
+                
+                {profile.idVerificationStatus === 'APPROVED' ? (
+                   <div className="flex items-center gap-4 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+                      <div className="p-2 bg-blue-600 rounded-lg text-white">
+                         <CheckBadgeIcon className="h-5 w-5" />
+                      </div>
+                      <div>
+                         <p className="text-[10px] font-black uppercase text-blue-600">ID Verificado</p>
+                         <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Conta com selo oficial</p>
+                      </div>
+                   </div>
+                ) : profile.idVerificationStatus === 'PENDING' ? (
+                   <div className="flex items-center gap-4 p-4 bg-orange-50 dark:bg-orange-900/10 rounded-2xl border border-orange-100 dark:border-orange-900/30">
+                      <div className="p-2 bg-orange-500 rounded-lg text-white">
+                         <ClockIcon className="h-5 w-5" />
+                      </div>
+                      <div>
+                         <p className="text-[10px] font-black uppercase text-orange-600">Em Análise</p>
+                         <p className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">Documentos sob revisão</p>
+                      </div>
+                   </div>
+                ) : (
+                   <div className="space-y-4">
+                      <p className="text-xs text-gray-500 font-medium leading-relaxed">Verifique sua conta para aumentar seus limites e passar na moderação comercial.</p>
+                      {isOwnProfile && (
+                         <button 
+                           onClick={() => onNavigate('settings')}
+                           className="w-full py-3 bg-gray-50 dark:bg-white/5 text-[9px] font-black uppercase tracking-widest text-gray-400 border border-gray-100 dark:border-white/10 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                         >
+                            Iniciar Verificação
+                         </button>
+                      )}
+                   </div>
+                )}
+             </div>
 
              {/* Monetização Widget */}
              {isOwnProfile && profile.monetizationGoals && (

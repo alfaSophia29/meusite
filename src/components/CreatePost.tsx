@@ -20,6 +20,7 @@ import {
   EyeSlashIcon
 } from '@heroicons/react/24/solid';
 import { checkContent } from '../services/sentinelService';
+import { ANONYMOUS_MASK_PIC } from '../data/constants';
 
 const FONTS = [
   { id: 'font-sans', label: 'Sans' },
@@ -278,10 +279,12 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
     <div className="bg-white dark:bg-darkcard md:rounded-[1.5rem] p-8 border border-gray-200 dark:border-white/5 shadow-2xl animate-fade-in relative z-50">
        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-             <img src={currentUser.profilePicture} className="w-10 h-10 rounded-xl object-cover" />
+             <img src={isAnonymous ? ANONYMOUS_MASK_PIC : currentUser.profilePicture} className="w-10 h-10 rounded-xl object-cover" />
              <div>
-                <p className="text-sm font-black text-gray-900 dark:text-white leading-none">{currentUser.firstName}</p>
-                <p className="text-[9px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mt-1">{t('member')}</p>
+                <p className="text-sm font-black text-gray-900 dark:text-white leading-none">
+                   {isAnonymous ? t('anonymous_user') : currentUser.firstName}
+                </p>
+                <p className="text-[9px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mt-1">{isAnonymous ? 'Incognito' : t('member')}</p>
              </div>
           </div>
           <button onClick={() => setIsExpanded(false)} className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"><XMarkIcon className="h-6 w-6"/></button>

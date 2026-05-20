@@ -4,7 +4,7 @@
 @variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
   --font-mono: "Roboto Mono", monospace;
   --font-bebas: "Bebas Neue", sans-serif;
   --font-montserrat: "Montserrat", sans-serif;
@@ -79,7 +79,7 @@ body {
   }
 }
 
-/* Custom styles for CyberPhone */
+/* Custom styles for FacePhone */
 .cyber-gradient {
   background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
 }

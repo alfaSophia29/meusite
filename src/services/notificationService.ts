@@ -2,6 +2,8 @@
 import { db } from './firebaseClient';
 import { onSnapshot, collection, query, where, limit, orderBy } from 'firebase/firestore';
 import { CallType } from '../types';
+import { safeJsonStringify } from '../lib/utils';
+import { auth } from './firebaseClient';
 
 export const requestNotificationPermission = async () => {
   if (!('Notification' in window)) return false;
@@ -68,6 +70,11 @@ export const listenForNewSales = (vendorId: string, onNewSale: (sale: any) => vo
   let initialLoad = true;
 
   return onSnapshot(q, (snapshot) => {
+    // Re-check auth state on each update
+    if (!auth?.currentUser || auth.currentUser.uid !== vendorId) {
+        return;
+    }
+    
     if (initialLoad) {
       initialLoad = false;
       return;
@@ -81,6 +88,6 @@ export const listenForNewSales = (vendorId: string, onNewSale: (sale: any) => vo
         }
     });
   }, (error) => {
-      console.error("Error listening for sales:", error);
+      console.warn("Silent failure listening for sales (likely auth change):", error.message);
   });
 };

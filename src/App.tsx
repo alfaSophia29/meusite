@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { User, CartItem, GlobalSettings, GroupTheme, Page } from './types';
+import { User, CartItem, GlobalSettings, GroupTheme, Page, Call, CallType, ChatConversation, Product } from './types';
 import {
     getCurrentUserId,
     findUserById,
@@ -17,10 +17,13 @@ import {
     seedDatabase,
     trackAffiliateClick
 } from './services/storageService';
+import { cleanupHangingCalls } from './services/callService';
 import { safeJsonStringify } from './lib/utils';
 import { showNotification, requestNotificationPermission, getNotificationContent, listenForNewSales } from './services/notificationService';
-import { auth } from './services/firebaseClient';
+import { auth, db } from './services/firebaseClient';
+import { setDoc, doc } from 'firebase/firestore';
 import Header from './components/Header';
+import Logo from './components/Logo';
 import Footer from './components/Footer';
 import AuthPage from './components/AuthPage';
 import IDVerification from './components/IDVerification';
@@ -28,9 +31,10 @@ import CallManager from './components/CallManager';
 import FeedPage from './components/FeedPage';
 import ProfilePage from './components/ProfilePage';
 import ChatPage from './components/ChatPage';
-import { AdCampaignPage } from './components/AdCampaignPage';
+import CallModal from './components/CallModal';
+import AdCampaignPage from './components/AdCampaignPage';
 import LiveStreamViewer from './components/LiveStreamViewer';
-import { StorePage } from './components/StorePage';
+import StorePage from './components/StorePage';
 import StoreManagerPage from './components/StoreManagerPage';
 import ReelsPage from './components/ReelsPage';
 import SearchResultsPage from './components/SearchResultsPage';
@@ -41,6 +45,7 @@ import SettingsPage from './components/SettingsPage';
 import AdminDashboard from './components/AdminDashboard';
 import EventsPage from './components/EventsPage';
 import PurchasesPage from './components/PurchasesPage';
+import ProductDetailPage from './components/ProductDetailPage';
 import AffiliatesPage from './components/AffiliatesPage';
 import CreateGroupPage from './components/CreateGroupPage';
 import SupportPage from './components/SupportPage';
@@ -48,6 +53,7 @@ import LegalPage from './components/LegalPage';
 import MonetizationPage from './components/MonetizationPage';
 import SavedPostsPage from './components/SavedPostsPage';
 import BlockedUsersPage from './components/BlockedUsersPage';
+import WalletPage from './components/WalletPage';
 import OfflinePage from './components/OfflinePage';
 import LandingPage from './components/LandingPage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
@@ -69,9 +75,14 @@ const THEME_MAP: Record<GroupTheme, { primary: string, hover: string, light: str
   indigo: { primary: '#4f46e5', hover: '#4338ca', light: '#eef2ff' },
   cyan: { primary: '#0891b2', hover: '#0e7490', light: '#ecfeff' }
 };
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
-    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('cyberphone_theme') === 'dark');
+    const [darkMode, setDarkMode] = useState(() => {
+        const saved = localStorage.getItem('cyberphone_theme');
+        if (saved) return saved === 'dark';
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    });
     const [appTheme, setAppTheme] = useState<GroupTheme>(() => getAppTheme());
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -86,11 +97,19 @@ const App: React.FC = () => {
         const hasVisited = localStorage.getItem('cp_has_visited');
         return hasVisited ? 'auth' : 'landing';
     });
-    const [pageParams, setPageParams] = useState<Record<string, string>>({});
+    const [pageParams, setPageParams] = useState<Record<string, string>>(() => {
+        try {
+            const savedParams = sessionStorage.getItem('cyberphone_last_params');
+            return savedParams ? JSON.parse(savedParams) : {};
+        } catch {
+            return {};
+        }
+    });
     const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
     const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
     const [isCartModalOpen, setIsCartModalOpen] = useState(false);
+    const [activeCall, setActiveCall] = useState<{partner?: User, group?: ChatConversation, type: 'voice' | 'video', callId?: string, incomingCall?: Call} | null>(null);
     const [walletConfig, setWalletConfig] = useState<{ isOpen: boolean, mode: 'deposit' | 'withdraw' }>({ isOpen: false, mode: 'deposit' });
     const [isLoading, setIsLoading] = useState(true); // Começar como true para garantir o splash screen
     const [initError, setInitError] = useState<string | null>(null);
@@ -110,13 +129,23 @@ const App: React.FC = () => {
         const lastMessageCountRef = useRef<number>(0);
 
         useEffect(() => {
-            if (!currentUser) return;
+            const currentAuth = auth;
+            if (!currentUser || !currentAuth || !currentAuth.currentUser) return;
 
             const pollData = async () => {
+                if (!auth?.currentUser || !auth.currentUser.uid) return;
+                
                 try {
                     const userId = currentUser.id;
-                    const notifications = await getNotificationsForUser(userId);
-                    const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
+                    // Double check: user state must match auth state
+                    if (auth.currentUser.uid !== userId) {
+                        console.log("[DEBUG] NotificationManager: UID mismatch, skipping poll.");
+                        return;
+                    }
+                    
+                    const res = await getNotificationsForUser(userId);
+                    const items = res.items;
+                    const sorted = [...items].sort((a, b) => b.timestamp - a.timestamp);
                     
                     if (sorted.length > 0) {
                         const latest = sorted[0];
@@ -215,6 +244,7 @@ const App: React.FC = () => {
 
         // Atualização inicial
         updateUserStatus(currentUser.id, true);
+        cleanupHangingCalls(currentUser.id);
 
         // Heartbeat a cada 60 segundos
         const heartbeatInterval = setInterval(() => {
@@ -254,6 +284,17 @@ const App: React.FC = () => {
     const changeAppTheme = useCallback((newTheme: GroupTheme) => {
         setAppTheme(newTheme);
         saveAppTheme(newTheme);
+    }, []);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const handleChange = (e: MediaQueryListEvent) => {
+            if (!localStorage.getItem('cyberphone_theme')) {
+                setDarkMode(e.matches);
+            }
+        };
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
     }, []);
 
     useEffect(() => {
@@ -311,16 +352,36 @@ const App: React.FC = () => {
                 
                 // Seed database if admin
                 const email = (user.email || '').toLowerCase().trim();
-                if (email === 'ac926815124@gmail.com' || email === 'alfaajmc@gmail.com') {
-                    seedDatabase().catch(err => console.error("[APP] Erro ao popular banco:", err));
+                const isSystemAdmin = email === 'ac926815124@gmail.com' || email === 'alfaajmc@gmail.com';
+                
+                if (isSystemAdmin || user.isAdmin) {
+                    if (isSystemAdmin) {
+                        seedDatabase().catch(err => console.error("[APP] Erro ao popular banco:", err));
+                    }
+                    
+                    // Sync to admins collection for security rules
+                    if (db && auth?.currentUser) {
+                        setDoc(doc(db, 'admins', user.id), {
+                            email: email,
+                            timestamp: Date.now()
+                        }, { merge: true }).catch((err: any) => console.warn("[APP] Erro ao sincronizar admins collection (provavelmente falta permissão inicial):", err.message));
+                    }
                 }
                 
-                const userNotifications = await getNotificationsForUser(user.id);
-                const unreadNotifCount = userNotifications.filter(n => !n.isRead).length;
-                setUnreadNotificationsCount(prev => prev !== unreadNotifCount ? unreadNotifCount : prev);
+                try {
+                    const notificationsRes = await getNotificationsForUser(user.id);
+                    const unreadNotifCount = notificationsRes.items.filter(n => !n.isRead).length;
+                    setUnreadNotificationsCount(prev => prev !== unreadNotifCount ? unreadNotifCount : prev);
+                } catch (notifErr) {
+                    console.warn("[APP] Erro ao carregar notificações na sincronização:", notifErr);
+                }
                 
-                const msgCount = await getUnreadMessagesCount(user.id);
-                setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
+                try {
+                    const msgCount = await getUnreadMessagesCount(user.id);
+                    setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
+                } catch (msgErr) {
+                    console.warn("[APP] Erro ao carregar contagem de mensagens na sincronização:", msgErr);
+                }
 
                 requestNotificationPermission();
                 return true;
@@ -443,6 +504,7 @@ const App: React.FC = () => {
         setCurrentPage(page);
         if (page !== 'auth' && page !== 'landing') {
             sessionStorage.setItem('cyberphone_last_page', page);
+            sessionStorage.setItem('cyberphone_last_params', JSON.stringify(params));
         }
         setPageParams(params);
         setIsMenuOpen(false);
@@ -474,6 +536,7 @@ const App: React.FC = () => {
         // PERMITIR PÁGINAS PÚBLICAS MESMO SEM USUÁRIO
         if (currentPage === 'terms') return <LegalPage type="terms" onBack={() => handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any))} />;
         if (currentPage === 'privacy') return <LegalPage type="privacy" onBack={() => handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any))} />;
+        if (currentPage === 'refunds') return <LegalPage type="refunds" onBack={() => handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any))} />;
         if (currentPage === 'support') return <SupportPage currentUser={currentUser || { id: 'public' } as User} onNavigate={handleNavigate} />;
 
         if (!currentUser) {
@@ -500,11 +563,14 @@ const App: React.FC = () => {
             }} onNavigate={(p) => handleNavigate(p)} />;
         }
         
-        // NOVO: Fluxo de Verificação de ID Obrigatório para novos usuários, pendentes ou expirados
-        const isExpired = currentUser.idVerificationDocs?.expiresAt && currentUser.idVerificationDocs.expiresAt < Date.now();
-        const verificationIncomplete = currentUser.idVerificationStatus !== 'APPROVED' || !currentUser.documentId;
+        const isVerified = currentUser.isVerified || currentUser.idVerificationStatus === 'APPROVED';
+        const isPending = currentUser.idVerificationStatus === 'PENDING';
+        const isExpired = !!(currentUser.idVerificationDocs?.expiresAt && currentUser.idVerificationDocs.expiresAt < Date.now());
         
-        if ((verificationIncomplete || isExpired) && !currentUser.isAdmin) {
+        // Only block if NOT verified AND NOT pending AND NOT admin
+        const needsVerification = !isVerified && !isPending && !currentUser.isAdmin;
+        
+        if (needsVerification) {
             return (
                 <IDVerification 
                   user={currentUser} 
@@ -518,7 +584,7 @@ const App: React.FC = () => {
         switch (currentPage) {
             case 'feed': return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'profile': return <ProfilePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} userId={pageParams.userId} onOpenWallet={(mode) => setWalletConfig({ isOpen: true, mode })} />;
-            case 'chat': return <ChatPage currentUser={currentUser} onNavigate={handleNavigate} params={pageParams} onMessagesRead={refreshUnreadMessagesCount} refreshUser={refreshCurrentUser} />;
+            case 'chat': return <ChatPage currentUser={currentUser} onNavigate={handleNavigate} params={pageParams} onMessagesRead={refreshUnreadMessagesCount} refreshUser={refreshCurrentUser} onStartCall={(call) => setActiveCall(call)} />;
             case 'create-group': return <CreateGroupPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'reels-page': return <ReelsPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} startPostId={pageParams.startPostId} />;
             case 'search-results': return <SearchResultsPage currentUser={currentUser} query={pageParams.query} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
@@ -535,8 +601,8 @@ const App: React.FC = () => {
               appTheme={appTheme} 
               onThemeChange={changeAppTheme} 
             />;
-            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string) => {
-                addToCart(pid, qty, color, aff || pageParams.affiliateId);
+            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string, product?: Product) => {
+                addToCart(pid, qty, color, aff || pageParams.affiliateId, product);
                 setCartItems(getCart());
             }} onOpenCart={() => setIsCartModalOpen(true)} />;
             case 'monetization': return <MonetizationPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
@@ -545,121 +611,152 @@ const App: React.FC = () => {
             case 'admin': return <AdminDashboard currentUser={currentUser} onNavigate={handleNavigate} onRefreshUser={refreshCurrentUser} />;
             case 'events': return <EventsPage currentUser={currentUser} />;
             case 'purchases': return <PurchasesPage currentUser={currentUser} onNavigate={handleNavigate} />;
+            case 'product-detail': return <ProductDetailPage 
+              currentUser={currentUser} 
+              onNavigate={handleNavigate} 
+              productId={pageParams.productId} 
+              onAddToCart={(pid: string, qty: number, color?: string, aff?: string, product?: Product) => {
+                addToCart(pid, qty, color, aff || pageParams.affiliateId, product);
+                setCartItems(getCart());
+              }} 
+              onOpenCart={() => setIsCartModalOpen(true)} 
+            />;
             case 'affiliates': return <AffiliatesPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'ads': return <AdCampaignPage currentUser={currentUser} refreshUser={refreshCurrentUser} onNavigate={handleNavigate} />;
+            case 'wallet': return <WalletPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} onOpenAction={(mode) => setWalletConfig({ isOpen: true, mode })} />;
             case 'blocked-users': return <BlockedUsersPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             default: return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
         }
     }
 
-    function renderContent() {
-        if (isLoading) {
-            return (
-                <div className="h-screen w-full flex flex-col items-center justify-center bg-gray-50 dark:bg-[#0a0c10] p-6">
-                    <div className="absolute top-4 right-4 flex gap-2">
-                        <button 
-                            onClick={() => setIsLoading(false)}
-                            className="text-[8px] font-black uppercase text-gray-400 hover:text-blue-600 transition-colors"
-                        >
-                            Pular Carregamento
-                        </button>
-                        <button 
-                            onClick={() => { localStorage.clear(); window.location.reload(); }}
-                            className="text-[8px] font-black uppercase text-red-400 hover:text-red-600 transition-colors"
-                        >
-                            Resetar Cache
-                        </button>
-                    </div>
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-6 shadow-[0_0_15px_rgba(37,99,235,0.3)]"></div>
-                    <div className="flex flex-col items-center gap-2">
-                       <h1 className="text-xl font-black uppercase text-gray-900 dark:text-white tracking-tighter">CyBerPhone</h1>
-                       <p className="text-[9px] font-bold uppercase text-gray-400 tracking-[0.3em] animate-pulse">A inicializar o CyBerPhone 1.0.0</p>
-                    </div>
-                    <div className="mt-8 text-[8px] text-gray-400 uppercase font-medium">
-                        Se demorar mais de 10 segundos, tente Resetar o Cache.
-                    </div>
-                </div>
-            );
-        }
+    const isFullPage = currentPage === 'reels-page' || currentPage === 'live';
 
-        if (!isOnline && !isOfflineModeEnabled) {
-            return <OfflinePage 
-              onRetry={() => {
-                if (navigator.onLine) {
-                    setIsOnline(true);
-                    setIsOfflineModeEnabled(false);
-                    if (currentUser) refreshCurrentUser();
-                }
-              }} 
-              onContinueOffline={() => setIsOfflineModeEnabled(true)}
-            />;
-        }
+  function renderContent() {
+    if (isLoading) {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center bg-gray-50 dark:bg-[#0a0c10] p-6">
+          <div className="absolute top-4 right-4 flex gap-2">
+            <button 
+              onClick={() => setIsLoading(false)}
+              className="text-[8px] font-black uppercase text-gray-400 hover:text-blue-600 transition-colors"
+            >
+              Pular Carregamento
+            </button>
+            <button 
+              onClick={() => { localStorage.clear(); window.location.reload(); }}
+              className="text-[8px] font-black uppercase text-red-400 hover:text-red-600 transition-colors"
+            >
+              Resetar Cache
+            </button>
+          </div>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-brand mb-6 shadow-lg shadow-brand/30"></div>
+          <div className="flex flex-col items-center gap-2 scale-110">
+             <Logo className="h-10" />
+             <p className="text-[9px] font-bold uppercase text-gray-400 tracking-[0.3em] animate-pulse mt-4">A inicializar o FacePhone 1.0.0</p>
+          </div>
+          <div className="mt-8 text-[8px] text-gray-400 uppercase font-medium">
+            Se demorar mais de 10 segundos, tente Resetar o Cache.
+          </div>
+        </div>
+      );
+    }
 
-        if (initError) {
-            return (
-                <div className="h-screen w-full flex flex-col items-center justify-center bg-white dark:bg-[#0a0c10] p-6 text-center">
-                    <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mb-6" />
-                    <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white">Erro de Inicialização</h2>
-                    <p className="text-gray-500 text-sm mb-8 font-medium">{initError}</p>
-                    <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Recarregar App</button>
-                </div>
-            );
-        }
+    if (!isOnline && !isOfflineModeEnabled) {
+      return <OfflinePage 
+        onRetry={() => {
+          if (navigator.onLine) {
+            setIsOnline(true);
+            setIsOfflineModeEnabled(false);
+            if (currentUser) refreshCurrentUser();
+          }
+        }} 
+        onContinueOffline={() => setIsOfflineModeEnabled(true)}
+      />;
+    }
 
-        return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-[#0a0c10] text-gray-900 dark:text-gray-100 transition-colors duration-300">
-                {!isOnline && isOfflineModeEnabled && (
-                    <div className="bg-orange-500 text-white text-[10px] font-black py-2 px-4 flex items-center justify-between fixed top-0 left-0 w-full z-[1000] animate-pulse uppercase tracking-widest shadow-xl">
-                        <div className="flex items-center gap-2">
-                            <WifiIcon className="h-4 w-4" />
-                            <span>Modo Offline: Usando dados locais de cache</span>
-                        </div>
-                        <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">Reconectar</button>
-                    </div>
-                )}
-                {currentUser && currentPage !== 'admin' && (
-                    <Header 
-                      currentUser={currentUser} 
-                      onNavigate={handleNavigate} 
-                      unreadNotificationsCount={unreadNotificationsCount} 
-                      cartItemCount={cartItems.length} 
-                      onOpenCart={() => setIsCartModalOpen(true)} 
-                      onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
-                    />
-                )}
-                <div className="flex flex-1 relative w-full items-stretch">
-                    {currentUser && currentPage !== 'admin' && (
-                      <Footer 
-                        currentUser={currentUser} 
-                        onNavigate={handleNavigate} 
-                        activePage={currentPage} 
-                        onLogout={handleLogout} 
-                        isMenuOpen={isMenuOpen}
-                        onCloseMenu={() => setIsMenuOpen(false)}
-                        unreadMessagesCount={unreadMessagesCount}
-                      />
-                    )}
-                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} transition-all overflow-x-hidden`}>
-                        <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
-                            {renderPage()}
-                        </div>
-                    </main>
-                </div>
-                {currentUser && (
-                  <>
-                    <CartModal isOpen={isCartModalOpen} onClose={() => setIsCartModalOpen(false)} currentUser={currentUser} onCartUpdate={() => setCartItems(getCart())} refreshUser={refreshCurrentUser} />
-                    <WalletModal isOpen={walletConfig.isOpen} mode={walletConfig.mode} onClose={() => setWalletConfig({ ...walletConfig, isOpen: false })} currentUser={currentUser} refreshUser={refreshCurrentUser} />
-                  </>
-                )}
-            </div>
-        );
+    if (initError) {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center bg-white dark:bg-[#0a0c10] p-6 text-center">
+          <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mb-6" />
+          <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white">Erro de Inicialização</h2>
+          <p className="text-gray-500 text-sm mb-8 font-medium">{initError}</p>
+          <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Recarregar App</button>
+        </div>
+      );
     }
 
     return (
+      <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-[#0a0c10] text-gray-900 dark:text-gray-100 transition-colors duration-300">
+        {!isOnline && isOfflineModeEnabled && (
+          <div className="bg-orange-500 text-white text-[10px] font-black py-2 px-4 flex items-center justify-between fixed top-0 left-0 w-full z-[1000] animate-pulse uppercase tracking-widest shadow-xl">
+            <div className="flex items-center gap-2">
+              <WifiIcon className="h-4 w-4" />
+              <span>Modo Offline: Usando dados locais de cache</span>
+            </div>
+            <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">Reconectar</button>
+          </div>
+        )}
+        {currentUser && currentPage !== 'admin' && !isFullPage && (
+          <Header 
+            currentUser={currentUser} 
+            onNavigate={handleNavigate} 
+            unreadNotificationsCount={unreadNotificationsCount} 
+            cartItemCount={cartItems.length} 
+            onOpenCart={() => setIsCartModalOpen(true)} 
+            onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
+            onOpenWallet={(mode) => setWalletConfig({ isOpen: true, mode })}
+          />
+        )}
+        <div className="flex flex-1 relative w-full items-stretch">
+          {currentUser && currentPage !== 'admin' && !isFullPage && (
+            <Footer 
+              currentUser={currentUser} 
+              onNavigate={handleNavigate} 
+              activePage={currentPage} 
+              onLogout={handleLogout} 
+              isMenuOpen={isMenuOpen}
+              onCloseMenu={() => setIsMenuOpen(false)}
+              unreadMessagesCount={unreadMessagesCount}
+            />
+          )}
+          <main className={`flex-grow w-full 
+            ${currentUser && currentPage !== 'admin' && !isFullPage ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} 
+            ${isFullPage ? 'h-screen' : ''}
+            transition-all overflow-x-hidden`}
+          >
+            <div className={`w-full ${currentUser && !isFullPage ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
+              {renderPage()}
+            </div>
+          </main>
+        </div>
+        {currentUser && (
+          <>
+            <CartModal isOpen={isCartModalOpen} onClose={() => setIsCartModalOpen(false)} currentUser={currentUser} onCartUpdate={() => setCartItems(getCart())} refreshUser={refreshCurrentUser} />
+            <WalletModal isOpen={walletConfig.isOpen} mode={walletConfig.mode} onClose={() => setWalletConfig({ ...walletConfig, isOpen: false })} currentUser={currentUser} refreshUser={refreshCurrentUser} />
+          </>
+        )}
+      </div>
+    );
+  }
+
+    return (
         <DialogProvider>
-            <NotificationManager currentUser={currentUser} />
-            <CallManager currentUser={currentUser} />
-            {renderContent()}
+            <ErrorBoundary>
+                <NotificationManager currentUser={currentUser} />
+                <CallManager currentUser={currentUser} activeCall={activeCall} onIncomingCall={(call) => setActiveCall({ partner: undefined, type: call.type === CallType.VIDEO ? 'video' : 'voice', callId: call.id, incomingCall: call })} />
+                {activeCall && currentUser && (
+                    <CallModal 
+                        currentUser={currentUser} 
+                        partner={activeCall.partner} 
+                        group={activeCall.group} 
+                        type={activeCall.type} 
+                        callId={activeCall.callId} 
+                        onClose={() => setActiveCall(null)} 
+                        incomingCall={activeCall.incomingCall}
+                    />
+                )}
+                {renderContent()}
+            </ErrorBoundary>
         </DialogProvider>
     );
 };

@@ -9,9 +9,9 @@ import { safeJsonStringify } from "../lib/utils";
 export const isFirebaseConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "TODO_KEYHERE";
 
 if (isFirebaseConfigured) {
-  console.log("ℹ️ [FirebaseConfig] Project:", firebaseConfig.projectId, "API Key (masked):", firebaseConfig.apiKey.substring(0, 5) + "...");
+  console.log("ℹ️ [Service] Protocol initialized:", firebaseConfig.projectId);
 } else {
-  console.warn("⚠️ [FirebaseConfig] Firebase não configurado corretamente ou usando placeholders.");
+  console.log("ℹ️ [Service] Initializing configuration...");
 }
 
 let app: any = null;

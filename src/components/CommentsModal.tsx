@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Comment, User, NotificationType } from '../types';
-import { addPostComment, getPosts, generateUUID, toggleReaction, addCommentReply, createNotification } from '../services/storageService';
+import { addPostComment, getPosts, generateUUID, toggleReaction, addCommentReply, createNotification, getPostById } from '../services/storageService';
 import { XMarkIcon, PaperAirplaneIcon, ChatBubbleOvalLeftIcon, FaceSmileIcon, TrashIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/solid';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, ANONYMOUS_MASK_PIC } from '../data/constants';
 import { checkContent } from '../services/sentinelService';
 import { useDialog } from '../services/DialogContext';
 
@@ -28,8 +28,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fetchComments = async () => {
-    const allPosts = await getPosts();
-    const post = allPosts.find(p => p.id === postId);
+    const post = await getPostById(postId);
     if (post) {
       setComments(post.comments || []);
       // If comments are disabled for everyone, ensure we respect that
@@ -70,7 +69,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
         id: generateUUID(),
         userId: currentUser.id,
         userName: isAnonymous ? t('anonymous_user') : `${currentUser.firstName} ${currentUser.lastName}`,
-        profilePic: isAnonymous ? DEFAULT_PROFILE_PIC : currentUser.profilePicture,
+        profilePic: isAnonymous ? ANONYMOUS_MASK_PIC : currentUser.profilePicture,
         text: newComment,
         timestamp: Date.now(),
         isAnonymous: isAnonymous
@@ -110,7 +109,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
 
   const RenderComment = ({ c, depth = 0 }: { c: Comment, depth?: number }) => {
     const displayName = c.isAnonymous ? t('anonymous_user') : c.userName;
-    const displayPic = c.isAnonymous ? DEFAULT_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC);
+    const displayPic = c.isAnonymous ? ANONYMOUS_MASK_PIC : (c.profilePic || DEFAULT_PROFILE_PIC);
 
     return (
       <div 

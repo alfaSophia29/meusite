@@ -185,7 +185,7 @@ export const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, ref
 
       await createAd(newAd);
       
-      showAlert("Sua campanha foi lançada com sucesso! O CyBerPhone garantirá que seu anúncio apareça RIGOROSAMENTE nas regiões e faixas etárias selecionadas.", { type: 'success' });
+      showAlert("Sua campanha foi lançada com sucesso! O FacePhone garantirá que seu anúncio apareça RIGOROSAMENTE nas regiões e faixas etárias selecionadas.", { type: 'success' });
       if(onNavigate) onNavigate('feed');
       else window.location.reload(); 
     } catch (e) {
@@ -218,7 +218,7 @@ export const AdCampaignPage: React.FC<AdCampaignPageProps> = ({ currentUser, ref
               <div className="flex-1">
                  <h3 className="text-xl font-black dark:text-white uppercase tracking-tighter flex items-center gap-2">
                     <SparklesIcon className="h-6 w-6 text-yellow-500" /> 
-                    Prioridade de Relevância CyBerPhone
+                    Prioridade de Relevância FacePhone
                  </h3>
                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
                     Nossos algoritmos garantem que conteúdos com maior investimento tenham entrega prioritária.

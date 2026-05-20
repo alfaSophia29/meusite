@@ -1,10 +1,67 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+
+export const AnimatedEmoji = ({ emoji, className = "", animateWhileInView = true }: { emoji: string, className?: string, animateWhileInView?: boolean }) => {
+  const getAnimation = () => {
+    switch (emoji) {
+      case '❤️':
+        return {
+          scale: [1, 1.3, 1, 1.3, 1],
+          transition: { duration: 0.8, repeat: Infinity, times: [0, 0.2, 0.4, 0.6, 1], ease: "easeInOut" as any }
+        };
+      case '👍':
+        return {
+          y: [0, -5, 0],
+          scale: [1, 1.2, 1],
+          transition: { duration: 0.6, repeat: Infinity, ease: "easeOut" as any }
+        };
+      case '🔥':
+        return {
+          scale: [1, 1.15, 1],
+          y: [0, -2, 0],
+          transition: { duration: 0.8, repeat: Infinity }
+        };
+      case '😂':
+        return {
+          rotate: [0, -5, 5, -5, 0],
+          scale: [1, 1.1, 1],
+          transition: { duration: 1.5, repeat: Infinity }
+        };
+      case '😮':
+        return {
+          scale: [1, 1.15, 1],
+          transition: { duration: 2, repeat: Infinity }
+        };
+      case '😢':
+        return {
+          y: [0, 1, 0],
+          opacity: [1, 0.8, 1],
+          transition: { duration: 3, repeat: Infinity }
+        };
+      default:
+        return {
+          scale: [1, 1.05, 1],
+          transition: { duration: 2, repeat: Infinity }
+        };
+    }
+  };
+
+  return (
+    <motion.span
+      animate={animateWhileInView ? getAnimation() : {}}
+      whileHover={{ scale: 1.4, zIndex: 10 }}
+      className={`inline-block ${className}`}
+    >
+      {emoji}
+    </motion.span>
+  );
+};
 import { createPortal } from 'react-dom';
 import { Post, User, Comment, Page, NotificationType, PostType } from '../types';
-import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification, getMutualBlockedUserIds } from '../services/storageService';
+import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification, getMutualBlockedUserIds, getPostById } from '../services/storageService';
 import { useDialog } from '../services/DialogContext';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, ANONYMOUS_MASK_PIC } from '../data/constants';
 import ShareModal from './ShareModal';
 import VideoPlayer from './VideoPlayer';
 import { useTranslation } from 'react-i18next';
@@ -35,9 +92,18 @@ interface PostDetailModalProps {
   onUpdate: () => void;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
   refreshUser: () => void;
+  initialVideoStats?: { currentTime: number, isPlaying: boolean };
 }
 
-const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, onClose, onUpdate, onNavigate, refreshUser }) => {
+const PostDetailModal: React.FC<PostDetailModalProps> = ({ 
+  post, 
+  currentUser, 
+  onClose, 
+  onUpdate, 
+  onNavigate, 
+  refreshUser,
+  initialVideoStats
+}) => {
   const { t } = useTranslation();
   const { showAlert, showConfirm } = useDialog();
   const [commentText, setCommentText] = useState('');
@@ -62,8 +128,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
   }, [post.userId]);
 
   const fetchComments = async () => {
-    const allPosts = await getPosts();
-    const currentPost = allPosts.find(p => p.id === post.id);
+    const currentPost = await getPostById(post.id);
     if (currentPost) {
       setComments(currentPost.comments || []);
     }
@@ -133,12 +198,15 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     onUpdate();
   };
 
-  const handleDeleteComment = async (commentId: string) => {
-    if (await showConfirm("Apagar este comentário?")) {
+  const handleDeleteComment = (commentId: string) => {
+    showConfirm(
+      "Apagar este comentário?",
+      async () => {
         await deleteComment(post.id, commentId);
         await fetchComments();
         onUpdate();
-    }
+      }
+    );
   };
 
   const handleSendComment = async (e: React.FormEvent) => {
@@ -226,12 +294,12 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     const hasCommentLiked = c.reactions?.['❤️']?.includes(currentUser.id);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-    const commentAuthorIsAnonymous = c.userId === post.userId && post.isAnonymous;
+    const commentAuthorIsAnonymous = c.isAnonymous || (c.userId === post.userId && post.isAnonymous);
 
     return (
       <div className={`p-4 border-b border-gray-100 dark:border-white/10 flex gap-3 group transition-all ${depth > 0 ? 'ml-10 md:ml-12 border-l' : ''}`}>
         <img 
-          src={commentAuthorIsAnonymous ? DEFAULT_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC)} 
+          src={commentAuthorIsAnonymous ? ANONYMOUS_MASK_PIC : (c.profilePic || DEFAULT_PROFILE_PIC)} 
           className="w-10 h-10 rounded-full object-cover shrink-0 cursor-pointer hover:scale-105 transition-transform" 
           onClick={() => { 
             if (commentAuthorIsAnonymous) return;
@@ -269,14 +337,18 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
           {c.reactions && Object.keys(c.reactions).some(emoji => c.reactions![emoji].length > 0) && (
             <div className="flex flex-wrap gap-1.5 mt-2">
               {Object.entries(c.reactions).map(([emoji, uids]) => uids.length > 0 && (
-                <button 
+                <motion.button 
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.95 }}
                   key={emoji}
-                  onClick={(e) => { e.stopPropagation(); handleToggleReaction(c.id, emoji); }}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-all ${uids.includes(currentUser.id) ? 'bg-brand/10 border-brand/20 text-brand' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500'}`}
+                  onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleToggleReaction(c.id, emoji); }}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-all ${uids.includes(currentUser.id) ? 'bg-brand/10 border-brand/20 text-brand font-black' : 'bg-gray-50 dark:bg-white/5 border-transparent text-gray-500 font-bold'}`}
                 >
-                  <span>{emoji}</span>
+                  <AnimatedEmoji emoji={emoji} className="text-sm" />
                   <span className="font-bold">{uids.length}</span>
-                </button>
+                </motion.button>
               ))}
             </div>
           )}
@@ -294,14 +366,19 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
               
               {showEmojiPicker && (
                 <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-zinc-800 shadow-2xl border dark:border-white/10 p-2 rounded-2xl flex gap-2 z-50 backdrop-blur-xl" onClick={e => e.stopPropagation()}>
-                  {EMOJIS.map(emoji => (
-                    <button 
+                  {EMOJIS.map((emoji, idx) => (
+                    <motion.button 
                       key={emoji} 
-                      onClick={(e) => { e.stopPropagation(); handleToggleReaction(c.id, emoji); setShowEmojiPicker(false); }}
-                      className="text-xl hover:scale-125 transition-transform active:scale-90 p-1"
+                      initial={{ opacity: 0, scale: 0.5 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: idx * 0.04 }}
+                      whileHover={{ scale: 1.6, y: -8 }}
+                      whileTap={{ scale: 0.8 }}
+                      onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleToggleReaction(c.id, emoji); setShowEmojiPicker(false); }}
+                      className="text-xl p-1 transition-all"
                     >
-                      {emoji}
-                    </button>
+                      <AnimatedEmoji emoji={emoji} className="" />
+                    </motion.button>
                   ))}
                 </div>
               )}
@@ -355,7 +432,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                     onNavigate('profile', { userId: post.userId }); 
                  }}>
                     <img 
-                      src={post.isAnonymous ? DEFAULT_PROFILE_PIC : (author.profilePicture || DEFAULT_PROFILE_PIC)} 
+                      src={post.isAnonymous ? ANONYMOUS_MASK_PIC : (author.profilePicture || DEFAULT_PROFILE_PIC)} 
                       className="w-12 h-12 rounded-full object-cover border border-gray-100 dark:border-white/10 group-hover:scale-105 transition-transform" 
                       referrerPolicy="no-referrer"
                     />
@@ -412,7 +489,9 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                           src={post.reel.videoUrl} 
                           className="rounded-3xl shadow-xl aspect-video"
                           isReel={post.type === PostType.REEL}
-                          autoPlay={false}
+                          autoPlay={initialVideoStats ? initialVideoStats.isPlaying : false}
+                          initialTime={initialVideoStats?.currentTime}
+                          initialIsPlaying={initialVideoStats?.isPlaying}
                        />
                     </div>
                  )}

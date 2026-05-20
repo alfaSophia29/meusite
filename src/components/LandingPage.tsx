@@ -46,10 +46,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [posts, products] = await Promise.all([
-          getPosts('guest'), 
-          getProducts()
+        const [postsRes, productsRes] = await Promise.all([
+          getPosts('guest', 100), 
+          getProducts(50)
         ]);
+        const posts = postsRes.items;
+        const products = productsRes.items;
         setPublicReels(posts.filter(p => p.type === PostType.REEL).slice(0, 15));
         setPublicVideos(posts.filter(p => p.type === PostType.VIDEO).slice(0, 12));
         setPublicProducts(products.slice(0, 12));
@@ -81,7 +83,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
           <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center">
             <span className="text-white font-black text-xs">CP</span>
           </div>
-          <span className="text-xl font-black tracking-tighter text-gray-900 dark:text-white uppercase transition-colors">CyBerPhone</span>
+          <span className="text-xl font-black tracking-tighter text-gray-900 dark:text-white uppercase transition-colors">FacePhone</span>
         </div>
         <div className="flex items-center gap-4">
           <button 
@@ -116,7 +118,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
           </h1>
           
           <p className="text-gray-500 dark:text-gray-400 text-lg md:text-xl max-w-2xl mx-auto font-medium leading-relaxed mb-12 px-4 italic font-serif">
-            "Mais do que uma rede social, o CyBerPhone é o epicentro da nova economia digital angolana. Conecte-se com o que realmente importa."
+            "Mais do que uma rede social, o FacePhone é o epicentro da nova economia digital angolana. Conecte-se com o que realmente importa."
           </p>
           
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
@@ -226,7 +228,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                            
                            {publicReels.map((reel, idx) => (
                            <div key={reel.id} className="h-full w-full snap-start snap-always relative flex items-center justify-center overflow-hidden bg-black">
-                              {/* Fake Reel Background (Image/Video Placeholder) */}
+                              {/* Background Video Content */}
                               {reel.reel && (
                                 <video 
                                   src={reel.reel.videoUrl} 
@@ -405,7 +407,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
             <div className="order-2 lg:order-1">
               <div className="relative aspect-square md:aspect-video lg:aspect-[4/5] bg-gray-900 rounded-[3rem] overflow-hidden group shadow-2xl">
                  <div className="absolute inset-0 bg-blue-600/20 group-hover:bg-blue-600/10 transition-colors" />
-                 {/* Fake Screen UI */}
+                 {/* Platform Interface Preview */}
                  <div className="absolute inset-4 bg-black rounded-[2rem] border border-white/10 p-6 flex flex-col overflow-hidden">
                     <div className="flex justify-between items-center mb-8">
                        <div className="w-10 h-1 bg-white/20 rounded-full" />
@@ -439,7 +441,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                 É Pertencer.
               </h2>
               <p className="text-gray-500 dark:text-gray-400 font-serif italic text-xl">
-                 "No CyBerPhone, cada interação é uma oportunidade de crescimento. Nossa tecnologia aproxima quem está longe e fortalece quem está perto."
+                 "No FacePhone, cada interação é uma oportunidade de crescimento. Nossa tecnologia aproxima quem está longe e fortalece quem está perto."
               </p>
               <ul className="space-y-4 pt-4">
                 {['Feed Inteligente', 'Comunidades Temáticas', 'ID Digital Verificado'].map((item, i) => (
@@ -585,7 +587,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                   <div className="w-10 h-10 bg-blue-600 rounded-[12px] flex items-center justify-center">
                     <span className="text-white font-black text-xs">CP</span>
                   </div>
-                  <span className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white uppercase">CyBerPhone</span>
+                  <span className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white uppercase">FacePhone</span>
                 </div>
                 <p className="text-gray-400 font-serif italic text-lg max-w-sm">
                   "Redefinindo os limites da conexão digital no coração de África."
@@ -604,16 +606,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
              <div>
                 <h5 className="font-black uppercase text-[10px] tracking-widest text-blue-600 mb-6">Legal</h5>
                 <ul className="space-y-4">
-                   {['Termos de Uso', 'Privacidade', 'Cookies', 'Suporte'].map(link => (
-                     <li key={link}>
-                       <button onClick={onGoToAuth} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-wider transition-colors">{link}</button>
+                   {[
+                     { name: 'Termos de Uso', page: 'terms' },
+                     { name: 'Privacidade', page: 'privacy' },
+                     { name: 'Reembolsos', page: 'refunds' },
+                     { name: 'Suporte', page: 'support' }
+                   ].map(link => (
+                     <li key={link.page}>
+                       <button onClick={() => onNavigate(link.page as any)} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-wider transition-colors">{link.name}</button>
                      </li>
                    ))}
                 </ul>
              </div>
           </div>
           <div className="pt-8 border-t border-gray-100 dark:border-white/5 flex flex-col md:row items-center justify-between gap-6">
-             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">© 2026 CyBerPhone Angola — All Rights Reserved.</p>
+             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">© 2026 FacePhone Angola — All Rights Reserved.</p>
              <div className="flex gap-6">
                 <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center hover:bg-blue-600 transition-colors group cursor-pointer">
                    <GlobeAltIcon className="h-4 w-4 text-gray-400 group-hover:text-white" />

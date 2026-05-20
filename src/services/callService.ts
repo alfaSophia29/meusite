@@ -4,6 +4,7 @@ import {
   addDoc, 
   updateDoc, 
   onSnapshot, 
+  getDocs,
   query, 
   where, 
   serverTimestamp,
@@ -148,10 +149,13 @@ export const endCall = async (callId: string) => {
 
 export const listenForCalls = (userId: string, onCall: (call: Call) => void) => {
   if (!db) return () => {};
+  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
   const qIncoming = query(
     collection(db, CALLS_COLLECTION),
     where('receiverId', '==', userId),
     where('status', '==', CallStatus.RINGING),
+    where('timestamp', '>', fiveMinutesAgo),
     orderBy('timestamp', 'desc'),
     limit(1)
   );
@@ -160,6 +164,7 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
     collection(db, CALLS_COLLECTION),
     where('callerId', '==', userId),
     where('status', '==', CallStatus.RINGING),
+    where('timestamp', '>', fiveMinutesAgo),
     orderBy('timestamp', 'desc'),
     limit(1)
   );
@@ -188,14 +193,51 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
   };
 };
 
-export const listenForCallStatus = (callId: string, onUpdate: (call: Call) => void) => {
+export const listenForCallStatus = (callId: string, onUpdate: (call: Call) => void, onError?: (error: any) => void) => {
   if (!db) return () => {};
   const docRef = doc(db, CALLS_COLLECTION, callId);
   return onSnapshot(docRef, (docSnap) => {
     if (docSnap.exists()) {
       onUpdate({ id: docSnap.id, ...docSnap.data() } as Call);
+    } else {
+      // Document might have been deleted
+      onError?.(new Error('Call document not found'));
     }
   }, (error) => {
-    handleFirestoreError(error, OperationType.GET, `${CALLS_COLLECTION}/${callId}`);
+    if (onError) onError(error);
+    else handleFirestoreError(error, OperationType.GET, `${CALLS_COLLECTION}/${callId}`);
   });
+};
+
+export const cleanupHangingCalls = async (userId: string) => {
+  if (!db) return;
+  try {
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    const qIncoming = query(
+      collection(db, CALLS_COLLECTION),
+      where('receiverId', '==', userId),
+      where('status', '==', CallStatus.RINGING)
+    );
+    const qOutgoing = query(
+      collection(db, CALLS_COLLECTION),
+      where('callerId', '==', userId),
+      where('status', '==', CallStatus.RINGING)
+    );
+
+    const [snapIn, snapOut] = await Promise.all([getDocs(qIncoming), getDocs(qOutgoing)]);
+    
+    const batch = snapIn.docs.concat(snapOut.docs);
+    for (const docSnap of batch) {
+      const data = docSnap.data() as Call;
+      // If the call is older than 5 minutes and still ringing, end it
+      if (data.timestamp < fiveMinutesAgo) {
+        await updateDoc(docSnap.ref, {
+          status: CallStatus.TIMED_OUT,
+          endedAt: Date.now()
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Error cleaning up hanging calls:", error);
+  }
 };

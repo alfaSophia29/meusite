@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { User, Page } from '../types';
-import { loginUser, registerUser, saveCurrentUser, recoverPassword } from '../services/storageService';
+import { loginUser, registerUser, saveCurrentUser, recoverPassword, loginWithGoogle, deriveEmail, normalizeIdentifier } from '../services/storageService';
 import { COUNTRIES } from '../data/countries';
 import { AcademicCapIcon, UserIcon, CameraIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/solid';
 
@@ -59,7 +59,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     if (code === 'auth/weak-password' || message.includes('auth/weak-password')) return 'A senha deve ter pelo menos 6 caracteres.';
     if (code === 'auth/invalid-email' || message.includes('auth/invalid-email')) return 'E-mail inválido.';
     if (code === 'auth/network-request-failed' || message.includes('auth/network-request-failed')) return 'Erro de conexão. Verifique sua internet.';
-    if (code === 'auth/too-many-requests' || message.includes('auth/too-many-requests')) return 'Muitas tentativas. Tente novamente mais tarde.';
+    if (code === 'auth/too-many-requests' || message.includes('auth/too-many-requests')) return 'Muitas tentativas bloqueadas por segurança. Aguarde alguns minutos ou redefina sua senha.';
     
     return message || 'Ocorreu um erro na autenticação.';
   };
@@ -74,11 +74,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
       return;
     }
 
-    const emailToRecover = identifier.includes('@') ? identifier : `${identifier}@cyberphone.com`;
+    const cleanIdentifier = identifier.trim();
+    const emailToRecover = cleanIdentifier.includes('@') ? cleanIdentifier : `${cleanIdentifier}@facephone.com`;
     
     setLoading(true);
     try {
-      await recoverPassword(emailToRecover);
+      await recoverPassword(deriveEmail(identifier));
       setRecoverySent(true);
       setSuccess("E-mail de recuperação enviado! Verifique sua caixa de entrada.");
     } catch (err: any) {
@@ -98,7 +99,10 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
       return;
     }
     
-    if (!identifier || !password) {
+    const cleanIdentifier = identifier.trim();
+    const cleanConfirmIdentifier = confirmIdentifier.trim();
+
+    if (!cleanIdentifier || !password) {
       setError("Preencha e-mail/celular e senha.");
       return;
     }
@@ -108,7 +112,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
         setError("Preencha todos os campos obrigatórios.");
         return;
       }
-      if (identifier !== confirmIdentifier) {
+      if (cleanIdentifier !== cleanConfirmIdentifier) {
         setError("Os e-mails/celulares não coincidem.");
         return;
       }
@@ -119,13 +123,11 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
       if (isRegister) {
         const birthDate = new Date(parseInt(birthYear), parseInt(birthMonth) - 1, parseInt(birthDay)).getTime();
         
-        // Se for e-mail, usa como e-mail. Se for número, podemos tratar ou usar como e-mail fake se necessário.
-        // Para simplificar, assumimos que o identifier é o e-mail principal.
         const newUser = await registerUser({
           firstName,
           lastName,
-          email: identifier.includes('@') ? identifier : `${identifier}@cyberphone.com`,
-          phone: identifier.includes('@') ? '' : identifier,
+          email: identifier,
+          phone: identifier,
           password,
           birthDate,
           gender,
@@ -138,8 +140,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
           setError("Erro ao criar perfil do usuário.");
         }
       } else {
-        const emailToLogin = identifier.includes('@') ? identifier : `${identifier}@cyberphone.com`;
-        const user = await loginUser(emailToLogin, password);
+        const user = await loginUser(identifier, password);
         if (user) {
           onLoginSuccess(user);
         } else {
@@ -157,6 +158,23 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
           setIsRecovering(false);
           setError('Este e-mail já está em uso. Por favor, faça login.');
         }, 2000);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const user = await loginWithGoogle();
+      if (user) {
+        onLoginSuccess(user);
+      }
+    } catch (err: any) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setError(getFriendlyErrorMessage(err));
       }
     } finally {
       setLoading(false);
@@ -198,7 +216,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
           )}
 
           <div className="text-center mb-10">
-            <h1 className="text-5xl font-black text-gray-900 dark:text-white tracking-tighter mb-4 drop-shadow-sm">CyberPhone</h1>
+            <h1 className="text-5xl font-black text-gray-900 dark:text-white tracking-tighter mb-4 drop-shadow-sm">FacePhone</h1>
             <p className="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em] leading-relaxed px-6">
               {isRecovering 
                 ? "Recuperar sua senha"
@@ -375,6 +393,31 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                   : isRegister ? 'Criar minha Conta' : 'Entrar na Rede'
               )}
             </button>
+
+            {!isRecovering && (
+              <>
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-100 dark:border-white/5"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-widest">
+                    <span className="px-4 bg-white dark:bg-[#12161f] text-gray-400">Ou continuar com</span>
+                  </div>
+                </div>
+
+                <button 
+                  type="button"
+                  onClick={handleGoogleLogin}
+                  disabled={loading}
+                  className="w-full py-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-3xl flex items-center justify-center gap-3 hover:bg-gray-50 dark:hover:bg-white/10 transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="h-5 w-5" />
+                  <span className="text-sm font-bold text-gray-700 dark:text-white">Google</span>
+                </button>
+
+
+              </>
+            )}
           </form>
 
 

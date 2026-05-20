@@ -1,5 +1,5 @@
 
-export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium' | 'landing';
+export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'wallet' | 'terms' | 'privacy' | 'refunds' | 'saved' | 'blocked-users' | 'premium' | 'landing' | 'product-detail';
 
 export type MonetizationStatus = 'INELIGIBLE' | 'ELIGIBLE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
@@ -73,7 +73,8 @@ export enum TransactionType {
   CHAT_FEE = 'CHAT_FEE',
   BOOST = 'BOOST',
   DONATION = 'DONATION',
-  TICKET = 'TICKET'
+  TICKET = 'TICKET',
+  REFUND = 'REFUND'
 }
 
 export interface Transaction {
@@ -114,6 +115,11 @@ export interface AffiliateLink {
   link: string;
   clicks: number;
   timestamp: number;
+}
+
+export enum UserType {
+  STANDARD = 'STANDARD',
+  CREATOR = 'CREATOR'
 }
 
 export interface User {
@@ -306,6 +312,14 @@ export interface Product {
   };
   
   condition?: 'NEW' | 'USED';
+  specifications?: { key: string; value: string }[];
+  variations?: {
+    id: string;
+    name: string;
+    price?: number;
+    stock: number;
+    imageUrl?: string;
+  }[];
 }
 
 export interface ProductRating {
@@ -360,6 +374,7 @@ export const CARRIERS: Carrier[] = [
 export interface AffiliateSale {
   id: string;
   productId: string;
+  productName: string;
   buyerId: string;
   affiliateUserId: string;
   storeId: string;
@@ -379,6 +394,7 @@ export interface AffiliateSale {
   sellerEarnings?: number;
   affiliateEarnings?: number;
   fundsReleased?: boolean;
+  batchId?: string;
 }
 
 export interface ShippingAddress {
@@ -386,6 +402,7 @@ export interface ShippingAddress {
   city: string;
   state: string;
   zipCode: string;
+  carrier?: string;
 }
 
 export interface AdCampaign {
@@ -466,13 +483,18 @@ export interface CyberEvent {
   creatorName: string;
   title: string;
   description?: string;
-  dateTime: number;
+  startDate: number;
   endDateTime?: number;
   type: 'ONLINE' | 'PRESENTIAL';
+  attendeesCount: number;
   attendees: string[];
-  imageUrl: string;
-  mediaType?: 'image' | 'video'; // NOVO CAMPO: Suporte a vídeo
-  location?: string;
+  bannerUrl: string;
+  imageUrl?: string;
+  mediaType?: 'image' | 'video'; 
+  location: string;
+  category: string;
+  isFree?: boolean;
+  minPrice?: number;
   isPublic?: boolean;
 }
 

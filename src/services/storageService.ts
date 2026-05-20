@@ -4,12 +4,51 @@ import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { safeJsonStringify } from '../lib/utils';
 import { checkContentSecurity } from './sentinelService';
 import { auth, db, storage, isFirebaseConfigured } from './firebaseClient';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+export { auth, db, storage, isFirebaseConfigured };
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  sendPasswordResetEmail,
+  GoogleAuthProvider,
+  signInWithPopup
+} from 'firebase/auth';
 import { 
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, onSnapshot,
-  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment
+  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment,
+  startAfter, QueryDocumentSnapshot, Query, documentId, arrayRemove // Adicionados para paginação e limpeza
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+// --- HELPERS ---
+/**
+ * Normaliza um identificador (e-mail ou telefone)
+ */
+export const normalizeIdentifier = (identifier: string): string => {
+  if (!identifier) return '';
+  const trimmed = identifier.trim();
+  
+  // Se for e-mail, apenas lower case
+  if (trimmed.includes('@')) {
+    return trimmed.toLowerCase();
+  }
+  
+  // Se for telefone, remove tudo exceto dígitos (para compatibilidade com contas registradas via celular)
+  return trimmed.replace(/\D/g, '');
+};
+
+/**
+ * Deriva um e-mail de um identificador
+ */
+export const deriveEmail = (identifier: string): string => {
+  const normalized = normalizeIdentifier(identifier);
+  if (!normalized) return '';
+  if (normalized.includes('@')) return normalized;
+  
+  // If it's a phone number, we use normalized + @facephone.com
+  // We keep it as-is (except for trim/lowercase) to match legacy records.
+  return `${normalized}@facephone.com`;
+};
 
 // --- CLOUDINARY CONFIG ---
 // Prioritize environment variables, then fallback to hardcoded values
@@ -82,14 +121,40 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
   try {
     const serialized = safeJsonStringify(errInfo);
+    // Don't log for common anonymous permission issues on notifications/sales/ads which are often transient during login/logout
+    const isQuietPath = ['notifications', 'sales', 'ads', 'profiles'].includes(path || '');
+    const isAnonymous = authInfo.userId === 'anonymous';
+    
+    if (isQuietPath && isAnonymous && errMessage.toLowerCase().includes('permissions')) {
+       // Silently ignore quiet errors for anonymous users
+       return;
+    }
+
     console.error('Firestore Error: ', serialized);
+    
+    // Don't throw for LIST/GET on quiet paths to avoid crashing App
+    if (isQuietPath && (operationType === OperationType.LIST || operationType === OperationType.GET)) {
+      return; 
+    }
     throw new Error(serialized);
   } catch (stringifyError) {
-    // If stringify fails, log a simpler message
+    // If stringify fails or we returned above
+    const isQuietPath = ['notifications', 'sales', 'ads', 'profiles'].includes(path || '');
+    if (isQuietPath && (operationType === OperationType.LIST || operationType === OperationType.GET)) {
+      return;
+    }
+    if (stringifyError instanceof Error && isQuietPath && stringifyError.message.includes(path || '')) return;
+
     const fallbackMessage = `Firestore Error [${operationType}] at [${path}]: ${errMessage}`;
     console.error(fallbackMessage);
     throw new Error(fallbackMessage);
   }
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  lastDoc: QueryDocumentSnapshot | null;
+  hasMore: boolean;
 }
 
 const CURRENT_USER_KEY = 'cyberphone_current_user_id';
@@ -113,7 +178,7 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
     }
 
     const email = (dbData?.email || authUser?.email || '').toLowerCase().trim();
-    const isAdminEmail = email === 'ac926815124@gmail.com' || email === 'alfaajmc@gmail.com';
+    const isAdminEmail = email === 'ac926815124@gmail.com' || email === 'alfaajmc@gmail.com' || email === 'admin@facephone.com';
 
     const lastSeen = Number(dbData?.lastSeen || 0);
     const isOnline = !!dbData?.isOnline;
@@ -236,22 +301,22 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
 // --- AUTENTICAÇÃO ---
 
 export const loginUser = async (email: string, password: string): Promise<User> => {
-  console.log("[STORAGE] Tentando login para:", email, "Auth inicializado:", !!auth);
+  const emailDerived = deriveEmail(email);
+  console.log("[STORAGE] Tentando login para:", emailDerived, "Auth inicializado:", !!auth);
+  
   if (!isFirebaseConfigured || !auth) {
     throw new Error("Firebase Auth não está inicializado. Isso pode ser um problema de conexão temporário. Por favor, recarregue a página.");
   }
+  
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const userCredential = await signInWithEmailAndPassword(auth, emailDerived, password);
     const user = await findUserById(userCredential.user.uid, userCredential.user);
     
-    // Check for super admin email
-    const emailClean = (email || '').toLowerCase().trim();
-    const isAdminEmail = emailClean === 'ac926815124@gmail.com' || emailClean === 'alfaajmc@gmail.com';
     // Check for admin status to sync to the admins collection for faster rule checks
     if (user && user.isAdmin && db) {
       try {
         await setDoc(doc(db, 'admins', userCredential.user.uid), {
-          email: emailClean,
+          email: emailDerived,
           timestamp: Date.now()
         }, { merge: true });
       } catch (err) {
@@ -259,6 +324,7 @@ export const loginUser = async (email: string, password: string): Promise<User> 
       }
     }
 
+    const isAdminEmail = emailDerived === 'ac926815124@gmail.com' || emailDerived === 'alfaajmc@gmail.com' || emailDerived === 'admin@facephone.com';
     if (isAdminEmail && user && db) {
       if (!user.isAdmin || !user.isVerified || user.userType !== 'CREATOR') {
         const updatedData = {
@@ -277,7 +343,7 @@ export const loginUser = async (email: string, password: string): Promise<User> 
     if (user) return user;
     
     // Se logou mas não achou perfil, tenta criar um básico (fallback)
-    console.warn("[STORAGE] Usuário logado mas perfil não encontrado. Criando fallback.");
+    console.warn("[STORAGE] Usuário logado mas perfil não encontrado para [", emailDerived, "]. Criando fallback.");
     const fallbackUser = mapUserData(userCredential.user.uid, null, userCredential.user);
     fallbackUser.blockedUserIds = [];
     
@@ -295,7 +361,47 @@ export const loginUser = async (email: string, password: string): Promise<User> 
 
     return fallbackUser;
   } catch (e: any) {
-    console.error("Erro no login:", safeJsonStringify(e));
+    // For invalid-credential, we explicitly log that it was a credential mismatch
+    if (e.code === 'auth/invalid-credential') {
+      console.warn(`[STORAGE] Falha de login (Credenciais Inválidas) para: ${emailDerived}`);
+    } else if (e.code === 'auth/too-many-requests') {
+      console.warn(`[STORAGE] Falha de login (Muitas Tentativas) para: ${emailDerived}`);
+    } else {
+      console.error("Erro no login:", safeJsonStringify(e));
+    }
+    throw e;
+  }
+};
+
+export const loginWithGoogle = async (): Promise<User> => {
+  if (!isFirebaseConfigured || !auth) {
+    throw new Error("Firebase Auth não está inicializado.");
+  }
+  
+  try {
+    const provider = new GoogleAuthProvider();
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = await findUserById(userCredential.user.uid, userCredential.user);
+    
+    if (user) return user;
+    
+    // Se logou mas não achou perfil, cria um básico
+    console.log("[STORAGE] Usuário Google novo. Criando perfil.");
+    const email = (userCredential.user.email || '').toLowerCase().trim();
+    const displayName = userCredential.user.displayName || "";
+    const names = displayName.split(' ');
+    
+    const userData = {
+      firstName: names[0] || "Usuário",
+      lastName: names.slice(1).join(' ') || "Google",
+      email: email,
+      phone: '',
+      userType: 'STANDARD'
+    };
+    
+    return await createFirestoreUser(userCredential.user.uid, userData, userCredential.user);
+  } catch (e: any) {
+    console.error("Erro no login com Google:", safeJsonStringify(e));
     throw e;
   }
 };
@@ -329,7 +435,7 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
     }
 
     const emailClean = (userData.email || '').toLowerCase().trim();
-    const isAdminEmail = emailClean === 'ac926815124@gmail.com' || emailClean === 'alfaajmc@gmail.com';
+    const isAdminEmail = emailClean === 'ac926815124@gmail.com' || emailClean === 'alfaajmc@gmail.com' || emailClean === 'admin@facephone.com';
     const newUser = mapUserData(uid, { 
       ...userData, 
       profilePicture: profilePicUrl,
@@ -428,36 +534,45 @@ export const registerUniqueness = async (field: string, value: string, userId: s
 };
 
 export const registerUser = async (userData: any): Promise<User> => {
-  console.log("[STORAGE] Tentando registro para:", userData.email, "Auth inicializado:", !!auth);
+  const emailDerived = deriveEmail(userData.email);
+  const phoneClean = normalizeIdentifier(userData.phone || '');
+  
+  console.log("[STORAGE] Tentando registro para:", emailDerived, "Auth inicializado:", !!auth);
+  
   if (!isFirebaseConfigured || !auth) {
     throw new Error("Firebase Auth não está inicializado. Isso pode ser um problema de conexão temporário. Por favor, recarregue a página.");
   }
-
+  
   // Validação de unicidade do documento
   if (userData.documentId) {
-    const isDocUnique = await checkFieldUniqueness('documentId', userData.documentId);
+    const docIdClean = (userData.documentId || '').trim();
+    const isDocUnique = await checkFieldUniqueness('documentId', docIdClean);
     if (!isDocUnique) {
       throw new Error("Este número de documento já está vinculado a outra conta.");
     }
   }
 
   // Validação de unicidade do telefone (se houver)
-  if (userData.phone) {
-    const isPhoneUnique = await checkFieldUniqueness('phone', userData.phone);
+  if (phoneClean) {
+    const isPhoneUnique = await checkFieldUniqueness('phone', phoneClean);
     if (!isPhoneUnique) {
       throw new Error("Este número de celular já está vinculado a outra conta.");
     }
   }
 
   // Validação de unicidade do e-mail no Firestore (além do Firebase Auth)
-  const isEmailUnique = await checkFieldUniqueness('email', userData.email);
+  const isEmailUnique = await checkFieldUniqueness('email', emailDerived);
   if (!isEmailUnique) {
     throw new Error("Este e-mail já está em uso por outra conta.");
   }
   
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password);
-    return await createFirestoreUser(userCredential.user.uid, userData, userCredential.user);
+    const userCredential = await createUserWithEmailAndPassword(auth, emailDerived, userData.password);
+    return await createFirestoreUser(userCredential.user.uid, {
+      ...userData,
+      email: emailDerived,
+      phone: phoneClean
+    }, userCredential.user);
   } catch (e: any) {
     console.error("Erro no registro:", safeJsonStringify(e));
     throw e;
@@ -478,10 +593,23 @@ export const recoverPassword = async (email: string): Promise<void> => {
 
 // --- CONTEÚDO (FIRESTORE) ---
 
-export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
-  if (!isFirebaseConfigured || !db) return [];
+export const getPosts = async (currentUserId?: string, limitCount?: number, startDoc?: QueryDocumentSnapshot, targetUserId?: string): Promise<PaginatedResult<Post>> => {
+  if (!isFirebaseConfigured || !db) return { items: [], lastDoc: null, hasMore: false };
   try {
-    const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
+    let q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
+    
+    if (targetUserId) {
+      q = query(q, where('userId', '==', targetUserId));
+    }
+
+    if (startDoc) {
+      q = query(q, startAfter(startDoc));
+    }
+    
+    if (limitCount) {
+      q = query(q, limit(limitCount + 1));
+    }
+
     let snap;
     try {
       snap = await getDocs(q);
@@ -493,10 +621,18 @@ export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
         throw initialError;
       }
     }
-    let posts = snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
+    
+    let docs = snap.docs;
+    const hasMore = limitCount ? docs.length > limitCount : false;
+    if (hasMore) {
+        docs = docs.slice(0, limitCount);
+    }
+    
+    const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+    let posts = docs.map(d => ({ ...d.data(), id: d.id } as Post));
     
     // Mutual Blocking Filter
-    if (currentUserId) {
+    if (currentUserId && currentUserId !== 'guest') {
         const hiddenIds = await getMutualBlockedUserIds(currentUserId);
         if (hiddenIds.length) {
             posts = posts.filter(p => !hiddenIds.includes(p.userId));
@@ -504,7 +640,9 @@ export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
     }
 
     // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
-    return posts.sort((a, b) => {
+    // NOTA: Se usarmos paginação pesada, o sort por lance talvez deva ser feito no servidor (index composto)
+    // Mas para o volume atual, mantemos no cliente para suporte a lance dinâmico
+    const sortedPosts = posts.sort((a, b) => {
       const now = Date.now();
       const bidA = (a.isBoosted && a.boostExpires && a.boostExpires > now) ? (a.boostBid || 0) : 0;
       const bidB = (b.isBoosted && b.boostExpires && b.boostExpires > now) ? (b.boostBid || 0) : 0;
@@ -512,9 +650,15 @@ export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
       if (bidB !== bidA) return bidB - bidA;
       return (b.timestamp || 0) - (a.timestamp || 0);
     });
+
+    return {
+      items: sortedPosts,
+      lastDoc: lastDoc as QueryDocumentSnapshot | null,
+      hasMore
+    };
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'posts');
-    return [];
+    return { items: [], lastDoc: null, hasMore: false };
   }
 };
 
@@ -558,77 +702,154 @@ export const deletePost = async (postId: string) => {
   }
 };
 
-// --- UPLOAD (CLOUDINARY) ---
+// --- UPLOAD (FIREBASE STORAGE / FALLBACK) ---
+
+const compressImage = (file: File | Blob, maxWidth = 1200, maxHeight = 1200, quality = 0.7): Promise<Blob> => {
+  return new Promise((resolve) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              resolve(file);
+            }
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(file);
+    };
+    reader.onerror = () => resolve(file);
+  });
+};
+
+const toBase64 = (file: File | Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = () => resolve(reader.result as string);
+  reader.onerror = error => reject(error);
+});
 
 export const uploadFile = async (file: File | Blob, folder: string, retryCount = 0): Promise<string> => {
+  let processedFile = file;
+  if (file && file.type && file.type.startsWith('image/')) {
+    try {
+      processedFile = await compressImage(file);
+    } catch (e) {
+      console.warn("⚠️ Image compression failed, using original file", e);
+    }
+  }
+
+  // 1. Tentar Firebase Storage se estiver configurado
+  if (isFirebaseConfigured && storage) {
+    try {
+      console.log(`[Firebase Storage] Iniciando upload para: ${folder}/${(processedFile as File).name || 'blob'}`);
+      const fileName = processedFile instanceof File ? `${Date.now()}_${processedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}` : `${Date.now()}_blob`;
+      const storageRef = ref(storage, `${folder}/${fileName}`);
+      
+      const metadata = {
+          contentType: processedFile.type || 'application/octet-stream'
+      };
+
+      const snapshot = await uploadBytes(storageRef, processedFile, metadata);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      
+      console.log("✅ [Firebase Storage] Upload concluído com sucesso!");
+      return downloadURL;
+    } catch (fbError: any) {
+      console.warn(`⚠️ [Firebase Storage] Falha no upload (Tentativa ${retryCount + 1}):`, fbError.message);
+      
+      if (retryCount < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return uploadFile(processedFile, folder, retryCount + 1);
+      }
+      
+      console.warn("🔄 [Firebase Storage] Esgotadas as tentativas. Migrando para fallback Base64.");
+    }
+  }
+
+  // 2. Fallback para Cloudinary (se as chaves estiverem presentes e não forem padrão)
   const cloudName = CLOUDINARY_CLOUD_NAME.trim();
   const uploadPreset = CLOUDINARY_UPLOAD_PRESET.trim();
 
-  // Se não houver configuração do Cloudinary, avisa e usa blob local para não travar a UI
-  if (!cloudName || !uploadPreset) {
-    console.warn("⚠️ Cloudinary não configurado corretamente. Verifique VITE_CLOUDINARY_CLOUD_NAME e VITE_CLOUDINARY_UPLOAD_PRESET.");
-    return URL.createObjectURL(file);
+  if (cloudName && uploadPreset && cloudName !== 'dblnktl9m') {
+    try {
+      console.log(`[Cloudinary] Iniciando upload reserva para cloud: ${cloudName}`);
+      
+      const formData = new FormData();
+      formData.append('file', processedFile);
+      formData.append('upload_preset', uploadPreset);
+      formData.append('cloud_name', cloudName);
+      formData.append('folder', `cyberphone/${folder}`);
+      
+      const isVideo = folder === 'reels' || (processedFile instanceof File && processedFile.type.startsWith('video/'));
+      const resourceType = isVideo ? 'video' : 'auto';
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+        {
+          method: 'POST',
+          body: formData,
+          mode: 'cors',
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("✅ [Cloudinary] Upload concluído com sucesso (Fallback)!");
+        return data.secure_url;
+      }
+    } catch (cloudinaryError) {
+      console.warn("⚠️ [Cloudinary] Falha no upload fallback.");
+    }
   }
 
+  // 3. Fallback Final: Base64 (Último recurso para garantir que a UI funcione)
+  console.log("ℹ️ [Storage] Usando fallback Base64 para mídia.");
   try {
-    console.log(`[Cloudinary] Iniciando upload (${retryCount + 1}/3) para cloud: ${cloudName}, preset: ${uploadPreset}`);
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', uploadPreset);
-    formData.append('cloud_name', cloudName);
-    formData.append('folder', `cyberphone/${folder}`);
-    
-    // Força tipo vídeo se for na pasta reels ou se o blob for vídeo
-    const isVideo = folder === 'reels' || (file instanceof File && file.type.startsWith('video/'));
-    const resourceType = isVideo ? 'video' : 'auto';
-    formData.append('resource_type', resourceType);
-
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
-      {
-        method: 'POST',
-        body: formData,
-        mode: 'cors',
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch (e) {
-        errorData = { error: { message: errorText } };
-      }
-      
-      console.error("[Cloudinary] Erro detalhado:", errorData);
-      
-      const msg = errorData.error?.message || '';
-      if (msg.includes("Unknown API key")) {
-        throw new Error("Cloudinary: Assinatura Requerida. Verifique se o seu Preset está configurado como 'Unsigned' nas configurações de Upload do Cloudinary.");
-      }
-      if (msg.includes("Upload preset not found")) {
-        throw new Error(`Cloudinary: Preset '${uploadPreset}' não encontrado. Verifique a grafia nas configurações do Cloudinary.`);
-      }
-      
-      throw new Error(msg || 'Falha no upload para o Cloudinary');
-    }
-
-    const data = await response.json();
-    console.log("✅ [Cloudinary] Upload concluído com sucesso!");
-    return data.secure_url; 
-  } catch (error: any) {
-    console.error(`❌ Erro no upload Cloudinary (Tentativa ${retryCount + 1}):`, error);
-    
-    // Retry logic for transient errors
-    if (retryCount < 2 && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
-      console.log(`[Cloudinary] Tentando novamente em 1s...`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return uploadFile(file, folder, retryCount + 1);
-    }
-    
-    throw new Error(`Erro no upload: ${error.message || 'Erro desconhecido'}`);
+     return await toBase64(processedFile);
+  } catch (base64Error) {
+     console.error("❌ [Storage] Falha crítica em todos os métodos de upload.");
+     return URL.createObjectURL(processedFile);
   }
 };
 
@@ -667,8 +888,7 @@ export const getMutualBlockedUserIds = async (userId: string): Promise<string[]>
     if (!db || !userId || userId === 'anonymous' || userId === 'guest') return [];
     
     // Verificamos se há um usuário autenticado no Firebase para evitar erros de permissão
-    if (!auth?.currentUser) {
-        console.warn("[STORAGE] getMutualBlockedUserIds: Usuário não autenticado no Firebase Auth.");
+    if (!auth?.currentUser || auth.currentUser.uid !== userId) {
         return [];
     }
 
@@ -794,7 +1014,7 @@ export const incrementPostViews = async (pid: string) => {
         
         // Atualizar metas de monetização do autor
         const authorId = postData.userId;
-        const authorRef = doc(db, 'profiles', authorId);
+        const authorRef = doc(db, 'public_profiles', authorId);
         const authorDoc = await getDoc(authorRef);
         if (authorDoc.exists()) {
             const authorData = authorDoc.data();
@@ -844,7 +1064,8 @@ export const incrementPostViews = async (pid: string) => {
             }
             
             await updateDoc(authorRef, updateData);
-            await updateDoc(doc(db, 'public_profiles', authorId), { monetizationStatus: newStatus });
+            // Também tenta atualizar o profile privado se for do próprio usuário (raro aqui) ou se tiver permissão
+            updateDoc(doc(db, 'profiles', authorId), updateData).catch(() => {});
         }
     }
 };
@@ -864,12 +1085,20 @@ export const toggleReaction = async (targetId: string, targetType: 'COMMENT' | '
                 for (let i = 0; i < commentList.length; i++) {
                     if (commentList[i].id === targetId) {
                         const reactions = commentList[i].reactions || {};
-                        const userReactions = reactions[emoji] || [];
+                        const userHasThisEmoji = (reactions[emoji] || []).includes(userId);
                         
-                        if (userReactions.includes(userId)) {
-                            reactions[emoji] = userReactions.filter((id: string) => id !== userId);
+                        if (userHasThisEmoji) {
+                            // Se já tem este emoji, apenas remove
+                            reactions[emoji] = reactions[emoji].filter((id: string) => id !== userId);
                         } else {
-                            reactions[emoji] = [...userReactions, userId];
+                            // Se é um novo emoji, remove de TODOS os outros primeiro (estilo Facebook)
+                            Object.keys(reactions).forEach(e => {
+                                if (reactions[e]) {
+                                    reactions[e] = reactions[e].filter((id: string) => id !== userId);
+                                }
+                            });
+                            // E adiciona ao novo
+                            reactions[emoji] = [...(reactions[emoji] || []), userId];
                         }
                         
                         commentList[i] = { ...commentList[i], reactions };
@@ -894,26 +1123,33 @@ export const toggleReaction = async (targetId: string, targetType: 'COMMENT' | '
             const messages = [...(chatData.messages || [])];
             const messageIndex = messages.findIndex(m => m.id === targetId);
             
-            if (messageIndex !== -1) {
-                const message = messages[messageIndex];
-                
-                // Restrição: Dono da mensagem não pode reagir à própria mensagem
-                if (message.senderId === userId) {
-                    throw new Error('OWNER_REACTION_NOT_ALLOWED');
-                }
+                if (messageIndex !== -1) {
+                    const message = messages[messageIndex];
+                    
+                    // Restrição: Dono da mensagem não pode reagir à própria mensagem
+                    if (message.senderId === userId) {
+                        throw new Error('OWNER_REACTION_NOT_ALLOWED');
+                    }
 
-                const reactions = message.reactions || {};
-                const userReactions = reactions[emoji] || [];
-                
-                if (userReactions.includes(userId)) {
-                    reactions[emoji] = userReactions.filter((id: string) => id !== userId);
-                } else {
-                    reactions[emoji] = [...userReactions, userId];
+                    const reactions = message.reactions || {};
+                    const userHasThisEmoji = (reactions[emoji] || []).includes(userId);
+                    
+                    if (userHasThisEmoji) {
+                        // Remove se já existe
+                        reactions[emoji] = reactions[emoji].filter((id: string) => id !== userId);
+                    } else {
+                        // Remove de outros e adiciona ao novo
+                        Object.keys(reactions).forEach(e => {
+                            if (reactions[e]) {
+                                reactions[e] = reactions[e].filter((id: string) => id !== userId);
+                            }
+                        });
+                        reactions[emoji] = [...(reactions[emoji] || []), userId];
+                    }
+                    
+                    messages[messageIndex] = { ...message, reactions };
+                    await updateDoc(chatRef, { messages });
                 }
-                
-                messages[messageIndex] = { ...message, reactions };
-                await updateDoc(chatRef, { messages });
-            }
         }
     }
 };
@@ -1060,13 +1296,42 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
     };
 };
 export const getCart = () => JSON.parse(localStorage.getItem('cyberphone_cart') || '[]');
-export const getProducts = async () => {
-    if (!db) return [];
+export const getProducts = async (limitCount?: number, startDoc?: QueryDocumentSnapshot, storeId?: string): Promise<PaginatedResult<Product>> => {
+    if (!db) return { items: [], lastDoc: null, hasMore: false };
     try {
-        return (await getDocs(collection(db, 'products'))).docs.map(d => ({...d.data(), id: d.id} as Product));
+        let q = query(collection(db, 'products'), orderBy('name', 'asc')); // Ordenação padrão
+        
+        if (storeId) {
+          q = query(q, where('storeId', '==', storeId));
+        }
+
+        if (startDoc) {
+          q = query(q, startAfter(startDoc));
+        }
+        
+        if (limitCount) {
+          q = query(q, limit(limitCount + 1));
+        }
+
+        const snap = await getDocs(q);
+        let docs = snap.docs;
+        const hasMore = limitCount ? docs.length > limitCount : false;
+        
+        if (hasMore) {
+            docs = docs.slice(0, limitCount);
+        }
+
+        const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+        const items = docs.map(d => ({...d.data(), id: d.id} as Product));
+
+        return {
+            items,
+            lastDoc: lastDoc as QueryDocumentSnapshot | null,
+            hasMore
+        };
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'products');
-        return [];
+        return { items: [], lastDoc: null, hasMore: false };
     }
 };
 export const getAds = async () => {
@@ -1144,8 +1409,8 @@ export const seedDatabase = async () => {
     if (!isFirebaseConfigured || !db) return;
     
     // Check if we already have posts
-    const posts = await getPosts();
-    if (posts.length > 0) return;
+    const postsRes = await getPosts();
+    if (postsRes.items.length > 0) return;
 
     console.log("[SEED] Populando banco de dados inicial...");
 
@@ -1209,23 +1474,33 @@ export const getUsers = async (currentUser?: User) => {
     
     // Admins have permission to read full profiles, which contain more data like documentId
     // We try to read profiles first if the user is an admin
-    const isAdmin = currentUser?.isAdmin || auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com';
+    const isAdmin = currentUser?.isAdmin || auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com' || auth?.currentUser?.email === 'admin@facephone.com';
     const path = isAdmin ? 'profiles' : 'public_profiles';
     
     try {
         let snap: QuerySnapshot<DocumentData>;
         try {
+            console.log(`[STORAGE] Buscando membros em: ${path} (Admin: ${isAdmin})`);
             snap = await getDocs(collection(db, path));
         } catch (initialError: any) {
             if (isAdmin && path === 'profiles') {
-                console.warn("⚠️ Permissão insuficiente para 'profiles'. Tentando 'public_profiles'...");
+                console.warn("⚠️ Permissão insuficiente para 'profiles'. Tentando 'public_profiles' como fallback de emergência. Dados de e-mail/telefone podem não aparecer.");
                 snap = await getDocs(collection(db, 'public_profiles'));
             } else {
+                console.error(`[STORAGE] Erro ao listar usuários de [${path}]:`, initialError);
                 throw initialError;
             }
         }
         
-        let users = snap.docs.map(d => mapUserData(d.id, d.data()));
+        let users = snap.docs.map(d => {
+            const data = d.data();
+            // Flag to indicate if data might be incomplete (from public_profiles)
+            const isPartial = path === 'public_profiles' && isAdmin;
+            return {
+                ...mapUserData(d.id, data),
+                _isPartial: isPartial
+            };
+        });
 
         // Mutual Blocking Filter
         if (currentUser && !isAdmin) {
@@ -1282,18 +1557,63 @@ export const updatePostSaves = async (pid: string, uid: string) => {
         await updateDoc(ref, { saves: newSaves });
     }
 };
-export const getNotificationsForUser = async (uid: string) => {
-    if (!isFirebaseConfigured || !db) return [];
-    const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid), orderBy('timestamp', 'desc')));
-    let notifications = snap.docs.map(d => ({ ...d.data(), id: d.id } as Notification));
+export const getNotificationsForUser = async (uid: string, limitCount?: number, startDoc?: QueryDocumentSnapshot): Promise<PaginatedResult<Notification>> => {
+    if (!isFirebaseConfigured || !db || !uid || uid === 'anonymous' || uid === 'guest') return { items: [], lastDoc: null, hasMore: false };
     
-    // Mutual Blocking Filter
-    const hiddenIds = await getMutualBlockedUserIds(uid);
-    if (hiddenIds.length) {
-        notifications = notifications.filter(n => !hiddenIds.includes(n.actorId));
+  // Guard: Only fetch if authenticated and UID matches
+  if (!auth?.currentUser) {
+    console.warn("[STORAGE] getNotificationsForUser: No auth user.");
+    return { items: [], lastDoc: null, hasMore: false };
+  }
+  
+  if (auth.currentUser.uid !== uid) {
+    // Check if admin - admins can read others' notifications in this app's logic
+    const adminEmails = ['ac926815124@gmail.com', 'alfaajmc@gmail.com', 'admin@facephone.com'];
+    const isSystemAdmin = adminEmails.includes((auth.currentUser.email || '').toLowerCase());
+    
+    if (!isSystemAdmin) {
+       console.warn("[STORAGE] getNotificationsForUser: UID mismatch and not system admin. Auth UID:", auth.currentUser.uid, "Target UID:", uid);
+       return { items: [], lastDoc: null, hasMore: false };
     }
-    
-    return notifications;
+  }
+
+    try {
+        let q = query(collection(db, 'notifications'), where('recipientId', '==', uid), orderBy('timestamp', 'desc'));
+        
+        if (startDoc) {
+            q = query(q, startAfter(startDoc));
+        }
+        
+        if (limitCount) {
+            q = query(q, limit(limitCount + 1));
+        }
+
+        const snap = await getDocs(q);
+        let docs = snap.docs;
+        const hasMore = limitCount ? docs.length > limitCount : false;
+        
+        if (hasMore) {
+            docs = docs.slice(0, limitCount);
+        }
+
+        const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+        let notifications = docs.map(d => ({ ...d.data(), id: d.id } as Notification));
+        
+        // Mutual Blocking Filter
+        const hiddenIds = await getMutualBlockedUserIds(uid);
+        if (hiddenIds.length) {
+            notifications = notifications.filter(n => !hiddenIds.includes(n.actorId));
+        }
+        
+        return {
+            items: notifications,
+            lastDoc: lastDoc as QueryDocumentSnapshot | null,
+            hasMore
+        };
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'notifications');
+        return { items: [], lastDoc: null, hasMore: false };
+    }
 };
 export const deleteNotification = async (id: string) => {
     if (!isFirebaseConfigured || !db) return;
@@ -1305,7 +1625,13 @@ export const deleteNotification = async (id: string) => {
 };
 
 export const clearAllNotifications = async (uid: string) => {
-    if (!isFirebaseConfigured || !db) return;
+    if (!isFirebaseConfigured || !db || !uid || uid === 'anonymous' || uid === 'guest') return;
+
+    // Guard: Only clear if authenticated and UID matches
+    if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+        return;
+    }
+
     try {
         const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid)));
         for (const d of snap.docs) {
@@ -1317,7 +1643,13 @@ export const clearAllNotifications = async (uid: string) => {
 };
 
 export const markNotificationsAsRead = async (uid: string) => {
-    if (!isFirebaseConfigured || !db) return;
+    if (!isFirebaseConfigured || !db || !uid || uid === 'anonymous' || uid === 'guest') return;
+
+    // Guard: Only mark if authenticated and UID matches
+    if (!auth?.currentUser || auth.currentUser.uid !== uid) {
+        return;
+    }
+
     try {
         const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid), where('isRead', '==', false)));
         for (const d of snap.docs) {
@@ -1426,7 +1758,18 @@ export const processDonation = async (from: string, to: string, amt: number, des
     return false;
 };
 
-export const findAudioTrackById = async (id: string) => undefined;
+export const findAudioTrackById = async (id: string): Promise<AudioTrack | undefined> => {
+    if (!db || !id) return undefined;
+    try {
+        const docSnap = await getDoc(doc(db, 'audio_tracks', id));
+        if (docSnap.exists()) {
+            return { ...docSnap.data(), id: docSnap.id } as AudioTrack;
+        }
+    } catch (error) {
+        console.error("Error fetching audio track:", error);
+    }
+    return undefined;
+};
 export const unpinPost = async (id: string) => {
     if (!db) return;
     return updateDoc(doc(db, 'posts', id), { isPinned: false });
@@ -1531,18 +1874,220 @@ export const updateUser = async (u: User) => {
 };
 export const deleteUser = async (id: string) => {
     if (!db) return;
-    return deleteDoc(doc(db, 'profiles', id));
+
+    try {
+        console.log(`[STORAGE] Iniciando exclusão em cascata profunda para o usuário: ${id}`);
+        
+        // 1. Deletar os perfis principais IMEDIATAMENTE (mais crítico)
+        const profileRef = doc(db!, 'profiles', id);
+        const publicProfileRef = doc(db!, 'public_profiles', id);
+        const adminRef = doc(db!, 'admins', id);
+
+        await Promise.all([
+            deleteDoc(profileRef).catch(e => console.warn("Erro ao deletar profiles/", id, e)),
+            deleteDoc(publicProfileRef).catch(e => console.warn("Erro ao deletar public_profiles/", id, e)),
+            deleteDoc(adminRef).catch(e => console.warn("Erro ao deletar admins/", id, e))
+        ]);
+
+        // 2. Limpeza de coleções de conteúdo (paralelo)
+        const collectionsToClean = [
+            { name: 'posts', field: 'userId' },
+            { name: 'products', field: 'userId' },
+            { name: 'stores', field: 'professorId' },
+            { name: 'stories', field: 'userId' },
+            { name: 'events', field: 'creatorId' },
+            { name: 'ad_campaigns', field: 'professorId' },
+            { name: 'ads', field: 'professorId' },
+            { name: 'transactions', field: 'userId' },
+            { name: 'notifications', field: 'recipientId' },
+            { name: 'notifications', field: 'actorId' },
+            { name: 'reports', field: 'reporterId' },
+            { name: 'reports', field: 'targetId' },
+            { name: 'support_tickets', field: 'userId' },
+            { name: 'tickets', field: 'userId' },
+            { name: 'sales', field: 'buyerId' },
+            { name: 'sales', field: 'sellerId' },
+            { name: 'affiliate_links', field: 'affiliateId' },
+            { name: 'affiliate_links', field: 'sellerId' },
+            { name: 'affiliate_sales', field: 'buyerId' },
+            { name: 'affiliate_sales', field: 'affiliateUserId' },
+            { name: 'affiliate_sales', field: 'sellerId' },
+            { name: 'blocks', field: 'blockerId' },
+            { name: 'blocks', field: 'blockedId' },
+            { name: 'system_logs', field: 'adminId' },
+            { name: 'system_logs', field: 'targetId' },
+            { name: 'payment_cards', field: 'userId' },
+            { name: 'calls', field: 'callerId' },
+            { name: 'calls', field: 'receiverId' }
+        ];
+
+        const deletePromises = collectionsToClean.map(async (col) => {
+            try {
+                const q = query(collection(db!, col.name), where(col.field, '==', id));
+                const snap = await getDocs(q);
+                const batchPromises = snap.docs.map(d => deleteDoc(d.ref));
+                await Promise.all(batchPromises);
+            } catch (err) {
+                console.warn(`Erro limpando coleção ${col.name}:`, err);
+            }
+        });
+
+        // 3. Limpeza de Registro de Unicidade (E-mail e Documento)
+        const registryCleanup = (async () => {
+            try {
+                const registryDocs = await getDocs(query(collection(db!, 'uniqueness_registry'), where('userId', '==', id)));
+                await Promise.all(registryDocs.docs.map(d => deleteDoc(d.ref)));
+            } catch (err) {
+                console.warn("Erro limpando uniqueness_registry:", err);
+            }
+        })();
+
+        // 3. Limpeza especializada de chats (remover dos participantes)
+        const chatPromises = (async () => {
+            try {
+                const q = query(collection(db!, 'chats'), where('participants', 'array-contains', id));
+                const snap = await getDocs(q);
+                for (const d of snap.docs) {
+                    const chat = d.data();
+                    const newParticipants = (chat.participants || []).filter((p: string) => p !== id);
+                    if (newParticipants.length === 0 || (chat.type === ChatType.PRIVATE && newParticipants.length < 2)) {
+                        await deleteDoc(d.ref);
+                    } else {
+                        const update: any = { participants: newParticipants };
+                        if (chat.adminId === id) {
+                            update.adminId = newParticipants[0]; // Transferir admin se o admin saiu
+                        }
+                        await updateDoc(d.ref, update);
+                    }
+                }
+            } catch (err) {
+                console.warn("Erro limpando chats:", err);
+            }
+        })();
+
+        // 4. Limpeza de Arrays Sociais em outros perfis (Seguidores), Eventos e Stories
+        const socialCleanup = (async () => {
+            try {
+                const followerQuery = query(collection(db!, 'profiles'), where('followers', 'array-contains', id));
+                const followedQuery = query(collection(db!, 'profiles'), where('followedUsers', 'array-contains', id));
+                const publicFollowerQuery = query(collection(db!, 'public_profiles'), where('followers', 'array-contains', id));
+                const publicFollowedQuery = query(collection(db!, 'public_profiles'), where('followedUsers', 'array-contains', id));
+                const eventQuery = query(collection(db!, 'events'), where('attendees', 'array-contains', id));
+                const storyQuery = query(collection(db!, 'stories'), where('views', 'array-contains', id));
+
+                const [f1, f2, f3, f4, evSnap, stSnap] = await Promise.all([
+                    getDocs(followerQuery), getDocs(followedQuery),
+                    getDocs(publicFollowerQuery), getDocs(publicFollowedQuery),
+                    getDocs(eventQuery), getDocs(storyQuery)
+                ]);
+
+                const updates = [
+                    ...f1.docs.map(d => updateDoc(d.ref, { followers: arrayRemove(id) })),
+                    ...f2.docs.map(d => updateDoc(d.ref, { followedUsers: arrayRemove(id) })),
+                    ...f3.docs.map(d => updateDoc(d.ref, { followers: arrayRemove(id) })),
+                    ...f4.docs.map(d => updateDoc(d.ref, { followedUsers: arrayRemove(id) })),
+                    ...evSnap.docs.map(d => updateDoc(d.ref, { attendees: arrayRemove(id), attendeesCount: increment(-1) })),
+                    ...stSnap.docs.map(d => updateDoc(d.ref, { views: arrayRemove(id) }))
+                ];
+                await Promise.all(updates);
+            } catch (err) {
+                console.warn("Erro na limpeza social:", err);
+            }
+        })();
+
+        // 5. Limpeza de Curtidas/Interações em POSTS de outros usuários
+        const postInteractions = (async () => {
+            try {
+                const qLikes = query(collection(db!, 'posts'), where('likes', 'array-contains', id));
+                const qSaves = query(collection(db!, 'posts'), where('saves', 'array-contains', id));
+                const qIndicates = query(collection(db!, 'posts'), where('indicatedUserIds', 'array-contains', id));
+                
+                const [s1, s2, s3] = await Promise.all([getDocs(qLikes), getDocs(qSaves), getDocs(qIndicates)]);
+                
+                const updates = [
+                    ...s1.docs.map(d => updateDoc(d.ref, { likes: arrayRemove(id) })),
+                    ...s2.docs.map(d => updateDoc(d.ref, { saves: arrayRemove(id) })),
+                    ...s3.docs.map(d => updateDoc(d.ref, { indicatedUserIds: arrayRemove(id) }))
+                ];
+                await Promise.all(updates);
+            } catch (err) {
+                console.warn("Erro na limpeza de interações em posts:", err);
+            }
+        })();
+
+        // 6. Limpeza de Comentários (Esforço máximo em posts recentes)
+        const commentCleanup = (async () => {
+            try {
+                const recentPosts = await getDocs(query(collection(db!, 'posts'), limit(500))); // Aumentado para 500
+                const updates = recentPosts.docs.map(async (d) => {
+                    const post = d.data();
+                    if (post.comments && Array.isArray(post.comments)) {
+                        const filterComments = (list: any[]): any[] => {
+                            return list.filter(c => c.userId !== id).map(c => ({
+                                ...c,
+                                replies: c.replies ? filterComments(c.replies) : []
+                            }));
+                        };
+                        const newComments = filterComments(post.comments);
+                        if (safeJsonStringify(newComments) !== safeJsonStringify(post.comments)) {
+                            return updateDoc(d.ref, { comments: newComments });
+                        }
+                    }
+                });
+                await Promise.all(updates);
+            } catch (err) {
+                console.warn("Erro na limpeza de comentários:", err);
+            }
+        })();
+
+        // Rodar tudo e limpar cache no fim
+        await Promise.all([...deletePromises, chatPromises, registryCleanup, socialCleanup, postInteractions, commentCleanup]);
+        
+        localStorage.removeItem('cyber_product_cache');
+        localStorage.removeItem('cyberphone_current_user_id');
+
+        console.log(`[STORAGE] Remoção em cascata concluída com sucesso para: ${id}`);
+        return true;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `full_purge/${id}`);
+        throw error;
+    }
 };
 export const updateUserPassword = async (p: string) => {};
 
 // FIX: Added missing exported members
-export const getEvents = async () => {
-    if (!db) return [];
+export const getEvents = async (limitCount?: number, startDoc?: QueryDocumentSnapshot): Promise<PaginatedResult<CyberEvent>> => {
+    if (!db) return { items: [], lastDoc: null, hasMore: false };
     try {
-        return (await getDocs(collection(db, 'events'))).docs.map(d => ({ ...d.data(), id: d.id } as CyberEvent));
+        let q = query(collection(db, 'events'), orderBy('startDate', 'asc')); // Eventos futuros primeiro
+        
+        if (startDoc) {
+          q = query(q, startAfter(startDoc));
+        }
+        
+        if (limitCount) {
+          q = query(q, limit(limitCount + 1));
+        }
+
+        const snap = await getDocs(q);
+        let docs = snap.docs;
+        const hasMore = limitCount ? docs.length > limitCount : false;
+        
+        if (hasMore) {
+            docs = docs.slice(0, limitCount);
+        }
+
+        const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+        const items = docs.map(d => ({ ...d.data(), id: d.id } as CyberEvent));
+
+        return {
+            items,
+            lastDoc: lastDoc as QueryDocumentSnapshot | null,
+            hasMore
+        };
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'events');
-        return [];
+        return { items: [], lastDoc: null, hasMore: false };
     }
 };
 export const createEvent = async (evt: CyberEvent) => {
@@ -1701,7 +2246,13 @@ export const markChatMessagesAsRead = async (chatId: string, userId: string) => 
 };
 
 export const getUnreadMessagesCount = async (userId: string): Promise<number> => {
-    if (!db) return 0;
+    if (!db || !userId || userId === 'anonymous' || userId === 'guest') return 0;
+
+    // Guard: Only fetch if authenticated and UID matches
+    if (!auth?.currentUser || auth.currentUser.uid !== userId) {
+        return 0;
+    }
+
     try {
         const snap = await getDocs(query(collection(db, 'chats'), where('participants', 'array-contains', userId)));
         let count = 0;
@@ -1724,9 +2275,9 @@ export const getUnreadMessagesCount = async (userId: string): Promise<number> =>
  * Funções de Monetização (Modelo YouTube)
  */
 export const incrementWatchTime = async (userId: string, seconds: number, isPremiumViewer: boolean = false) => {
-    if (!db || !userId) return;
+    if (!db || !userId || !auth?.currentUser) return;
     try {
-        const userRef = doc(db, 'profiles', userId);
+        const userRef = doc(db, 'public_profiles', userId);
         const userSnap = await getDoc(userRef);
         if (!userSnap.exists()) return;
         
@@ -1756,6 +2307,8 @@ export const incrementWatchTime = async (userId: string, seconds: number, isPrem
         }
 
         await updateDoc(userRef, updateData);
+        // Sync with private profile as best effort
+        updateDoc(doc(db, 'profiles', userId), updateData).catch(() => {});
 
         if (isPremiumViewer && data.isMonetized) {
             import('./monetizationService').then(m => {
@@ -1770,7 +2323,7 @@ export const incrementWatchTime = async (userId: string, seconds: number, isPrem
 export const incrementShortsView = async (userId: string) => {
     if (!db || !userId) return;
     try {
-        const userRef = doc(db, 'profiles', userId);
+        const userRef = doc(db, 'public_profiles', userId);
         const userSnap = await getDoc(userRef);
         if (!userSnap.exists()) return;
         
@@ -2109,9 +2662,17 @@ export const trackAffiliateClick = async (affiliateId: string, productId: string
     }
 };
 
-export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string, affiliateId?: string) => {
+export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string, affiliateId?: string, product?: Product) => {
     const cart = getCart();
-    const existingItem = cart.find((item: any) => item.productId === productId);
+    
+    // Se passarmos o objeto do produto, salvamos no cache para o carrinho carregar instantâneo
+    if (product) {
+        const localCache = JSON.parse(localStorage.getItem('cyber_product_cache') || '{}');
+        localCache[productId] = product;
+        localStorage.setItem('cyber_product_cache', safeJsonStringify(localCache));
+    }
+
+    const existingItem = cart.find((item: any) => item.productId === productId && item.selectedColor === selectedColor);
     if (existingItem) {
         existingItem.quantity += quantity;
         if (affiliateId) existingItem.affiliateId = affiliateId;
@@ -2140,15 +2701,44 @@ export const clearCart = () => {
     localStorage.setItem('cyberphone_cart', '[]');
 };
 
-export const processProductPurchase = async (items: CartItem[], buyerId: string, affiliateId: string | null, address: ShippingAddress, carrier?: { id: string; name: string }) => {
-    if (!db) return false;
+let isProcessingPurchase = false;
+
+export const processProductPurchase = async (items: CartItem[], buyerId: string, affiliateId: string | null, address: ShippingAddress, isBalancePayment: boolean = true, carrier?: { id: string; name: string }) => {
+    if (!db || isProcessingPurchase || items.length === 0) return false;
+    isProcessingPurchase = true;
+    
     await checkUserFrozen(buyerId);
     try {
+        // Persistent check to prevent duplicate clicks across tabs or rapid retries
+        const lastPurchaseDoc = await getDoc(doc(db, 'purchase_locks', buyerId));
+        const now = Date.now();
+        if (lastPurchaseDoc.exists()) {
+            const lastTime = lastPurchaseDoc.data().timestamp;
+            if (now - lastTime < 5000) {
+                 console.warn("Duplicate purchase attempt blocked for user:", buyerId);
+                 isProcessingPurchase = false;
+                 return false;
+            }
+        }
+        await setDoc(doc(db, 'purchase_locks', buyerId), { timestamp: now });
+
         const settings = await getGlobalSettings();
         const platformTax = settings.platformTax / 100;
         const batchTimestamp = Date.now();
+        const batchId = generateUUID();
 
-        for (const item of items) {
+        // 0. Deduplicate items to prevent multiple orders for the same product entry
+        const consolidatedItems: CartItem[] = [];
+        items.forEach(item => {
+            const existing = consolidatedItems.find(ci => ci.productId === item.productId && ci.selectedColor === item.selectedColor);
+            if (existing) {
+                existing.quantity += item.quantity;
+            } else {
+                consolidatedItems.push({ ...item });
+            }
+        });
+
+        for (const item of consolidatedItems) {
             const productDoc = await getDoc(doc(db, 'products', item.productId));
             if (!productDoc.exists()) continue;
             const product = productDoc.data() as Product;
@@ -2183,6 +2773,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
             await setDoc(doc(db, 'sales', saleId), {
                 id: saleId,
                 productId: item.productId,
+                productName: product.name,
                 buyerId,
                 sellerId,
                 affiliateUserId: finalAffiliateId || '',
@@ -2195,7 +2786,8 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                 affiliateEarnings, // Guardamos para liberar depois
                 fundsReleased: false, // SISTEMA DE CUSTÓDIA ATIVADO
                 carrierId: carrier?.id || '',
-                carrierName: carrier?.name || ''
+                carrierName: carrier?.name || '',
+                batchId
             });
 
             // 1.1 Update Pending Balances for Seller
@@ -2215,11 +2807,10 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
             }
 
             // 2. Handle Buyer Balance (Deducting immediately)
-            const buyerDoc = await getDoc(doc(db, 'profiles', buyerId));
-            if (buyerDoc.exists()) {
-                const buyer = buyerDoc.data() as User;
-                await updateDoc(doc(db, 'profiles', buyerId), {
-                    balance: (buyer.balance || 0) - totalAmount
+            if (isBalancePayment) {
+                const buyerRef = doc(db, 'profiles', buyerId);
+                await updateDoc(buyerRef, {
+                    balance: increment(-totalAmount)
                 });
 
                 // Create Buyer Transaction
@@ -2242,9 +2833,11 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
         }
 
         clearCart();
+        isProcessingPurchase = false;
         return true;
     } catch (error) {
-        console.error("Erro ao processar compra:", safeJsonStringify(error));
+        handleFirestoreError(error, OperationType.WRITE, 'processProductPurchase');
+        isProcessingPurchase = false;
         return false;
     }
 };
@@ -2419,6 +3012,127 @@ export const getPurchasesByBuyerId = async (uid: string) => {
     }
 };
 
+export const getAllSales = async (limitCount: number = 100) => {
+    if (!db) return [];
+    try {
+        const q = query(collection(db, 'sales'), orderBy('timestamp', 'desc'), limit(limitCount));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as AffiliateSale));
+    } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, 'sales');
+        return [];
+    }
+};
+
+export const adminPurgeSales = async (userId: string, isBuyer: boolean = true, includeCompleted: boolean = false, completedOnly: boolean = false) => {
+    if (!db) return false;
+    try {
+        const field = isBuyer ? 'buyerId' : 'storeId';
+        const q = query(collection(db, 'sales'), where(field, '==', userId));
+        const snap = await getDocs(q);
+        
+        const toDelete = snap.docs.filter(d => {
+            const data = d.data() as AffiliateSale;
+            if (completedOnly) return data.status === OrderStatus.COMPLETED;
+            if (includeCompleted) return true;
+            return data.status !== OrderStatus.COMPLETED;
+        });
+
+        if (toDelete.length === 0) return true;
+
+        await Promise.all(toDelete.map(d => deleteDoc(d.ref)));
+        return true;
+    } catch (err) {
+        console.error("Error purging sales:", err);
+        return false;
+    }
+};
+
+export const deleteSaleRecord = async (saleId: string) => {
+    if (!db) return false;
+    try {
+        await deleteDoc(doc(db, 'sales', saleId));
+        return true;
+    } catch (err) {
+        console.error("Error deleting sale record:", err);
+        return false;
+    }
+};
+
+export const deletePurchase = async (saleId: string, isAdminOverride: boolean = false) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        const saleSnap = await getDoc(saleRef);
+        
+        if (saleSnap.exists()) {
+            const sale = saleSnap.data() as AffiliateSale;
+            
+            // Requisito: Apenas pedidos pendentes/processando podem ser cancelados, a menos que seja ADMIN
+            if (!isAdminOverride && (sale.status === OrderStatus.COMPLETED || sale.status === OrderStatus.SHIPPING || sale.status === OrderStatus.DELIVERED)) {
+                throw new Error("Não é possível cancelar um pedido que já foi enviado ou concluído.");
+            }
+
+            const refundAmount = (sale.saleAmount || 0) * 0.95;
+            const sellerEarnings = sale.sellerEarnings || 0;
+            const affiliateEarnings = sale.affiliateEarnings || 0;
+
+            // Attempt refund (best effort)
+            try {
+                if (refundAmount > 0) {
+                    await Promise.all([
+                        updateDoc(doc(db, 'public_profiles', sale.buyerId), { balance: increment(refundAmount) }).catch(() => {}),
+                        updateDoc(doc(db, 'profiles', sale.buyerId), { balance: increment(refundAmount) }).catch(() => {}),
+                        addDoc(collection(db, 'transactions'), {
+                            userId: sale.buyerId,
+                            type: TransactionType.REFUND,
+                            amount: refundAmount,
+                            description: `Cancelamento de Pedido: ${saleId.slice(-6).toUpperCase()}`,
+                            timestamp: Date.now(),
+                            status: 'COMPLETED'
+                        }).catch(() => {})
+                    ]);
+                }
+
+                const balanceField = sale.fundsReleased ? 'balance' : 'pendingBalance';
+                
+                await Promise.all([
+                    updateDoc(doc(db, 'public_profiles', sale.sellerId), { 
+                        [balanceField]: increment(-sellerEarnings),
+                        totalEarnings: increment(-sellerEarnings)
+                    }).catch(() => {}),
+                    updateDoc(doc(db, 'profiles', sale.sellerId), { 
+                        [balanceField]: increment(-sellerEarnings),
+                        totalEarnings: increment(-sellerEarnings)
+                    }).catch(() => {})
+                ]);
+                
+                if (sale.affiliateUserId && affiliateEarnings > 0) {
+                    await Promise.all([
+                        updateDoc(doc(db, 'public_profiles', sale.affiliateUserId), { 
+                            [balanceField]: increment(-affiliateEarnings),
+                            totalEarnings: increment(-affiliateEarnings)
+                        }).catch(() => {}),
+                        updateDoc(doc(db, 'profiles', sale.affiliateUserId), { 
+                            [balanceField]: increment(-affiliateEarnings),
+                            totalEarnings: increment(-affiliateEarnings)
+                        }).catch(() => {})
+                    ]);
+                }
+            } catch (err) {
+                console.warn("Reversal error, continuing deletion:", err);
+            }
+            
+            await deleteDoc(saleRef);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'sales/' + saleId);
+        return false;
+    }
+};
+
 export const addProductRating = async (saleId: string, rating: number, comment: string) => {
     if (!db) return;
     try {
@@ -2487,6 +3201,15 @@ export const createProduct = async (p: Product) => {
         ...p,
         soldCount: 0,
         timestamp: Date.now()
+    });
+};
+
+export const updateProduct = async (id: string, p: Partial<Product>) => {
+    if (!db) return;
+    const productRef = doc(db, 'products', id);
+    await updateDoc(productRef, {
+        ...p,
+        updatedAt: Date.now()
     });
 };
 
@@ -2582,33 +3305,77 @@ export const getPlatformRevenue = async () => {
     }
 };
 
-export const getTransactions = async (uid?: string, currentAdmin?: User) => {
-    if (!isFirebaseConfigured || !db) return [];
+export const getTransactions = async (uid?: string, currentAdmin?: User, limitCount?: number, startDoc?: QueryDocumentSnapshot): Promise<PaginatedResult<Transaction>> => {
+    if (!isFirebaseConfigured || !db) return { items: [], lastDoc: null, hasMore: false };
     try {
-        let q: any;
+        let q: Query = query(collection(db, 'transactions'), orderBy('timestamp', 'desc'));
+        
         if (uid) {
-            q = query(collection(db, 'transactions'), where('userId', '==', uid));
+            q = query(q, where('userId', '==', uid));
         } else if (currentAdmin && !currentAdmin.isAdmin) {
-            // Se não passou UID e não é admin, força o filtro pelo próprio UID
-            q = query(collection(db, 'transactions'), where('userId', '==', currentAdmin.id));
-        } else {
-            q = collection(db, 'transactions');
+            q = query(q, where('userId', '==', currentAdmin.id));
         }
+        
+        if (startDoc) {
+            q = query(q, startAfter(startDoc));
+        }
+        
+        if (limitCount) {
+            q = query(q, limit(limitCount + 1));
+        }
+
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Transaction));
+        let docs = snap.docs;
+        const hasMore = limitCount ? docs.length > limitCount : false;
+        if (hasMore) {
+            docs = docs.slice(0, limitCount);
+        }
+
+        const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+        const items = docs.map(d => ({ ...(d.data() as any), id: d.id } as Transaction));
+
+        return {
+            items,
+            lastDoc: lastDoc as QueryDocumentSnapshot | null,
+            hasMore
+        };
     } catch (error) {
         console.error("Erro ao buscar transações:", error);
-        return [];
+        return { items: [], lastDoc: null, hasMore: false };
     }
 };
 
-export const getReports = async () => {
-    if (!db) return [];
+export const getReports = async (limitCount?: number, startDoc?: QueryDocumentSnapshot): Promise<PaginatedResult<ContentReport>> => {
+    if (!db) return { items: [], lastDoc: null, hasMore: false };
     try {
-        return (await getDocs(collection(db, 'reports'))).docs.map(d => ({ ...(d.data() as any), id: d.id } as ContentReport));
+        let q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'));
+
+        if (startDoc) {
+            q = query(q, startAfter(startDoc));
+        }
+
+        if (limitCount) {
+            q = query(q, limit(limitCount + 1));
+        }
+
+        const snap = await getDocs(q);
+        let docs = snap.docs;
+        const hasMore = limitCount ? docs.length > limitCount : false;
+        if (hasMore) {
+            docs = docs.slice(0, limitCount);
+        }
+
+        const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
+        const items = docs.map(d => ({ ...(d.data() as any), id: d.id } as ContentReport));
+
+        return {
+            items,
+            lastDoc: lastDoc as QueryDocumentSnapshot | null,
+            hasMore
+        };
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'reports');
-        return [];
+        return { items: [], lastDoc: null, hasMore: false };
     }
 };
 
@@ -2893,7 +3660,7 @@ export const getAdminSupportTickets = async (adminId?: string) => {
         
         // If it's a super admin, we don't necessarily need to filter (unless they want to)
         // For standard admins, we filter by unassigned or assigned to them
-        const isSuper = auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com';
+        const isSuper = auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com' || auth?.currentUser?.email === 'admin@facephone.com';
         
         if (adminId && !isSuper) {
              // Filter unassigned ('') or assigned to me
@@ -2922,7 +3689,7 @@ export const subscribeToAdminSupportTickets = (adminId: string, callback: (ticke
     if (!db) return () => {};
     
     let q: any = collection(db, 'tickets');
-    const isSuper = auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com';
+    const isSuper = auth?.currentUser?.email === 'ac926815124@gmail.com' || auth?.currentUser?.email === 'alfaajmc@gmail.com' || auth?.currentUser?.email === 'admin@facephone.com';
     
     if (!isSuper) {
         q = query(q, where('assignedAdminId', 'in', ['', adminId]));
@@ -2957,3 +3724,65 @@ export const getSystemLogs = async (): Promise<SystemLog[]> => {
         return [];
     }
 };
+
+export const updateUserVerificationDocs = async (userId: string, docs: User['idVerificationDocs'], extraData?: Partial<User>) => {
+    if (!db) return;
+    try {
+        const updateObj: any = { 
+            idVerificationDocs: docs,
+            idVerificationStatus: 'PENDING'
+        };
+        if (extraData) {
+            Object.assign(updateObj, extraData);
+        }
+        await updateDoc(doc(db, 'profiles', userId), updateObj);
+        await updateDoc(doc(db, 'public_profiles', userId), updateObj);
+    } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, 'profiles/' + userId);
+    }
+};
+
+export const updateUserVerificationStatus = async (userId: string, status: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED') => {
+    if (!db) return;
+    try {
+        await updateDoc(doc(db, 'profiles', userId), { idVerificationStatus: status });
+        await updateDoc(doc(db, 'public_profiles', userId), { idVerificationStatus: status });
+    } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, 'profiles/' + userId);
+    }
+};
+
+export const findProductById = async (productId: string): Promise<Product | undefined> => {
+    // Check local cache first
+    const localProducts = JSON.parse(localStorage.getItem('cyber_product_cache') || '{}');
+    if (localProducts[productId]) {
+        return localProducts[productId];
+    }
+
+    if (!db) return undefined;
+    try {
+        const docSnap = await getDoc(doc(db, 'products', productId));
+        if (docSnap.exists()) {
+            const p = { ...docSnap.data(), id: docSnap.id } as Product;
+            // Update cache
+            localProducts[productId] = p;
+            localStorage.setItem('cyber_product_cache', safeJsonStringify(localProducts));
+            return p;
+        }
+        return undefined;
+    } catch (err) {
+        return undefined;
+    }
+};
+
+export const getSalesByStoreId = async (storeId: string): Promise<AffiliateSale[]> => {
+    if (!db) return [];
+    try {
+        const q = query(collection(db, 'sales'), where('storeId', '==', storeId));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ ...d.data(), id: d.id } as AffiliateSale));
+    } catch (err) {
+        return [];
+    }
+};
+

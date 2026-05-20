@@ -10,7 +10,8 @@ import {
   adminUpdateUser, adminDeletePost, adminProcessReport, adminDeleteProduct,
   updateGlobalSettings, updateUserBalance, getStores, deleteUser,
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
-  subscribeToAdminSupportTickets, claimSupportTicket, getDisputedSales, confirmProductReceipt, cancelPurchaseAndRefund
+  subscribeToAdminSupportTickets, claimSupportTicket, getDisputedSales, confirmProductReceipt, cancelPurchaseAndRefund,
+  getAllSales, deletePurchase
 } from '../services/storageService';
 import { safeJsonStringify } from '../lib/utils';
 import { 
@@ -46,7 +47,7 @@ import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { getAoaExchangeRate } from '../services/currencyService';
 import { monetizationService } from '../services/monetizationService';
 
-type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization' | 'disputes' | 'ads';
+type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'sales' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization' | 'disputes' | 'ads';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -65,11 +66,12 @@ interface DashboardData {
   logs: SystemLog[];
   tickets: SupportTicket[];
   disputes: AffiliateSale[];
+  sales: AffiliateSale[];
   revenue: number;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate, onRefreshUser }) => {
-  const { showAlert, showConfirm } = useDialog();
+  const { showAlert, showConfirm, showSuccess, showError } = useDialog();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -91,7 +93,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   });
   
   const [data, setData] = useState<DashboardData>({
-    users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], disputes: [], revenue: 0
+    users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], disputes: [], sales: [], revenue: 0
   });
   const [loading, setLoading] = useState(true);
   const [exchangeRate, setExchangeRate] = useState(930);
@@ -144,32 +146,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
         }
       };
 
-      const [users, posts, products, stores, ads, transactions, reports, logs, revenue, globalSettings, tickets, disputes] = await Promise.all([
+      const [users, postsRes, productsRes, stores, ads, transactionsRes, reportsRes, logs, revenue, globalSettings, tickets, disputes, allSales] = await Promise.all([
         safeFetch(getUsers(currentUser), []),
-        safeFetch(getPosts(), []),
-        safeFetch(getProducts(), []),
+        safeFetch(getPosts(undefined, 500), { items: [], lastDoc: null, hasMore: false }),
+        safeFetch(getProducts(500), { items: [], lastDoc: null, hasMore: false }),
         safeFetch(getStores(), []),
         safeFetch(getAds(), []),
-        safeFetch(getTransactions(undefined, currentUser), []),
-        safeFetch(getReports(), []),
+        safeFetch(getTransactions(undefined, currentUser, 500), { items: [], lastDoc: null, hasMore: false }),
+        safeFetch(getReports(500), { items: [], lastDoc: null, hasMore: false }),
         safeFetch(getSystemLogs(), []),
         safeFetch(getPlatformRevenue(), 0),
         safeFetch(getGlobalSettings(), settings),
         safeFetch(getAdminSupportTickets(currentUser.id), []),
-        safeFetch(getDisputedSales(), [])
+        safeFetch(getDisputedSales(), []),
+        safeFetch(getAllSales(1000), [])
       ]);
 
       setData({
         users,
-        posts,
-        products,
+        posts: postsRes.items,
+        products: productsRes.items,
         stores,
         ads,
-        transactions: transactions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
-        reports: reports.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
+        transactions: transactionsRes.items,
+        reports: reportsRes.items,
         logs: logs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
         tickets: tickets.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
         disputes: disputes.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)),
+        sales: allSales,
         revenue
       });
       setSettings(globalSettings);
@@ -197,23 +201,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     const term = searchTerm.toLowerCase();
     switch (activeTab) {
       case 'users':
-        return data.users.filter(u => `${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || u.email.toLowerCase().includes(term));
+        return data.users.filter(u => (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || (u.email || '').toLowerCase().includes(term) || (u.phone && u.phone.includes(term))));
       case 'verifications':
-        return data.users.filter(u => u.idVerificationStatus !== 'NOT_STARTED' && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)));
+        return data.users.filter(u => u.idVerificationStatus !== 'NOT_STARTED' && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || (u.email || '').toLowerCase().includes(term) || (u.phone && u.phone.includes(term))));
       case 'monetization':
-        return data.users.filter(u => (u.monetizationStatus === 'PENDING' || u.isMonetized) && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)));
+        return data.users.filter(u => (u.monetizationStatus === 'PENDING' || u.isMonetized) && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || (u.email || '').toLowerCase().includes(term) || (u.phone && u.phone.includes(term))));
       case 'ads':
         return data.ads.filter(a => a.name?.toLowerCase().includes(term) || a.professorName?.toLowerCase().includes(term));
+      case 'sales':
+        return data.sales.filter(s => s.id.includes(term) || (s.productName && s.productName.toLowerCase().includes(term)));
       case 'disputes':
         return data.disputes.filter(d => d.id.includes(term) || d.buyerId.includes(term));
       case 'posts':
-        return data.posts.filter(p => p.authorName.toLowerCase().includes(term) || (p.content?.toLowerCase().includes(term)));
+        return data.posts.filter(p => (p.authorName && p.authorName.toLowerCase().includes(term)) || (p.content && p.content.toLowerCase().includes(term)));
       case 'products':
-        return data.products.filter(p => p.name.toLowerCase().includes(term));
+        return data.products.filter(p => p.name && p.name.toLowerCase().includes(term));
       case 'stores':
-        return data.stores.filter(s => s.name.toLowerCase().includes(term));
+        return data.stores.filter(s => s.name && s.name.toLowerCase().includes(term));
       case 'moderation':
         return data.reports.filter(r => r.status === 'OPEN' && (r.reason.toLowerCase().includes(term) || r.targetId.includes(term)));
+      case 'support':
+        return data.tickets.filter(t => t.subject.toLowerCase().includes(term) || t.id.includes(term) || t.category.toLowerCase().includes(term));
+      case 'finance':
+        return data.transactions.filter(t => t.description.toLowerCase().includes(term) || t.id.includes(term));
       default:
         return [];
     }
@@ -223,20 +233,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     const start = (currentPage - 1) * itemsPerPage;
     const end = start + itemsPerPage;
     
-    // For tabs that don't use filteredData directly (like transactions or logs)
-    if (activeTab === 'finance') return data.transactions.slice(start, end);
-    if (activeTab === 'dashboard') return []; // Dashboard doesn't need pagination for the overview
-    
+    // Most tabs use filteredData after pagination
     return filteredData.slice(start, end);
-  }, [filteredData, currentPage, activeTab, data.transactions]);
+  }, [filteredData, currentPage]);
 
   const totalPages = useMemo(() => {
-    let totalItems = 0;
-    if (activeTab === 'finance') totalItems = data.transactions.length;
-    else totalItems = filteredData.length;
-    
-    return Math.ceil(totalItems / itemsPerPage);
-  }, [filteredData.length, data.transactions.length, activeTab]);
+    return Math.ceil(filteredData.length / itemsPerPage);
+  }, [filteredData.length]);
 
   const Pagination: React.FC = () => {
     if (totalPages <= 1) return null;
@@ -289,19 +292,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     );
   };
 
-  const handleToggleAdmin = async (user: User) => {
+  const handleToggleAdmin = (user: User) => {
     if (currentUser.email !== 'alfaajmc@gmail.com') {
-      showAlert("Apenas o Administrador Master pode gerenciar privilégios Root.", { type: 'alert' });
+      showAlert("Apenas o Administrador Master pode gerenciar privilégios Root.");
       return;
     }
-    const confirmed = await showConfirm(user.isAdmin ? `REBAIXAMENTO: Remover privilégios ROOT de ${user.firstName}?` : `PROMOÇÃO: Tornar ${user.firstName} Administrador ROOT?`, {
-       title: 'Gestão de Privilégios',
-       type: 'alert'
-    });
-    if (confirmed) {
-      await adminUpdateUser({ ...user, isAdmin: !user.isAdmin });
-      refresh();
-    }
+    showConfirm(
+      user.isAdmin ? `REBAIXAMENTO: Remover privilégios ROOT de ${user.firstName}?` : `PROMOÇÃO: Tornar ${user.firstName} Administrador ROOT?`,
+      async () => {
+        await adminUpdateUser({ ...user, isAdmin: !user.isAdmin });
+        refresh();
+      }
+    );
   };
 
   const handleToggleVerification = async (user: User) => {
@@ -314,11 +316,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     refresh();
   };
 
-  const handleDeleteUser = async (uId: string) => {
-    if (await showConfirm("REMOÇÃO PERMANENTE: Confirmar exclusão deste membro?", { type: 'alert', title: 'Atenção' })) {
-      await deleteUser(uId);
-      refresh();
-    }
+  const handleDeleteUser = (uId: string) => {
+    showConfirm(
+      "CONFIRMAR EXCLUSÃO CRÍTICA: Este membro e TODO o seu conteúdo (posts, produtos, mensagens, etc.) serão removidos permanentemente. Esta ação é irreversível. Deseja continuar?",
+      async () => {
+        await deleteUser(uId);
+        refresh();
+      }
+    );
   };
 
   const handleUpdateBalance = async (uId: string) => {
@@ -329,23 +334,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     }
   };
 
-  const handleDeletePost = async (pId: string) => {
-    if (await showConfirm("Remover esta publicação?")) {
-      await adminDeletePost(pId);
-      refresh();
-    }
+  const handleDeletePost = (pId: string) => {
+    showConfirm(
+      "Remover esta publicação?",
+      async () => {
+        await adminDeletePost(pId);
+        refresh();
+      }
+    );
   };
 
-  const handleDeleteProduct = async (pId: string) => {
-    if (await showConfirm("Banir este produto?")) {
-      await adminDeleteProduct(pId);
-      refresh();
-    }
+  const handleDeleteProduct = (pId: string) => {
+    showConfirm(
+      "Banir este produto?",
+      async () => {
+        await adminDeleteProduct(pId);
+        refresh();
+      }
+    );
   };
 
   const handleProcessReport = async (reportId: string, status: 'RESOLVED' | 'DISMISSED') => {
     await adminProcessReport(reportId, status, currentUser.id);
     refresh();
+  };
+
+  const handleAdminDeleteSale = (saleId: string) => {
+    showConfirm(
+      "ADMIN: Excluir esta venda permanentemente? O comprador será reembolsado em 95%.",
+      async () => {
+        try {
+          setLoading(true);
+          const success = await deletePurchase(saleId, true);
+          if (success) {
+            showSuccess("Venda excluída com sucesso!");
+            await refresh(); // Force refresh all data
+          } else {
+            showError("Venda não encontrada ou erro na exclusão.");
+          }
+        } catch (error) {
+          console.error("Sale deletion error:", error);
+          showError("Erro crítico ao excluir venda.");
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
   };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -365,7 +399,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     if (id === 'support') {
       badgeCount = data.tickets.filter(t => t.status === 'OPEN' && (!t.assignedAdminId || t.assignedAdminId === currentUser.id)).length;
     } else if (id === 'verifications') {
-      badgeCount = data.users.filter(u => u.idVerificationStatus !== 'NOT_STARTED').length;
+      badgeCount = data.users.filter(u => u.idVerificationStatus === 'PENDING').length;
     } else if (id === 'monetization') {
       badgeCount = data.users.filter(u => u.monetizationStatus === 'PENDING').length;
     } else if (id === 'disputes') {
@@ -422,6 +456,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
             <SidebarItem id="posts" icon={NewspaperIcon} label="Publicações" />
             <SidebarItem id="stores" icon={BuildingStorefrontIcon} label="Lojas" />
             <SidebarItem id="products" icon={ShoppingBagIcon} label="Produtos" />
+            <SidebarItem id="sales" icon={ShoppingBagIcon} label="Vendas" />
             <SidebarItem id="moderation" icon={ShieldExclamationIcon} label="Denúncias" />
             <SidebarItem id="support" icon={LifebuoyIcon} label="Suporte" />
             <SidebarItem id="monetization" icon={BanknotesIcon} label="Monetização" />
@@ -518,6 +553,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
              {activeTab === 'users' && (
                 <div className="space-y-6 animate-fade-in">
+                   {/* Fallback Warning */}
+                   {filteredData.some((u: any) => u._isPartial) && (
+                     <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex items-center gap-3">
+                       <div className="p-2 bg-amber-500/20 rounded-xl">
+                         <NoSymbolIcon className="h-5 w-5 text-amber-500" />
+                       </div>
+                       <div>
+                         <p className="text-xs font-black text-amber-500 uppercase tracking-widest">Acesso de Admin Restrito no Firestore</p>
+                         <p className="text-[10px] text-amber-500/70">As regras de segurança negaram acesso à coleção 'profiles'. Mostrando apenas dados públicos (sem e-mail/telefone em alguns casos).</p>
+                       </div>
+                     </div>
+                   )}
+                   
                    {/* Mobile View: Cards */}
                    <div className="grid grid-cols-1 gap-4 md:hidden">
                       {filteredData.map((user: any) => (
@@ -535,7 +583,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                   <div className="flex items-center gap-2">
                                      <p className="font-black text-sm text-gray-100 uppercase tracking-tighter truncate">{user.firstName} {user.lastName}</p>
                                   </div>
-                                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest truncate">{user.email}</p>
+                                  <div className="space-y-0.5">
+                                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest truncate">{user.email || 'E-mail não informado'}</p>
+                                    <p className="text-[10px] font-black text-blue-500/80 uppercase tracking-widest truncate">
+                                      {user.phone || 'Telefone não informado'}
+                                    </p>
+                                  </div>
                                   <div className="mt-2 flex gap-2">
                                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${user.isAdmin ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' : 'bg-blue-600/20 text-blue-400 border-blue-500/30'}`}>
                                         {user.isAdmin ? 'Admin Root' : 'Membro'}
@@ -599,7 +652,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                                     {user.isAdmin ? 'Admin Root' : 'Membro'}
                                                  </span>
                                               </div>
-                                              <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mt-1">{user.email}</p>
+                                              <div className="mt-1 flex flex-col gap-0.5">
+                                                <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest truncate max-w-[150px]">
+                                                  {user.email || 'E-mail não informado'}
+                                                </p>
+                                                {user.phone ? (
+                                                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">{user.phone}</p>
+                                                ) : (
+                                                  <p className="text-[8px] font-medium text-gray-600/50 uppercase tracking-widest italic">Telefone não informado</p>
+                                                )}
+                                              </div>
                                               {user.isSuspended && <p className="text-[8px] font-black text-red-500 uppercase mt-1">Sessão Bloqueada</p>}
                                            </div>
                                         </div>
@@ -677,7 +739,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                 <img src={user.profilePicture || DEFAULT_PROFILE_PIC} className="w-12 h-12 rounded-xl object-cover" />
                                 <div>
                                    <h4 className="font-black text-sm uppercase">{user.firstName} {user.lastName}</h4>
-                                   <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{user.email}</p>
+                                   <div className="flex flex-col">
+                                     <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{user.email}</p>
+                                     {user.phone && <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">{user.phone}</p>}
+                                   </div>
                                 </div>
                              </div>
 
@@ -711,14 +776,51 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                 )}
                              </div>
 
-                              <div className="flex gap-2">
-                                 <div className="flex-1 bg-white/5 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest text-center text-gray-500 border border-white/5">
-                                    Verificação Automática
-                                 </div>
-                                 <div className={`px-4 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest ${user.idVerificationStatus === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-500' : user.idVerificationStatus === 'REJECTED' ? 'bg-red-500/20 text-red-500' : 'bg-yellow-500/20 text-yellow-500'}`}>
-                                    {user.idVerificationStatus}
-                                 </div>
-                              </div>
+                               <div className="flex flex-col gap-3">
+                                  {user.idVerificationStatus === 'PENDING' ? (
+                                    <div className="flex gap-2">
+                                      <button 
+                                        onClick={() => {
+                                          showConfirm(`Aprovar identidade de ${user.firstName}?`, async () => {
+                                            await adminUpdateUser({ ...user, idVerificationStatus: 'APPROVED', isVerified: true });
+                                            showSuccess("Identidade aprovada!");
+                                            refresh();
+                                          });
+                                        }}
+                                        className="flex-1 bg-emerald-600 text-white py-3 rounded-xl font-black uppercase text-[9px] shadow-lg hover:bg-emerald-700 active:scale-95 transition-all"
+                                      >
+                                        Aprovar
+                                      </button>
+                                      <button 
+                                        onClick={() => {
+                                          const reason = prompt("Motivo da rejeição:");
+                                          if (reason) {
+                                            adminUpdateUser({ 
+                                              ...user, 
+                                              idVerificationStatus: 'REJECTED', 
+                                              isVerified: false,
+                                              idVerificationDocs: { ...user.idVerificationDocs, rejectionReason: reason }
+                                            }).then(() => {
+                                               refresh();
+                                            });
+                                          }
+                                        }}
+                                        className="flex-1 bg-red-600 text-white py-3 rounded-xl font-black uppercase text-[9px] shadow-lg hover:bg-red-700 active:scale-95 transition-all"
+                                      >
+                                        Rejeitar
+                                      </button>
+                                    </div>
+                                  ) : (
+                                     <div className="flex gap-2">
+                                        <div className={`flex-1 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest text-center border ${user.idVerificationStatus === 'APPROVED' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : user.idVerificationStatus === 'REJECTED' ? 'bg-red-500/10 text-red-500 border-red-500/20' : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'}`}>
+                                           Status: {user.idVerificationStatus}
+                                        </div>
+                                        <button onClick={() => adminUpdateUser({ ...user, idVerificationStatus: 'PENDING' }).then(refresh)} className="px-3 bg-white/5 rounded-xl text-gray-500 hover:text-white transition-colors">
+                                           <ArrowPathIcon className="h-4 w-4" />
+                                        </button>
+                                     </div>
+                                  )}
+                               </div>
                           </div>
                        ))}
                     </div>
@@ -742,7 +844,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                 <img src={user.profilePicture || DEFAULT_PROFILE_PIC} className="w-12 h-12 rounded-xl object-cover" />
                                 <div>
                                    <h4 className="font-black text-sm uppercase">{user.firstName} {user.lastName}</h4>
-                                   <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{user.email}</p>
+                                   <div className="flex flex-col">
+                                     <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{user.email}</p>
+                                     {user.phone && <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">{user.phone}</p>}
+                                   </div>
                                 </div>
                              </div>
 
@@ -764,15 +869,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                              <div className="flex gap-2">
                                 {user.monetizationStatus === 'PENDING' ? (
                                   <button 
-                                    onClick={async () => {
-                                      if(await showConfirm(`Aprovar monetização para ${user.firstName}?`)) {
-                                         await adminUpdateUser({ 
-                                            ...user, 
-                                            monetizationStatus: 'APPROVED',
-                                            isMonetized: true
-                                         });
-                                         refresh();
-                                      }
+                                    onClick={() => {
+                                      showConfirm(
+                                        `Aprovar monetização para ${user.firstName}?`,
+                                        async () => {
+                                           await adminUpdateUser({ 
+                                              ...user, 
+                                              monetizationStatus: 'APPROVED',
+                                              isMonetized: true
+                                           });
+                                           refresh();
+                                        }
+                                      );
                                     }}
                                     className="flex-1 bg-green-600 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-green-700 active:scale-95 transition-all text-white"
                                   >
@@ -784,12 +892,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                         Parceiro Ativo
                                      </div>
                                      <button 
-                                       onClick={async () => {
-                                         if(await showConfirm(`Aplicar STRIKE em ${user.firstName}? Isso pode levar à desmonetização.`)) {
+                                       onClick={() => {
+                                         showConfirm(`Aplicar STRIKE em ${user.firstName}? Isso pode levar à desmonetização.`, async () => {
                                             await monetizationService.issueStrike(user.id, "Violação de termos", 'YELLOW');
                                             showAlert("Strike aplicado!", { type: 'success' });
                                             refresh();
-                                         }
+                                         });
                                        }}
                                        className="flex-1 bg-amber-600 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest hover:bg-amber-700 transition-all text-white"
                                      >
@@ -1016,6 +1124,60 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                    <Pagination />
                 </div>
              )}
+
+             {activeTab === 'sales' && (
+                <div className="bg-[#12161f] rounded-[3rem] overflow-hidden border border-white/5 shadow-2xl animate-fade-in">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-black/20">
+                        <tr className="text-[9px] font-black uppercase tracking-[0.25em] text-gray-500">
+                          <th className="px-8 py-6">ID Pedido / Data</th>
+                          <th className="px-8 py-6">Produto</th>
+                          <th className="px-8 py-6">Valor / Comprador</th>
+                          <th className="px-8 py-6 text-right">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.03]">
+                        {pagedData.length === 0 ? (
+                          <tr><td colSpan={4} className="px-8 py-20 text-center text-gray-500 uppercase font-black text-[10px] tracking-widest">Nenhuma venda registrada.</td></tr>
+                        ) : (
+                          (pagedData as AffiliateSale[]).map(sale => (
+                            <tr key={sale.id} className="hover:bg-white/[0.01]">
+                              <td className="px-8 py-6">
+                                <p className="text-xs font-black text-gray-100 uppercase mb-1">#{sale.id.slice(-8).toUpperCase()}</p>
+                                <p className="text-[9px] text-gray-500 font-bold uppercase">{new Date(sale.timestamp).toLocaleString('pt-BR')}</p>
+                              </td>
+                              <td className="px-8 py-6">
+                                <p className="text-xs font-bold text-white uppercase">{sale.productName}</p>
+                                <p className={`text-[8px] font-black mt-1 uppercase px-2 py-0.5 rounded w-fit ${
+                                  sale.status === OrderStatus.COMPLETED ? 'bg-green-500/10 text-green-500' :
+                                  sale.status === OrderStatus.CANCELED ? 'bg-red-500/10 text-red-500' :
+                                  'bg-blue-500/10 text-blue-500'
+                                }`}>
+                                  {sale.status}
+                                </p>
+                              </td>
+                              <td className="px-8 py-6">
+                                <p className="text-sm font-black text-blue-500">${sale.saleAmount.toFixed(2)}</p>
+                                <p className="text-[9px] text-gray-500 font-bold uppercase truncate max-w-[150px]">{sale.buyerId}</p>
+                              </td>
+                              <td className="px-8 py-6 text-right">
+                                <button 
+                                  onClick={() => handleAdminDeleteSale(sale.id)}
+                                  className="p-3 bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white rounded-xl transition-all shadow-lg active:scale-90"
+                                >
+                                  <TrashIcon className="h-5 w-5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pagination />
+                </div>
+              )}
 
              {activeTab === 'finance' && (
                 <div className="bg-[#12161f] rounded-[3rem] overflow-hidden border border-white/5 shadow-2xl animate-fade-in">
@@ -1314,22 +1476,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
                                <div className="flex flex-col gap-3 justify-center min-w-[260px] border-l border-white/5 pl-8">
                                   <button 
-                                    onClick={async () => {
-                                      if (await showConfirm("Confirmar REEMBOLSO TOTAL ao comprador e cancelamento definitivo da venda?")) {
-                                        await cancelPurchaseAndRefund(sale.id);
-                                        refresh();
-                                      }
+                                    onClick={() => {
+                                      showConfirm(
+                                        "Confirmar REEMBOLSO TOTAL ao comprador e cancelamento definitivo da venda?",
+                                        async () => {
+                                          await cancelPurchaseAndRefund(sale.id);
+                                          refresh();
+                                        }
+                                      );
                                     }}
                                     className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
                                   >
                                      <TrashIcon className="h-4 w-4" /> Reembolsar Cliente
                                   </button>
                                   <button 
-                                    onClick={async () => {
-                                      if (await showConfirm("Confirmar que o produto foi entregue corretamente e LIBERAR fundos ao vendedor?")) {
-                                        await confirmProductReceipt(sale.id);
-                                        refresh();
-                                      }
+                                    onClick={() => {
+                                      showConfirm(
+                                        "Confirmar que o produto foi entregue corretamente e LIBERAR fundos ao vendedor?",
+                                        async () => {
+                                          await confirmProductReceipt(sale.id);
+                                          refresh();
+                                        }
+                                      );
                                     }}
                                     className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
                                   >
@@ -1366,10 +1534,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                          <h3 className="font-black uppercase tracking-widest text-xs">Tickets de Suporte</h3>
                       </div>
                       <div className="flex-1 overflow-y-auto divide-y divide-white/[0.03] custom-scrollbar">
-                         {data.tickets.length === 0 ? (
-                            <div className="p-10 text-center text-gray-600 font-black uppercase text-[10px] tracking-widest">Nenhum ticket.</div>
+                         {pagedData.length === 0 ? (
+                            <div className="p-10 text-center text-gray-500 font-bold uppercase text-[9px]">Sem chamados encontrados.</div>
                          ) : (
-                            data.tickets.map(ticket => {
+                            (pagedData as SupportTicket[]).map(ticket => {
                                const isAssignedToMe = ticket.assignedAdminId === currentUser.id;
                                const isUnassigned = !ticket.assignedAdminId;
                                const isAccessible = isAssignedToMe || isUnassigned;
@@ -1415,11 +1583,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <div className="flex gap-2">
                                   {currentTicket.status === 'OPEN' && (
                                      <button 
-                                       onClick={async () => {
-                                          if (await showConfirm("Deseja marcar este chamado como resolvido?")) {
-                                             await resolveSupportTicket(currentTicket.id);
-                                             setCurrentTicket(null);
-                                          }
+                                       onClick={() => {
+                                          showConfirm(
+                                             "Deseja marcar este chamado como resolvido?",
+                                             async () => {
+                                                await resolveSupportTicket(currentTicket.id);
+                                                setCurrentTicket(null);
+                                             }
+                                          );
                                        }}
                                        className="px-4 py-2 bg-green-600 text-white rounded-xl font-black text-[9px] uppercase shadow-lg hover:bg-green-700 transition-all active:scale-95"
                                      >
