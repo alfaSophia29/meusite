@@ -11,7 +11,7 @@ interface ProductDetailPageProps {
   currentUser: User;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
   productId: string;
-  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product) => void;
+  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product, selectedVariationId?: string) => void;
   onOpenCart: () => void;
 }
 

@@ -47,6 +47,11 @@ export const getNotificationContent = (type: string, actorName: string, context?
         title: isVideo ? 'Chamada de Vídeo Perdida 📹' : 'Chamada de Voz Perdida 📞', 
         body: `O ${actorName} tentou ligar para você!` 
       };
+    case 'PRO_GOAL_ACHIEVED':
+      return {
+        title: 'Meta Mensal de Vendas 🎯',
+        body: context || 'Você alcançou um marco na sua meta comercial de vendas!'
+      };
     default:
       return { title: 'Nova Notificação', body: `${actorName} interagiu com você.` };
   }

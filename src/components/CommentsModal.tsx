@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Comment, User, NotificationType } from '../types';
-import { addPostComment, getPosts, generateUUID, toggleReaction, addCommentReply, createNotification, getPostById } from '../services/storageService';
-import { XMarkIcon, PaperAirplaneIcon, ChatBubbleOvalLeftIcon, FaceSmileIcon, TrashIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/solid';
+import { addPostComment, getPosts, generateUUID, toggleReaction, addCommentReply, createNotification, getPostById, deleteComment, editComment } from '../services/storageService';
+import { XMarkIcon, PaperAirplaneIcon, ChatBubbleOvalLeftIcon, FaceSmileIcon, TrashIcon, ChatBubbleLeftRightIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/solid';
 import { DEFAULT_PROFILE_PIC, ANONYMOUS_MASK_PIC } from '../data/constants';
 import { checkContent } from '../services/sentinelService';
 import { useDialog } from '../services/DialogContext';
@@ -18,12 +18,15 @@ interface CommentsModalProps {
 
 const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onClose, onCommentsUpdated, postOwnerId }) => {
   const { t } = useTranslation();
+  const { showAlert, showConfirm } = useDialog();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{ id: string, userName: string } | null>(null);
   const [isAnonymous, setIsAnonymous] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
   const commentsEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -39,6 +42,44 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
     setLoading(false);
   };
 
+  const handleDeleteComment = async (commentId: string) => {
+    showConfirm("Deseja realmente excluir este comentário?", async () => {
+      try {
+        await deleteComment(postId, commentId);
+        await fetchComments();
+        onCommentsUpdated();
+      } catch (err) {
+        console.error("Erro ao deletar comentário:", err);
+        showAlert("Erro ao deletar comentário.", { type: 'error' });
+      }
+    });
+  };
+
+  const handleStartEdit = (commentId: string, currentText: string) => {
+    setEditingCommentId(commentId);
+    setEditingText(currentText);
+  };
+
+  const handleSaveEdit = async (commentId: string) => {
+    if (!editingText.trim()) return;
+    try {
+      const sentinelResult = await checkContent(editingText.trim(), 'comment');
+      if (!sentinelResult.isSafe) {
+        showAlert(sentinelResult.reason || 'Comentário bloqueado por violar as políticas de segurança.', { type: 'error', title: 'Sentinela de Segurança' });
+        return;
+      }
+
+      await editComment(postId, commentId, editingText.trim());
+      setEditingCommentId(null);
+      setEditingText('');
+      await fetchComments();
+      onCommentsUpdated();
+    } catch (err) {
+      console.error("Erro ao editar comentário:", err);
+      showAlert("Erro ao editar comentário.", { type: 'error' });
+    }
+  };
+
   useEffect(() => {
     fetchComments();
   }, [postId]);
@@ -52,8 +93,6 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || submitting) return;
-
-    const { showAlert } = useDialog();
 
     setSubmitting(true);
     try {
@@ -110,16 +149,70 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
   const RenderComment = ({ c, depth = 0 }: { c: Comment, depth?: number }) => {
     const displayName = c.isAnonymous ? t('anonymous_user') : c.userName;
     const displayPic = c.isAnonymous ? ANONYMOUS_MASK_PIC : (c.profilePic || DEFAULT_PROFILE_PIC);
+    const isEditing = editingCommentId === c.id;
+
+    const isCommentOwner = c.userId === currentUser.id;
+    const isPostOwner = currentUser.id === postOwnerId;
 
     return (
       <div 
-        className={`flex gap-3 group animate-fade-in ${depth > 0 ? 'ml-8 boarder-l dark:border-white/10 pl-2' : ''}`}
+        className={`flex gap-3 group animate-fade-in ${depth > 0 ? 'ml-8 border-l border-gray-100 dark:border-white/10 pl-3' : ''}`}
       >
         <img src={displayPic} className="w-8 h-8 rounded-full object-cover shrink-0 border border-gray-200 dark:border-white/10" alt={displayName} />
         <div className="flex-1">
           <div className="bg-white dark:bg-zinc-800 p-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 dark:border-white/5 relative">
-            <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight mb-1">{displayName}</p>
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed font-medium">{c.text}</p>
+            <div className="flex justify-between items-start mb-1 h-4">
+              <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight">{displayName}</p>
+              
+              {/* Actions for edit/delete */}
+              <div className="flex items-center gap-1 opacity-70 hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                {isCommentOwner && !isEditing && (
+                  <button 
+                    onClick={() => handleStartEdit(c.id, c.text)} 
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-white/5 rounded-md text-gray-400 hover:text-blue-500 transition-colors"
+                    title="Editar comentário"
+                  >
+                    <PencilIcon className="h-3 w-3" />
+                  </button>
+                )}
+                {(isCommentOwner || isPostOwner) && (
+                  <button 
+                    onClick={() => handleDeleteComment(c.id)} 
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-white/5 rounded-md text-gray-400 hover:text-red-500 transition-colors"
+                    title="Excluir comentário"
+                  >
+                    <TrashIcon className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {isEditing ? (
+              <div className="space-y-2 mt-2">
+                <input 
+                  type="text" 
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  className="w-full bg-gray-50 dark:bg-zinc-900 text-xs font-bold dark:text-white p-2 rounded-xl border border-gray-200 dark:border-white/10 focus:border-blue-500 outline-none"
+                />
+                <div className="flex gap-1 justify-end">
+                  <button 
+                    onClick={() => setEditingCommentId(null)} 
+                    className="px-2 py-1 bg-gray-100 hover:bg-gray-220 dark:bg-white/5 dark:hover:bg-white/10 text-gray-500 dark:text-gray-400 rounded-lg text-[9px] uppercase font-black"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => handleSaveEdit(c.id)} 
+                    className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] uppercase font-black flex items-center gap-1"
+                  >
+                    <CheckIcon className="h-2.5 w-2.5" /> Salvar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed font-medium">{c.text}</p>
+            )}
             
             {/* Reactions Display */}
             {c.reactions && Object.keys(c.reactions).some(emoji => c.reactions![emoji].length > 0) && (
@@ -142,18 +235,20 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
           <div className="flex items-center gap-3 ml-2 mt-1">
             <span className="text-[9px] text-gray-400 font-bold">{new Date(c.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
             
-            <button 
-              onClick={() => {
-                setReplyingTo({ id: c.id, userName: c.userName });
-                inputRef.current?.focus();
-              }}
-              className="text-[9px] text-gray-400 font-bold hover:text-blue-500 transition-colors uppercase"
-            >
-              Responder
-            </button>
+            {!isEditing && (
+              <button 
+                onClick={() => {
+                  setReplyingTo({ id: c.id, userName: c.userName });
+                  inputRef.current?.focus();
+                }}
+                className="text-[9px] text-gray-400 font-bold hover:text-blue-500 transition-colors uppercase"
+              >
+                Responder
+              </button>
+            )}
 
             {/* Reaction Picker */}
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-70 hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
               {REACTION_EMOJIS.map(emoji => (
                 <button 
                   key={emoji}

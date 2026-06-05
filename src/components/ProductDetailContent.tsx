@@ -24,7 +24,7 @@ interface ProductDetailContentProps {
   currentUser: User;
   product: Product;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
-  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product) => void;
+  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product, selectedVariationId?: string) => void;
   onOpenCart: () => void;
 }
 
@@ -40,6 +40,9 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedColor, setSelectedColor] = useState<string | undefined>(
     product.colors && product.colors.length > 0 ? product.colors[0] : undefined
+  );
+  const [selectedVariation, setSelectedVariation] = useState<{id: string; name: string; price?: number; stock: number; imageUrl?: string} | undefined>(
+    product.variations && product.variations.length > 0 ? product.variations.find(v => v.imageUrl === product.imageUrls[0]) || product.variations[0] : undefined
   );
   const [storeOwner, setStoreOwner] = useState<User | null>(null);
 
@@ -58,14 +61,23 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
     fetchOwner();
   }, [product.storeId]);
 
+  useEffect(() => {
+    if (selectedVariation?.imageUrl) {
+      const idx = product.imageUrls.indexOf(selectedVariation.imageUrl);
+      if (idx !== -1) {
+        setSelectedImage(idx);
+      }
+    }
+  }, [selectedVariation, product.imageUrls]);
+
   const handleAddToCart = () => {
-    onAddToCart(product.id, 1, selectedColor, undefined, product);
+    onAddToCart(product.id, 1, selectedColor, undefined, product, selectedVariation?.id);
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2000);
   };
 
   const handleBuyNow = () => {
-    onAddToCart(product.id, 1, selectedColor, undefined, product);
+    onAddToCart(product.id, 1, selectedColor, undefined, product, selectedVariation?.id);
     onOpenCart();
   };
 
@@ -110,7 +122,15 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
             {product.imageUrls.map((url, index) => (
               <button 
                 key={index}
-                onClick={() => setSelectedImage(index)}
+                onClick={() => {
+                  setSelectedImage(index);
+                  if (product.variations) {
+                    const matchedVar = product.variations.find(v => v.imageUrl === url);
+                    if (matchedVar) {
+                      setSelectedVariation(matchedVar);
+                    }
+                  }
+                }}
                 className={`relative w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${selectedImage === index ? 'border-blue-600 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
               >
                 <img src={url} className="w-full h-full object-cover" alt={`${product.name} ${index}`} />
@@ -147,15 +167,59 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
           </h1>
           
           <div className="flex items-baseline gap-3 mb-6">
-            <span className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white tracking-tighter">
-              ${product.price.toFixed(2)}
+            <span className="text-3xl md:text-4xl font-black text-blue-600 dark:text-blue-400 tracking-tighter">
+              {(selectedVariation && typeof selectedVariation.price === 'number' ? selectedVariation.price : product.price).toLocaleString('pt-BR')} KZ
             </span>
-            {product.originalPrice && product.originalPrice > product.price && (
+            {product.originalPrice && product.originalPrice > (selectedVariation && typeof selectedVariation.price === 'number' ? selectedVariation.price : product.price) && (
               <span className="text-lg md:text-xl font-bold text-gray-400 line-through">
-                ${product.originalPrice.toFixed(2)}
+                {product.originalPrice.toLocaleString('pt-BR')} KZ
               </span>
             )}
           </div>
+
+          {/* Model / Variation Selector */}
+          {product.variations && product.variations.length > 0 && (
+            <div className="mb-6 bg-gray-50 dark:bg-white/[0.02] p-6 rounded-3xl border border-gray-100 dark:border-white/5">
+              <h3 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-4">Opções / Variações do Produto</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {product.variations.map((v) => {
+                  const isSelected = selectedVariation?.id === v.id;
+                  const vPrice = v.price ?? product.price;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedVariation(v);
+                        if (v.imageUrl) {
+                          const idx = product.imageUrls.indexOf(v.imageUrl);
+                          if (idx !== -1) {
+                            setSelectedImage(idx);
+                          }
+                        }
+                      }}
+                      className={`text-left p-4 rounded-2xl border-2 transition-all flex items-center gap-3 relative overflow-hidden group ${
+                        isSelected 
+                          ? 'border-blue-600 bg-blue-50/10 dark:bg-blue-900/10 ring-2 ring-blue-600/20' 
+                          : 'border-transparent bg-white dark:bg-[#131724] hover:bg-gray-100 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      {v.imageUrl && (
+                        <img src={v.imageUrl} className="w-12 h-12 rounded-xl object-cover border dark:border-white/10" alt={v.name} />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="block text-xs font-black text-gray-900 dark:text-white uppercase truncate">{v.name || 'Padrão'}</span>
+                        <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase mt-0.5">Estoque: {v.stock} un.</span>
+                      </div>
+                      <span className="text-xs font-black text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                        {vPrice.toLocaleString('pt-BR')} KZ
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {product.affiliateCommissionRate > 0 && (
              <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800/30 rounded-2xl p-4 flex items-center gap-3 mb-6 md:mb-8">

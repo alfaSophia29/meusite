@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Notification, User, Post, NotificationType, Page, CallType } from '../types';
 import { getNotificationsForUser, findUserById, getPosts, toggleFollowUser } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
-import { HeartIcon, ChatBubbleOvalLeftIcon, UserPlusIcon, CurrencyDollarIcon, StarIcon, EnvelopeIcon, RocketLaunchIcon, ShareIcon, UserGroupIcon, PhoneXMarkIcon } from '@heroicons/react/24/solid';
+import { HeartIcon, ChatBubbleOvalLeftIcon, UserPlusIcon, CurrencyDollarIcon, StarIcon, EnvelopeIcon, RocketLaunchIcon, ShareIcon, UserGroupIcon, PhoneXMarkIcon, TrophyIcon } from '@heroicons/react/24/solid';
 
 interface NotificationsPageProps {
   currentUser: User;
@@ -53,6 +53,8 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
       onNavigate('profile', { userId: actor.id });
     } else if (notification.type === NotificationType.GROUP_POST || notification.type === NotificationType.INDICATION) {
       if (notification.postId) onNavigate('feed');
+    } else if (notification.type === NotificationType.PRO_GOAL_ACHIEVED) {
+      onNavigate('manage-store');
     }
   };
 
@@ -68,6 +70,7 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
       case NotificationType.INDICATION: return <ShareIcon className="h-6 w-6 text-white bg-blue-600 rounded-full p-1" />;
       case NotificationType.GROUP_POST: return <UserGroupIcon className="h-6 w-6 text-white bg-blue-600 rounded-full p-1" />;
       case NotificationType.MISSED_CALL: return <PhoneXMarkIcon className="h-6 w-6 text-white bg-red-600 rounded-full p-1" />;
+      case NotificationType.PRO_GOAL_ACHIEVED: return <TrophyIcon className="h-6 w-6 text-white bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full p-1 shadow-md animate-bounce" />;
       default: return null;
     }
   };
@@ -85,6 +88,7 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
       case NotificationType.INDICATION: return <>{actorName} indicou uma aula ou conteúdo para você.</>;
       case NotificationType.GROUP_POST: return <>{actorName} publicou no grupo {notification.groupName}.</>;
       case NotificationType.MISSED_CALL: return <>{actorName} ligou para você ({notification.callType === CallType.VIDEO ? 'Vídeo' : 'Voz'}).</>;
+      case NotificationType.PRO_GOAL_ACHIEVED: return <>Parabéns! Você alcançou {notification.goalPercentage || 50}% da sua meta mensal de vendas estipulada!</>;
       default: return 'Nova notificação.';
     }
   };

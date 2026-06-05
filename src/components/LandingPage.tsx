@@ -16,10 +16,12 @@ import {
   MagnifyingGlassIcon,
   MusicalNoteIcon,
   ChevronDownIcon,
-  BoltIcon
+  BoltIcon,
+  LockClosedIcon,
+  XMarkIcon
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'motion/react';
-import { Post, Product, User, Page, PostType } from '../types';
+import { Post, Product, User, Page, PostType, ProductType } from '../types';
 import { getPosts, getProducts, findUserById } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 
@@ -40,6 +42,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
   const [publicProducts, setPublicProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentReelIdx, setCurrentReelIdx] = useState(0);
+  const [showSignPrompt, setShowSignPrompt] = useState(false);
+  const [selectedProductPrompt, setSelectedProductPrompt] = useState<Product | null>(null);
   const reelContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,10 +55,91 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
           getProducts(50)
         ]);
         const posts = postsRes.items;
-        const products = productsRes.items;
+        const products = productsRes.items || [];
         setPublicReels(posts.filter(p => p.type === PostType.REEL).slice(0, 15));
         setPublicVideos(posts.filter(p => p.type === PostType.VIDEO).slice(0, 12));
-        setPublicProducts(products.slice(0, 12));
+
+        const fallbackProducts: Product[] = [
+          {
+            id: 'fallback-p1',
+            storeId: 'system-store',
+            userId: 'system',
+            name: 'iPhone 15 Pro Max 256GB - Luanda Edition',
+            description: 'Smartphone premium com acabamento em titânio e ouro escovado. Desempenho máximo para suas transmissões ao vivo no FacePhone com câmeras profissionais de estúdio.',
+            price: 1350000,
+            imageUrls: ['https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&q=80&w=600'],
+            affiliateCommissionRate: 5,
+            type: ProductType.PHYSICAL,
+            ratings: [],
+            averageRating: 5.0,
+            ratingCount: 142,
+            category: 'Smartphones',
+            status: 'active',
+            originalPrice: 1450000
+          },
+          {
+            id: 'fallback-p2',
+            storeId: 'system-store',
+            userId: 'system',
+            name: 'Curso Digital: Sucesso no E-commerce em Angola',
+            description: 'Aprenda do absoluto zero de forma prática com vídeo-aulas a importar mercadorias, criar sua marca própria, gerenciar stock e alavancar vendas online em Luanda e províncias.',
+            price: 15000,
+            imageUrls: ['https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=600'],
+            affiliateCommissionRate: 20,
+            type: ProductType.DIGITAL_COURSE,
+            ratings: [],
+            averageRating: 4.9,
+            ratingCount: 388,
+            category: 'Cursos Digitais',
+            status: 'active',
+            originalPrice: 25000
+          },
+          {
+            id: 'fallback-p3',
+            storeId: 'system-store',
+            userId: 'system',
+            name: 'CyberPhone SoundBass Wireless Pro v2',
+            description: 'Fones sem fio Bluetooth com cancelamento de ruído activo avançado (ANC), graves profundos ideais para criadores e bateria incrível de até 40 horas de reprodução contínua.',
+            price: 35000,
+            imageUrls: ['https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=600'],
+            affiliateCommissionRate: 10,
+            type: ProductType.PHYSICAL,
+            ratings: [],
+            averageRating: 4.8,
+            ratingCount: 95,
+            category: 'Acessórios Tech',
+            status: 'active',
+            originalPrice: 48000
+          },
+          {
+            id: 'fallback-p4',
+            storeId: 'system-store',
+            userId: 'system',
+            name: 'Ebook: Segredos de Vendas Rápidas de Luanda a Cabinda',
+            description: 'O guia estratégico em PDF completo para quem quer começar a vender imediatamente usando redes sociais, focado em gatilhos de conversão e logística no território nacional angolano.',
+            price: 4900,
+            imageUrls: ['https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&q=80&w=600'],
+            affiliateCommissionRate: 25,
+            type: ProductType.DIGITAL_EBOOK,
+            ratings: [],
+            averageRating: 4.7,
+            ratingCount: 512,
+            category: 'Livros Digitais',
+            status: 'active',
+            originalPrice: 8500
+          }
+        ];
+
+        let finalProducts = [...products];
+        if (finalProducts.length < 4) {
+          for (const fb of fallbackProducts) {
+            if (finalProducts.length >= 4) break;
+            if (!finalProducts.some(p => p.name.toLowerCase() === fb.name.toLowerCase())) {
+              finalProducts.push(fb);
+            }
+          }
+        }
+        setPublicProducts(finalProducts);
       } catch (e) {
         console.error("Error fetching guest content", e);
       } finally {
@@ -497,6 +582,103 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
         </div>
       </section>
 
+      {/* Dynamic Products Showcase Section */}
+      <section className="py-24 px-6 bg-white dark:bg-[#0a0c10] border-t border-gray-100 dark:border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-600 mb-3">Vitrina de Moeda Forte angolana</p>
+            <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase mb-4 leading-none">
+              Produtos em <span className="text-blue-600">Destaque</span>
+            </h2>
+            <p className="text-gray-500 dark:text-gray-400 font-serif italic text-lg leading-relaxed">
+              "Compre com total segurança de empreendedores locais, criadores de conteúdo e lojas virtuais angolanas com as melhores condições e checkout seguro do país."
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            {publicProducts.slice(0, 4).map((product) => {
+              const discount = product.originalPrice && product.originalPrice > product.price
+                ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
+                : 0;
+
+              return (
+                <motion.div
+                  key={product.id}
+                  whileHover={{ y: -8 }}
+                  className="bg-gray-50 dark:bg-[#111319] rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-white/5 flex flex-col group shadow-md transition-shadow hover:shadow-xl relative"
+                >
+                  {/* Image container */}
+                  <div className="aspect-[4/3] sm:aspect-square relative overflow-hidden bg-gray-200 dark:bg-zinc-900">
+                    <img 
+                      src={product.imageUrls[0] || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=600'} 
+                      alt={product.name}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                    
+                    {/* Discount badge */}
+                    {discount > 0 && (
+                      <div className="absolute top-4 left-4 bg-red-500 text-white font-black text-[9px] uppercase tracking-wider px-2.5 py-1 rounded-full shadow">
+                        -{discount}% OFF
+                      </div>
+                    )}
+
+                    {/* Category tag */}
+                    <div className="absolute bottom-4 left-4 bg-black/55 backdrop-blur-md text-white font-black text-[8px] uppercase tracking-widest px-2.5 py-1 rounded-full">
+                      {product.category}
+                    </div>
+                  </div>
+
+                  {/* Content details */}
+                  <div className="p-6 flex-1 flex flex-col">
+                    <h4 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-tight mb-2 line-clamp-1">
+                      {product.name}
+                    </h4>
+                    <p className="text-xs text-gray-400 dark:text-zinc-500 mb-4 line-clamp-2 md:line-clamp-3 leading-relaxed">
+                      {product.description || 'Nenhuma descrição fornecida para este incrível produto no FacePhone.'}
+                    </p>
+
+                    <div className="mt-auto space-y-4">
+                      <div className="flex items-baseline gap-2.5">
+                        <span className="text-2xl font-black text-gray-900 dark:text-white">
+                          Kz {product.price.toLocaleString('pt-AO')}
+                        </span>
+                        {product.originalPrice && product.originalPrice > product.price && (
+                          <span className="text-xs text-gray-400 line-through decoration-red-500/50">
+                            Kz {product.originalPrice.toLocaleString('pt-AO')}
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setSelectedProductPrompt(product);
+                          setShowSignPrompt(true);
+                        }}
+                        className="w-full py-4.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all active:scale-95 shadow-lg hover:shadow-blue-500/20 flex items-center justify-center gap-2"
+                      >
+                        <LockClosedIcon className="h-3.5 w-3.5" />
+                        <span>Comprar Agora</span>
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          <div className="mt-12 text-center">
+            <button
+              onClick={onGoToAuth}
+              className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600 dark:text-blue-500 hover:underline"
+            >
+              <span>Ver todos os produtos no marketplace do FacePhone</span>
+              <ArrowRightIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </section>
+
       {/* Reels Feature - Full Width Immersive */}
       <section className="py-32 px-6 bg-[#050505] text-white overflow-hidden relative">
         <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none">
@@ -632,6 +814,87 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
           </div>
         </div>
       </footer>
+
+      {/* Account Opening Prompt Modal */}
+      <AnimatePresence>
+        {showSignPrompt && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSignPrompt(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            {/* Modal Body */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 30 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="relative w-full max-w-lg bg-white dark:bg-[#111319] rounded-[3rem] p-8 shadow-2xl border border-gray-150 dark:border-white/10 z-10 overflow-hidden text-zinc-900 dark:text-white"
+            >
+              {/* Top lock icon */}
+              <div className="mx-auto w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center mb-6">
+                <LockClosedIcon className="h-8 w-8 text-blue-600" />
+              </div>
+
+              <div className="text-center">
+                <h3 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-3">
+                  Conta Necessária
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-medium leading-relaxed mb-8">
+                  Para poder comprar o produto <strong className="text-gray-950 dark:text-white">"{selectedProductPrompt?.name}"</strong> e aproveitar a economia digital segura do FacePhone, você precisa criar uma conta primeiro.
+                </p>
+
+                {/* Benefits */}
+                <div className="bg-gray-50 dark:bg-[#1a1c23] rounded-2xl p-4 text-left space-y-3 mb-8 border border-gray-100 dark:border-white/5">
+                  <div className="flex items-center gap-3">
+                    <CheckCircleIcon className="h-5 w-5 text-green-500 shrink-0" />
+                    <span className="text-xs font-black uppercase text-gray-700 dark:text-gray-300">Garantia de Entrega Escrow</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CheckCircleIcon className="h-5 w-5 text-green-500 shrink-0" />
+                    <span className="text-xs font-black uppercase text-gray-700 dark:text-gray-300">Suporte ao Empreendedor Angolano</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CheckCircleIcon className="h-5 w-5 text-green-500 shrink-0" />
+                    <span className="text-xs font-black uppercase text-gray-700 dark:text-gray-300">Pagamento Local via AKZ Seguro</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setShowSignPrompt(false);
+                      onGoToAuth();
+                    }}
+                    className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-500/30 transition-all active:scale-95"
+                  >
+                    Abrir Minha Conta Grátis
+                  </button>
+                  <button
+                    onClick={() => setShowSignPrompt(false)}
+                    className="w-full py-4.5 bg-transparent hover:bg-gray-50 dark:hover:bg-white/5 text-gray-500 dark:text-gray-400 font-black uppercase text-xs tracking-widest rounded-2xl transition-all"
+                  >
+                    Voltar para a Vitrina
+                  </button>
+                </div>
+              </div>
+
+              {/* Close Button top corner */}
+              <button
+                onClick={() => setShowSignPrompt(false)}
+                className="absolute top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/5 text-gray-400 hover:text-gray-650 transition-colors"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

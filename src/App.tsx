@@ -504,7 +504,7 @@ const App: React.FC = () => {
         setCurrentPage(page);
         if (page !== 'auth' && page !== 'landing') {
             sessionStorage.setItem('cyberphone_last_page', page);
-            sessionStorage.setItem('cyberphone_last_params', JSON.stringify(params));
+            sessionStorage.setItem('cyberphone_last_params', safeJsonStringify(params));
         }
         setPageParams(params);
         setIsMenuOpen(false);
@@ -601,8 +601,8 @@ const App: React.FC = () => {
               appTheme={appTheme} 
               onThemeChange={changeAppTheme} 
             />;
-            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string, product?: Product) => {
-                addToCart(pid, qty, color, aff || pageParams.affiliateId, product);
+            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string, product?: Product, selectedVariationId?: string) => {
+                addToCart(pid, qty, color, aff || pageParams.affiliateId, product, selectedVariationId);
                 setCartItems(getCart());
             }} onOpenCart={() => setIsCartModalOpen(true)} />;
             case 'monetization': return <MonetizationPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
@@ -615,8 +615,8 @@ const App: React.FC = () => {
               currentUser={currentUser} 
               onNavigate={handleNavigate} 
               productId={pageParams.productId} 
-              onAddToCart={(pid: string, qty: number, color?: string, aff?: string, product?: Product) => {
-                addToCart(pid, qty, color, aff || pageParams.affiliateId, product);
+              onAddToCart={(pid: string, qty: number, color?: string, aff?: string, product?: Product, selectedVariationId?: string) => {
+                addToCart(pid, qty, color, aff || pageParams.affiliateId, product, selectedVariationId);
                 setCartItems(getCart());
               }} 
               onOpenCart={() => setIsCartModalOpen(true)} 

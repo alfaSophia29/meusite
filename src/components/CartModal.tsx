@@ -77,12 +77,21 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
   const detailedCartItems = useMemo(() => {
     return cartItems.map(item => {
       const product = products[item.productId];
-      return { ...item, product };
+      return { ...item, product } as CartItem & { product?: Product };
     });
   }, [cartItems, products]);
 
   const subtotal = useMemo(() => 
-    detailedCartItems.reduce((sum, item) => sum + (item.product?.price || 0) * item.quantity, 0), 
+    detailedCartItems.reduce((sum, item) => {
+      let itemPrice = item.product?.price || 0;
+      if (item.selectedVariationId && item.product?.variations) {
+        const variation = item.product.variations.find(v => v.id === item.selectedVariationId);
+        if (variation && typeof variation.price === 'number') {
+          itemPrice = variation.price;
+        }
+      }
+      return sum + itemPrice * item.quantity;
+    }, 0), 
   [detailedCartItems]);
 
   const hasInsufficientBalance = (currentUser.balance || 0) < subtotal;
@@ -182,35 +191,54 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                   <p className="text-gray-400 font-black uppercase text-[10px] xs:text-xs">Vazio</p>
                 </div>
               ) : (
-                detailedCartItems.map((item, idx) => (
-                  <div key={item.product ? item.product.id : `loading-${idx}`} className="flex gap-3 xs:gap-4 p-3 xs:p-4 bg-gray-50 dark:bg-white/5 rounded-[1.5rem] xs:rounded-[2rem] border border-transparent transition-all">
-                    {item.product ? (
-                      <>
-                        <img src={item.product.imageUrls[0]} className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl object-cover" />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-black text-xs xs:text-sm text-gray-900 dark:text-white truncate">{item.product.name}</p>
-                          <p className="text-blue-600 font-black text-sm xs:text-base">${item.product.price.toFixed(2)}</p>
-                          <div className="flex items-center justify-between mt-1 xs:mt-2">
-                             <div className="flex items-center bg-white dark:bg-white/10 rounded-lg p-0.5 xs:p-1">
-                                <button onClick={() => { updateCartItemQuantity(item.productId, item.quantity - 1); syncCart(); }} className="p-1"><MinusIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3"/></button>
-                                <span className="w-5 xs:w-6 text-center font-bold text-[10px] xs:text-xs">{item.quantity}</span>
-                                <button onClick={() => { updateCartItemQuantity(item.productId, item.quantity + 1); syncCart(); }} className="p-1"><PlusIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3"/></button>
-                             </div>
-                             <button onClick={() => { removeFromCart(item.productId); syncCart(); }}><TrashIcon className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-gray-300 hover:text-red-500"/></button>
+                detailedCartItems.map((item, idx) => {
+                  const itemPrice = (() => {
+                    if (item.selectedVariationId && item.product?.variations) {
+                      const variation = item.product.variations.find(v => v.id === item.selectedVariationId);
+                      if (variation && typeof variation.price === 'number') {
+                        return variation.price;
+                      }
+                    }
+                    return item.product?.price || 0;
+                  })();
+
+                  const matchedVariation = item.selectedVariationId && item.product?.variations
+                    ? item.product.variations.find(v => v.id === item.selectedVariationId)
+                    : null;
+
+                  return (
+                    <div key={item.product ? `${item.product.id}-${item.selectedVariationId || ''}` : `loading-${idx}`} className="flex gap-3 xs:gap-4 p-3 xs:p-4 bg-gray-50 dark:bg-white/5 rounded-[1.5rem] xs:rounded-[2rem] border border-transparent transition-all">
+                      {item.product ? (
+                        <>
+                          <img src={matchedVariation?.imageUrl || item.product.imageUrls[0]} className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl object-cover" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-black text-xs xs:text-sm text-gray-900 dark:text-white truncate">{item.product.name}</p>
+                            {matchedVariation && (
+                              <p className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mt-0.5">Opção: {matchedVariation.name}</p>
+                            )}
+                            <p className="text-gray-450 dark:text-gray-400 font-bold text-[10px] xs:text-xs mt-0.5">{itemPrice.toLocaleString('pt-BR')} KZ</p>
+                            <div className="flex items-center justify-between mt-1 xs:mt-2">
+                               <div className="flex items-center bg-white dark:bg-white/10 rounded-lg p-0.5 xs:p-1">
+                                  <button onClick={() => { updateCartItemQuantity(item.productId, item.quantity - 1); syncCart(); }} className="p-1"><MinusIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3"/></button>
+                                  <span className="w-5 xs:w-6 text-center font-bold text-[10px] xs:text-xs">{item.quantity}</span>
+                                  <button onClick={() => { updateCartItemQuantity(item.productId, item.quantity + 1); syncCart(); }} className="p-1"><PlusIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3"/></button>
+                               </div>
+                               <button onClick={() => { removeFromCart(item.productId); syncCart(); }}><TrashIcon className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-gray-300 hover:text-red-500"/></button>
+                            </div>
                           </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl bg-gray-200 dark:bg-white/10 animate-pulse" />
-                        <div className="flex-1 min-w-0 space-y-2">
-                           <div className="h-3 bg-gray-200 dark:bg-white/10 rounded-full animate-pulse w-3/4" />
-                           <div className="h-4 bg-gray-200 dark:bg-white/10 rounded-full animate-pulse w-1/4" />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl bg-gray-200 dark:bg-white/10 animate-pulse" />
+                          <div className="flex-1 min-w-0 space-y-2">
+                             <div className="h-3 bg-gray-200 dark:bg-white/10 rounded-full animate-pulse w-3/4" />
+                             <div className="h-4 bg-gray-200 dark:bg-white/10 rounded-full animate-pulse w-1/4" />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           )}
@@ -313,7 +341,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
           <div className="p-5 xs:p-8 border-t border-gray-100 dark:border-white/10">
             <div className="flex justify-between items-end mb-4 xs:mb-6">
                <span className="text-[8px] xs:text-[10px] font-black text-gray-400 uppercase tracking-widest">Total</span>
-               <span className="text-2xl xs:text-3xl font-black text-gray-900 dark:text-white tracking-tighter">${subtotal.toFixed(2)}</span>
+               <span className="text-2xl xs:text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{subtotal.toLocaleString('pt-BR')} KZ</span>
             </div>
             {view === 'cart' && (
               <button 

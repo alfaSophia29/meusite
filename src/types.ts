@@ -254,12 +254,18 @@ export interface Post {
     description: string;
     status?: 'LIVE' | 'ENDED'; // Status da transmissão
     recordingUrl?: string;     // URL da gravação se for Free
+    invitedGuestId?: string | null;
+    invitedGuestName?: string | null;
+    guestId?: string | null;
+    guestName?: string | null;
+    guestStatus?: 'none' | 'invited' | 'active';
   };
   // Dados persistentes da Live
   liveChat?: Comment[];
   liveViewerCount?: number;
   liveHeartCount?: number;
   views?: number; // NOVO: Contador de visualizações para Reels
+  webrtc_requests?: Record<string, any>;
 }
 
 export enum ProductType {
@@ -521,6 +527,7 @@ export interface CartItem {
   productId: string;
   quantity: number;
   selectedColor?: string;
+  selectedVariationId?: string;
   affiliateId?: string;
 }
 
@@ -534,7 +541,8 @@ export enum NotificationType {
   NEW_POST = 'NEW_POST',
   INDICATION = 'INDICATION',
   GROUP_POST = 'GROUP_POST',
-  MISSED_CALL = 'MISSED_CALL'
+  MISSED_CALL = 'MISSED_CALL',
+  PRO_GOAL_ACHIEVED = 'PRO_GOAL_ACHIEVED'
 }
 
 export interface Notification {
@@ -548,6 +556,7 @@ export interface Notification {
   isRead: boolean;
   groupName?: string;
   callType?: CallType;
+  goalPercentage?: number;
 }
 
 export interface AudioTrack {

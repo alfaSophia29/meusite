@@ -19,7 +19,7 @@ interface StorePageProps {
   storeId?: string;
   productId?: string;
   affiliateId?: string;
-  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product) => void;
+  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product, selectedVariationId?: string) => void;
   onOpenCart: () => void;
 }
 
@@ -28,7 +28,7 @@ const ProductCard: React.FC<{
   currentUser: User;
   brandColor?: string;
   onSelect: (p: Product) => void; 
-  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product) => void;
+  onAddToCart: (productId: string, quantity: number, selectedColor?: string, affiliateId?: string, product?: Product, selectedVariationId?: string) => void;
   onOpenCart: () => void;
   affiliateId?: string;
 }> = ({ product, currentUser, brandColor = '#2563eb', onSelect, onAddToCart, onOpenCart, affiliateId }) => {
@@ -76,7 +76,7 @@ const ProductCard: React.FC<{
         )}
         <div className="mt-auto pt-4 space-y-3 border-t border-gray-50 dark:border-white/5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-col"><span className="text-[9px] font-black text-gray-400 uppercase tracking-tighter leading-none mb-1">Preço</span><span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">${product.price.toFixed(2)}</span></div>
+            <div className="flex flex-col"><span className="text-[9px] font-black text-gray-400 uppercase tracking-tighter leading-none mb-1">Preço</span><span className="text-xl md:text-2xl font-black text-gray-900 dark:text-white">{product.price.toLocaleString('pt-BR')} KZ</span></div>
             <div className="flex items-center gap-2">
               <button onClick={handleAdd} className={`p-3 rounded-xl transition-all shadow-md active:scale-90 ${isAdded ? 'bg-green-500 text-white' : 'bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-200'}`}>{isAdded ? <CheckIcon className="h-5 w-5" /> : <ShoppingCartIcon className="h-5 w-5" />}</button>
               <button onClick={handleBuyNow} className="text-white px-4 py-3 rounded-xl font-black text-[10px] uppercase shadow-lg active:scale-95 transition-all flex items-center gap-2" style={{ backgroundColor: brandColor }}><BoltIcon className="h-4 w-4 fill-current" /> Comprar</button>

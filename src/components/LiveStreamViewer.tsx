@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Post, Comment } from '../types';
 import { 
-  XMarkIcon, 
   HeartIcon, 
   PaperAirplaneIcon, 
   UserGroupIcon, 
@@ -19,8 +18,12 @@ import {
   pulseLiveHeart, 
   processDonation, 
   findUserById, 
-  updatePost 
+  updatePost,
+  toggleFollowUser,
+  getUsers,
+  db
 } from '../services/storageService';
+import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Heart, 
@@ -44,7 +47,8 @@ import {
   Eye,
   ArrowLeft,
   Youtube,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 
 interface LiveStreamViewerProps {
@@ -86,7 +90,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   // Video Settings
   const [videoMuted, setVideoMuted] = useState(true);
   const [videoVolume, setVideoVolume] = useState(60);
-  const [isSimulationMode, setIsSimulationMode] = useState(false);
+  const [showShareToast, setShowShareToast] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
   const [isCinemaMode, setIsCinemaMode] = useState(false);
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
@@ -98,17 +102,41 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   // Viewer donation modal and states
   const [showDonation, setShowDonation] = useState(false);
   const [selectedDonation, setSelectedDonation] = useState<number>(50);
+  const [tipMessage, setTipMessage] = useState('');
   const [donationStatus, setDonationStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Guest invitation states
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [inviteSearch, setInviteSearch] = useState('');
 
   // Floating Hearts Local States
   const [flyingHearts, setFlyingHearts] = useState<FlyingHeart[]>([]);
 
+  // Comments Visibility State (Abrir/Fechar comentários)
+  const [isCommentsClosed, setIsCommentsClosed] = useState(false);
+
+  // WebRTC Live Peer Stream States
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [webrtcStatus, setWebrtcStatus] = useState<'idle' | 'offering' | 'connecting' | 'connected' | 'failed'>('idle');
+
+  // Guest WebRTC states
+  const [guestCameraStream, setGuestCameraStream] = useState<MediaStream | null>(null);
+  const [guestRemoteStream, setGuestRemoteStream] = useState<MediaStream | null>(null);
+  const [guestWebrtcStatus, setGuestWebrtcStatus] = useState<'idle' | 'offering' | 'connecting' | 'connected' | 'failed'>('idle');
+
   // Refs for video elements & auto-scrolling
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const simVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const prevHeartsRef = useRef(0);
+
+  // Ref for Guest WebRTC connections
+  const guestPeerConnectionsRef = useRef<{ [viewerId: string]: RTCPeerConnection }>({});
+  const guestProcessedTimestampsRef = useRef<{ [viewerId: string]: number }>({});
+  const guestViewerPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
   const isHost = post ? post.userId === currentUser.id : false;
 
@@ -148,11 +176,23 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   // 3. Load Subscriber status
   useEffect(() => {
-    if (creatorProfile?.id) {
-      const isSub = localStorage.getItem(`subscribed_${creatorProfile.id}`) === 'true';
-      setIsSubscribed(isSub);
+    if (creatorProfile?.id && currentUser?.id) {
+      const isFollowing = currentUser.followedUsers?.includes(creatorProfile.id);
+      const isSub = isFollowing || localStorage.getItem(`subscribed_${creatorProfile.id}`) === 'true';
+      setIsSubscribed(!!isSub);
     }
-  }, [creatorProfile?.id]);
+  }, [creatorProfile?.id, currentUser?.id, currentUser?.followedUsers]);
+
+  // Load registered users who are available for invitations
+  useEffect(() => {
+    if (isHost) {
+      getUsers(currentUser).then((users) => {
+        setAllUsers((users || []).filter(u => u.id !== currentUser.id && u.id !== 'system'));
+      }).catch(err => {
+        console.error("Error loading modifiable participants catalog:", err);
+      });
+    }
+  }, [isHost, currentUser]);
 
   // 4. Spawns floating hearts on screen whenever db heartCount increases
   useEffect(() => {
@@ -170,20 +210,20 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   // 5. Broadcaster: Initialize Camera if user is Host
   useEffect(() => {
-    if (isHost && post?.liveStream?.status === 'LIVE' && !isSimulationMode) {
+    if (isHost && post?.liveStream?.status === 'LIVE') {
       initiateBroadcasterStream();
     }
     return () => {
       stopBroadcasterStream();
     };
-  }, [isHost, post?.liveStream?.status, isSimulationMode]);
+  }, [isHost, post?.liveStream?.status]);
 
   // 5b. Host: Bind active camera stream to video element when rendered
   useEffect(() => {
-    if (videoRef.current && cameraStream && !isSimulationMode) {
+    if (videoRef.current && cameraStream) {
       videoRef.current.srcObject = cameraStream;
     }
-  }, [cameraStream, isSimulationMode]);
+  }, [cameraStream]);
 
   // 5c. Feed Loader Timeout
   useEffect(() => {
@@ -200,27 +240,489 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [liveComments]);
 
-  // Synchronise simulated video states
+  // Synchronise simulated and remote video states
   useEffect(() => {
     if (simVideoRef.current) {
       simVideoRef.current.muted = videoMuted;
       simVideoRef.current.volume = videoVolume / 100;
     }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = videoMuted;
+      remoteVideoRef.current.volume = videoVolume / 100;
+    }
   }, [videoMuted, videoVolume]);
+
+  // WebRTC peer connections storage ref
+  const peerConnectionsRef = useRef<{ [viewerId: string]: RTCPeerConnection }>({});
+  const processedTimestampsRef = useRef<{ [viewerId: string]: number }>({});
+  const viewerPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
+
+  // Sync Remote WebRTC video element srcObject
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  // --- WebRTC Host/Broadcaster Session handler ---
+  useEffect(() => {
+    if (!isHost || !post || !post.webrtc_requests || !cameraStream || !db) return;
+    
+    const handleRequests = async () => {
+      const requests = post.webrtc_requests || {};
+      for (const viewerId of Object.keys(requests)) {
+        const req = requests[viewerId];
+        if (req && req.status === 'offer_ready') {
+          const lastProcessedTime = processedTimestampsRef.current[viewerId] || 0;
+          const reqTimestamp = req.timestamp || 0;
+
+          if (reqTimestamp > lastProcessedTime) {
+            const existingPc = peerConnectionsRef.current[viewerId];
+            if (existingPc) {
+              try {
+                existingPc.close();
+              } catch (e) {}
+              delete peerConnectionsRef.current[viewerId];
+            }
+            processedTimestampsRef.current[viewerId] = reqTimestamp;
+          }
+
+          let pc = peerConnectionsRef.current[viewerId];
+          if (!pc) {
+            try {
+              console.log(`Establishing WebRTC Broadcaster track channel for Viewer: ${viewerId}`);
+              pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+              });
+              peerConnectionsRef.current[viewerId] = pc;
+
+              // Bind camera/mic tracks to peer channel
+              cameraStream.getTracks().forEach(track => {
+                pc.addTrack(track, cameraStream);
+              });
+
+              // Apply remote offer
+              await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: req.viewerSdp }));
+
+              // Create matching SDP response
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              const postRef = doc(db as any, 'posts', postId);
+              await updateDoc(postRef, {
+                [`webrtc_requests.${viewerId}.status`]: 'answer_ready',
+                [`webrtc_requests.${viewerId}.hostSdp`]: answer.sdp,
+                [`webrtc_requests.${viewerId}.hostCandidates`]: []
+              });
+
+              pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                  updateDoc(postRef, {
+                    [`webrtc_requests.${viewerId}.hostCandidates`]: arrayUnion(JSON.stringify(event.candidate))
+                  }).catch(e => console.error("Error adding host candidate:", e));
+                }
+              };
+
+            } catch (err) {
+              console.error(`Error answering WebRTC request for ${viewerId}:`, err);
+            }
+          }
+
+          // Apply candidate list if connection is active and has viewerCandidates
+          if (pc && req.viewerCandidates && Array.isArray(req.viewerCandidates)) {
+            req.viewerCandidates.forEach((candidateStr: string) => {
+              try {
+                const candidateObj = JSON.parse(candidateStr);
+                pc.addIceCandidate(new RTCIceCandidate(candidateObj)).catch(() => {});
+              } catch (e) {}
+            });
+          }
+        }
+      }
+    };
+    
+    handleRequests();
+  }, [post, isHost, cameraStream, postId]);
+
+  // --- WebRTC Viewer Side Session Caller ---
+  useEffect(() => {
+    if (isHost || !postId || post?.liveStream?.status === 'ENDED' || webrtcStatus !== 'idle' || !db) return;
+
+    const startViewerWebRTC = async () => {
+      try {
+        console.log("Viewer side: Initiating WebRTC request to stream host web cam");
+        setWebrtcStatus('offering');
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        viewerPeerConnectionRef.current = pc;
+
+        // Force incoming media streams
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        pc.ontrack = (event) => {
+          if (event.streams && event.streams[0]) {
+            console.log("WebRTC stream received successfully!");
+            setRemoteStream(event.streams[0]);
+            setWebrtcStatus('connected');
+          }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          if (pc.iceConnectionState === 'failed') {
+            console.warn("WebRTC ICE Connection Failed");
+            setWebrtcStatus('failed');
+          }
+        };
+
+        const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+        await pc.setLocalDescription(offer);
+
+        const postRef = doc(db as any, 'posts', postId);
+        await updateDoc(postRef, {
+          [`webrtc_requests.${currentUser.id}`]: {
+            status: 'offer_ready',
+            viewerSdp: offer.sdp,
+            viewerCandidates: [],
+            timestamp: Date.now()
+          }
+        });
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            updateDoc(postRef, {
+              [`webrtc_requests.${currentUser.id}.viewerCandidates`]: arrayUnion(JSON.stringify(event.candidate))
+            }).catch(e => console.error("Error adding viewer candidate:", e));
+          }
+        };
+
+      } catch (err) {
+        console.error("Error setting up Viewer WebRTC channel:", err);
+        setWebrtcStatus('failed');
+      }
+    };
+
+    startViewerWebRTC();
+
+    return () => {
+      if (viewerPeerConnectionRef.current) {
+        viewerPeerConnectionRef.current.close();
+        viewerPeerConnectionRef.current = null;
+      }
+      if (db && postId) {
+        const postRef = doc(db as any, 'posts', postId);
+        updateDoc(postRef, {
+          [`webrtc_requests.${currentUser.id}`]: null
+        }).catch(err => console.error("Error cleaning up WebRTC request:", err));
+      }
+      setRemoteStream(null);
+      setWebrtcStatus('idle');
+    };
+  }, [postId, isHost, post?.liveStream?.status, db]);
+
+  // Listener for Viewer to register Host's Answer SDP and candidates
+  useEffect(() => {
+    if (isHost || !post || !post.webrtc_requests?.[currentUser.id] || !db) return;
+    const req = post.webrtc_requests[currentUser.id];
+    const pc = viewerPeerConnectionRef.current;
+    if (!pc) return;
+
+    if (req.status === 'answer_ready' && pc.signalingState === 'have-local-offer') {
+      const setRemoteDesc = async () => {
+        try {
+          console.log("Setting host answer as remote description...");
+          setWebrtcStatus('connecting');
+          await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: req.hostSdp }));
+        } catch (err) {
+          console.error("Error setting remote answer info:", err);
+          setWebrtcStatus('failed');
+        }
+      };
+      setRemoteDesc();
+    }
+
+    if (req.hostCandidates && Array.isArray(req.hostCandidates)) {
+      req.hostCandidates.forEach((candidateStr: string) => {
+        try {
+          const candidateObj = JSON.parse(candidateStr);
+          pc.addIceCandidate(new RTCIceCandidate(candidateObj)).catch(() => {});
+        } catch (e) {}
+      });
+    }
+  }, [post, isHost]);
+
+  // --- Guest camera acquisition and release ---
+  const initiateGuestBroadcasterStream = async () => {
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1285, height: 725 },
+          audio: true
+        });
+      } catch (e) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
+      }
+      setGuestCameraStream(stream);
+    } catch (err) {
+      console.error("Could not acquire Guest media stream:", err);
+    }
+  };
+
+  const stopGuestBroadcasterStream = () => {
+    if (guestCameraStream) {
+      guestCameraStream.getTracks().forEach(track => track.stop());
+      setGuestCameraStream(null);
+    }
+  };
+
+  useEffect(() => {
+    const isActiveGuest = post?.liveStream?.guestId === currentUser.id && post?.liveStream?.guestStatus === 'active';
+    if (isActiveGuest) {
+      if (!guestCameraStream) {
+        initiateGuestBroadcasterStream();
+      }
+    } else {
+      if (guestCameraStream) {
+        stopGuestBroadcasterStream();
+      }
+    }
+    return () => {
+      if (guestCameraStream) {
+        guestCameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [post?.liveStream?.guestId, post?.liveStream?.guestStatus]);
+
+  // --- WebRTC Guest Broadcaster signaling receiver listener (runs on active Guest) ---
+  useEffect(() => {
+    const isCurrentGuest = post?.liveStream?.guestId === currentUser.id && post?.liveStream?.guestStatus === 'active';
+    if (!isCurrentGuest || !post || !post.webrtc_requests || !guestCameraStream || !db) return;
+
+    const handleGuestRequests = async () => {
+      const requests = post.webrtc_requests || {};
+      const postRef = doc(db as any, 'posts', postId);
+
+      for (const key of Object.keys(requests)) {
+        if (!key.endsWith('_guest')) continue;
+        const viewerId = key.replace('_guest', '');
+        if (viewerId === currentUser.id) continue; // Skip self requests
+        
+        const req = requests[key];
+        
+        if (req && req.status === 'offer_ready') {
+          const lastProcessedTime = guestProcessedTimestampsRef.current[viewerId] || 0;
+          const reqTimestamp = req.timestamp || 0;
+
+          if (reqTimestamp > lastProcessedTime) {
+            const existingPc = guestPeerConnectionsRef.current[viewerId];
+            if (existingPc) {
+              try { existingPc.close(); } catch (e) {}
+              delete guestPeerConnectionsRef.current[viewerId];
+            }
+            guestProcessedTimestampsRef.current[viewerId] = reqTimestamp;
+          }
+
+          let pc = guestPeerConnectionsRef.current[viewerId];
+          if (!pc) {
+            try {
+              console.log(`Establishing WebRTC Guest track channel for Viewer: ${viewerId}`);
+              pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+              });
+              guestPeerConnectionsRef.current[viewerId] = pc;
+
+              // Bind Guest tracks
+              guestCameraStream.getTracks().forEach(track => {
+                pc.addTrack(track, guestCameraStream);
+              });
+
+              await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: req.viewerSdp }));
+
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              await updateDoc(postRef, {
+                [`webrtc_requests.${key}.status`]: 'answer_ready',
+                [`webrtc_requests.${key}.hostSdp`]: answer.sdp,
+                [`webrtc_requests.${key}.hostCandidates`]: []
+              });
+
+              pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                  updateDoc(postRef, {
+                    [`webrtc_requests.${key}.hostCandidates`]: arrayUnion(JSON.stringify(event.candidate))
+                  }).catch(e => console.error("Error adding guest host candidate:", e));
+                }
+              };
+
+            } catch (err) {
+              console.error(`Error answering WebRTC request from guest broadcaster to ${viewerId}:`, err);
+            }
+          }
+
+          if (pc && req.viewerCandidates && Array.isArray(req.viewerCandidates)) {
+            req.viewerCandidates.forEach((candidateStr: string) => {
+              try {
+                const candidateObj = JSON.parse(candidateStr);
+                pc.addIceCandidate(new RTCIceCandidate(candidateObj)).catch(() => {});
+              } catch (e) {}
+            });
+          }
+        }
+      }
+    };
+
+    handleGuestRequests();
+  }, [post, guestCameraStream, postId, db]);
+
+  // --- WebRTC Guest Stream Receiver/Viewer side (runs on Host and other Viewers) ---
+  useEffect(() => {
+    const isCurrentGuest = post?.liveStream?.guestId === currentUser.id;
+    const isGuestActive = post?.liveStream?.guestStatus === 'active' && post?.liveStream?.guestId;
+    if (isCurrentGuest || !postId || !isGuestActive || guestWebrtcStatus !== 'idle' || !db) return;
+
+    const startGuestWebRTC = async () => {
+      try {
+        console.log("Setting up Viewer side to receive Guest Webcam...");
+        setGuestWebrtcStatus('offering');
+        const pc = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        guestViewerPeerConnectionRef.current = pc;
+
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+
+        pc.ontrack = (event) => {
+          if (event.streams && event.streams[0]) {
+            console.log("Guest WebRTC stream received successfully!");
+            setGuestRemoteStream(event.streams[0]);
+            setGuestWebrtcStatus('connected');
+          }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          if (pc.iceConnectionState === 'failed') {
+            setGuestWebrtcStatus('failed');
+          }
+        };
+
+        const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+        await pc.setLocalDescription(offer);
+
+        const postRef = doc(db as any, 'posts', postId);
+        await updateDoc(postRef, {
+          [`webrtc_requests.${currentUser.id}_guest`]: {
+            status: 'offer_ready',
+            viewerSdp: offer.sdp,
+            viewerCandidates: [],
+            timestamp: Date.now()
+          }
+        });
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            updateDoc(postRef, {
+              [`webrtc_requests.${currentUser.id}_guest.viewerCandidates`]: arrayUnion(JSON.stringify(event.candidate))
+            }).catch(e => console.error("Error adding guest viewer candidate:", e));
+          }
+        };
+
+      } catch (err) {
+        console.error("Error establishing Guest WebRTC receptor channel:", err);
+        setGuestWebrtcStatus('failed');
+      }
+    };
+
+    startGuestWebRTC();
+
+    return () => {
+      if (guestViewerPeerConnectionRef.current) {
+        guestViewerPeerConnectionRef.current.close();
+        guestViewerPeerConnectionRef.current = null;
+      }
+      if (db && postId) {
+        const postRef = doc(db as any, 'posts', postId);
+        updateDoc(postRef, {
+          [`webrtc_requests.${currentUser.id}_guest`]: null
+        }).catch(err => console.error("Error cleaning up Guest WebRTC channel:", err));
+      }
+      setGuestRemoteStream(null);
+      setGuestWebrtcStatus('idle');
+    };
+  }, [postId, post?.liveStream?.guestStatus, post?.liveStream?.guestId, db, guestWebrtcStatus]);
+
+  // Listener for Host/Viewer to register Guest's Answer SDP and candidates
+  useEffect(() => {
+    const isCurrentGuest = post?.liveStream?.guestId === currentUser.id;
+    if (isCurrentGuest || !post || !post.webrtc_requests?.[currentUser.id + '_guest'] || !db) return;
+    const req = post.webrtc_requests[currentUser.id + '_guest'];
+    const pc = guestViewerPeerConnectionRef.current;
+    if (!pc) return;
+
+    if (req.status === 'answer_ready' && pc.signalingState === 'have-local-offer') {
+      const setGuestRemoteDesc = async () => {
+        try {
+          console.log("Setting guest answer description...");
+          setGuestWebrtcStatus('connecting');
+          await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: req.hostSdp }));
+        } catch (err) {
+          console.error("Error applying guest remote answer Sdp:", err);
+          setGuestWebrtcStatus('failed');
+        }
+      };
+      setGuestRemoteDesc();
+    }
+
+    if (req.hostCandidates && Array.isArray(req.hostCandidates)) {
+      req.hostCandidates.forEach((candidateStr: string) => {
+        try {
+          const candidateObj = JSON.parse(candidateStr);
+          pc.addIceCandidate(new RTCIceCandidate(candidateObj)).catch(() => {});
+        } catch (e) {}
+      });
+    }
+  }, [post, isHost]);
 
   const initiateBroadcasterStream = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
-        audio: true
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720 },
+          audio: true
+        });
+      } catch (e) {
+        console.warn("Retrying with standard constraints...");
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+          });
+        } catch (e2) {
+          console.warn("Retrying with video-only...");
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true
+            });
+          } catch (e3) {
+            console.warn("Retrying with audio-only...");
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: true
+            });
+          }
+        }
+      }
       setCameraStream(stream);
-      setIsCameraOff(false);
-      setIsMuted(false);
-      setIsSimulationMode(false);
+      setIsCameraOff(!stream.getVideoTracks().length);
+      setIsMuted(!stream.getAudioTracks().length);
     } catch (err) {
-      console.warn("Could not acquire media stream, falling back to simulated high-fidelity loop:", err);
-      setIsSimulationMode(true);
+      console.error("Could not acquire media stream:", err);
     }
   };
 
@@ -228,15 +730,6 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
-    }
-  };
-
-  const handleToggleSimulationSource = () => {
-    if (isSimulationMode) {
-      setIsSimulationMode(false);
-    } else {
-      stopBroadcasterStream();
-      setIsSimulationMode(true);
     }
   };
 
@@ -295,12 +788,186 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     pulseLiveHeart(postId);
   };
 
-  // Subscribe state toggle
-  const handleSubscribeToggle = () => {
+  // Subscribe state toggle (with following database integration)
+  const handleSubscribeToggle = async () => {
+    if (!creatorProfile?.id || !currentUser?.id) return;
     const val = !isSubscribed;
     setIsSubscribed(val);
-    if (creatorProfile?.id) {
-      localStorage.setItem(`subscribed_${creatorProfile.id}`, String(val));
+    localStorage.setItem(`subscribed_${creatorProfile.id}`, String(val));
+    try {
+      await toggleFollowUser(currentUser.id, creatorProfile.id);
+      if (typeof refreshUser === 'function') {
+        refreshUser();
+      }
+      // Immediately fetch creator profile updates so follower count is real and live!
+      const updatedProfile = await findUserById(creatorProfile.id);
+      if (updatedProfile) {
+        setCreatorProfile(updatedProfile);
+      }
+    } catch (e) {
+      console.error("Error toggling follow status on db:", e);
+    }
+  };
+
+  // --- Co-Hosting / Multi-participant guest actions ---
+  const handleSendInvite = async (user: User) => {
+    if (!post || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedGuestId': user.id,
+        'liveStream.invitedGuestName': `${user.firstName} ${user.lastName}`.trim(),
+        'liveStream.guestStatus': 'invited'
+      });
+      
+      const systemNotice: Comment = {
+        id: 'invite_sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `📢 O anfitrião convidou @${user.firstName} para participar na live! Aguardando resposta...`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+      setShowInviteModal(false);
+    } catch (err) {
+      console.error("Failed to send invite:", err);
+    }
+  };
+
+  const handleCancelInvite = async () => {
+    if (!post || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedGuestId': null,
+        'liveStream.invitedGuestName': null,
+        'liveStream.guestStatus': 'none'
+      });
+
+      const systemNotice: Comment = {
+        id: 'invite_cancel_sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `⚠️ O convite para co-apresentação foi cancelado pelo anfitrião.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Failed to cancel invite:", err);
+    }
+  };
+
+  const handleRemoveCoHost = async () => {
+    if (!post || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedGuestId': null,
+        'liveStream.invitedGuestName': null,
+        'liveStream.guestId': null,
+        'liveStream.guestName': null,
+        'liveStream.guestStatus': 'none'
+      });
+
+      const systemNotice: Comment = {
+        id: 'cohost_remove_sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `🚪 Co-Apresentador desconectado pelo anfitrião.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Failed to remove co-host:", err);
+    }
+  };
+
+  const handleAcceptInvitation = async () => {
+    if (!post || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.guestId': currentUser.id,
+        'liveStream.guestName': `${currentUser.firstName} ${currentUser.lastName}`.trim(),
+        'liveStream.guestStatus': 'active'
+      });
+
+      const systemNotice: Comment = {
+        id: 'cohost_accept_sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `🎉 ${currentUser.firstName} aceitou o convite e subiu ao palco!`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Error accepting invitation:", err);
+    }
+  };
+
+  const handleRejectInvitation = async () => {
+    if (!post || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedGuestId': null,
+        'liveStream.invitedGuestName': null,
+        'liveStream.guestStatus': 'none'
+      });
+
+      const systemNotice: Comment = {
+        id: 'cohost_reject_sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `⚠️ @${currentUser.firstName} recusou o convite para co-apresentar no momento.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Error rejecting invitation:", err);
+    }
+  };
+
+  const handleLeaveCallAsGuest = async () => {
+    if (!post || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedGuestId': null,
+        'liveStream.invitedGuestName': null,
+        'liveStream.guestId': null,
+        'liveStream.guestName': null,
+        'liveStream.guestStatus': 'none'
+      });
+
+      const systemNotice: Comment = {
+        id: 'cohost_leave_sys_' + Date.now(),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `🚪 ${currentUser.firstName} saiu da videoconferência da live.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Error leaving live as guest:", err);
     }
   };
 
@@ -363,7 +1030,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         userId: 'system',
         userName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
         profilePic: currentUser.profilePicture || '',
-        text: `💰 SUPER CHAT: Apoiou o criador com ${selectedDonation} FaceCoins! 🎉`,
+        text: `💰 SUPER CHAT: Apoiou o criador com ${selectedDonation} FaceCoins!${tipMessage ? ` "${tipMessage.trim()}"` : ''} 🎉`,
         timestamp: Date.now(),
         replies: [],
         isAnonymous: false
@@ -377,6 +1044,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       }
 
       setDonationStatus('success');
+      setTipMessage('');
       refreshUser(); // reload balances
 
       setTimeout(() => {
@@ -403,7 +1071,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           title: post.liveStream?.title || 'Transmissão ao vivo',
           description: post.liveStream?.description || '',
           status: 'ENDED',
-          recordingUrl: 'https://assets.mixkit.co/videos/preview/mixkit-starry-night-sky-and-milky-way-40432-large.mp4' 
+          recordingUrl: 'https://vjs.zencdn.net/v/oceans.mp4' 
         }
       };
       await updatePost(updatedPost);
@@ -415,30 +1083,18 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }
   };
 
-  // Get Simulated Subscribers tag
+  // Get Subscribers / Seguidores text
   const getSubscribersText = () => {
-    if (!creatorProfile) return "1.2K";
-    const seed = creatorProfile.firstName.charCodeAt(0) + (creatorProfile.lastName?.charCodeAt(0) || 5);
-    return `${((seed * 3) % 45) + 5}.${(seed % 9)}K inscritos`;
-  };
-
-  // Pick simulation premium stream loop content based on creator
-  const getSimulationSource = () => {
-    const seed = post?.userId ? post.userId.charCodeAt(0) % 3 : 0;
-    if (seed === 0) {
-      return "https://assets.mixkit.co/videos/preview/mixkit-starry-night-sky-and-milky-way-40432-large.mp4"; // Sky
-    } else if (seed === 1) {
-      return "https://assets.mixkit.co/videos/preview/mixkit-chef-cooking-vegetables-in-a-pan-40811-large.mp4"; // Cooking presentation
-    } else {
-      return "https://assets.mixkit.co/videos/preview/mixkit-city-lights-at-night-aerial-view-40348-large.mp4"; // Beautiful Neon city walking
-    }
+    if (!creatorProfile) return "0 seguidores";
+    const realCount = creatorProfile.followers?.length || 0;
+    return `${realCount} ${realCount === 1 ? 'seguidor' : 'seguidores'}`;
   };
 
   if (!postId) {
     return (
       <div className="min-h-[100dvh] bg-[#0c0f17] flex flex-col items-center justify-center text-center p-6 text-white pb-24 font-sans">
         <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 text-red-500 rounded-full flex items-center justify-center mb-4">
-          <XMarkIcon className="h-8 w-8" />
+          <X className="h-8 w-8" />
         </div>
         <h3 className="text-xl font-black uppercase tracking-tighter mb-2 text-white">Transmissão Inválida</h3>
         <p className="text-zinc-400 font-bold text-xs uppercase tracking-widest mb-6 px-4">Identificador da Live ausente ou incorreto.</p>
@@ -503,16 +1159,10 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         {/* Top bar host controllers */}
         {isHost && !isEnded && (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-full uppercase tracking-wider hidden sm:inline-block">
+            <span className="text-[10px] font-black text-red-500 bg-red-950/20 border border-red-500/20 px-3.5 py-1.5 rounded-full uppercase tracking-widest flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
               Painel do Produtor
             </span>
-            <button 
-              onClick={handleToggleSimulationSource}
-              className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-full transition-all border ${isSimulationMode ? 'bg-amber-600 text-white border-amber-500' : 'bg-zinc-800 hover:bg-zinc-700 text-white border-zinc-700'}`}
-              title="Troca sinal de transmissão em tempo real"
-            >
-              {isSimulationMode ? '📺 Usar Minha Webcam' : '🤖 Usar Transmissão de Vídeo'}
-            </button>
           </div>
         )}
       </header>
@@ -521,11 +1171,11 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       <div className="flex-1 w-full max-w-[1780px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5 p-4 overflow-y-auto lg:overflow-hidden h-[calc(100vh-56px)]">
         
         {/* LEFT COLUMN: video element & title and descriptions (collapsible) */}
-        <main className={`col-span-12 ${isCinemaMode ? 'lg:col-span-12' : 'lg:col-span-9'} flex flex-col h-full overflow-y-auto pr-0 lg:pr-1 pb-32 scrollbar-none`}>
+        <main className={`col-span-12 ${isCinemaMode ? 'lg:col-span-12' : isCommentsClosed ? 'lg:col-span-12' : 'lg:col-span-9'} flex flex-col h-full overflow-y-auto pr-0 lg:pr-1 pb-32 scrollbar-none`}>
           
           {isEnded ? (
             /* Live Stream is finished layout */
-            <div className="aspect-video w-full max-w-4xl mx-auto bg-zinc-950 rounded-2xl flex flex-col items-center justify-center p-8 text-center border border-zinc-800 shadow-2xl">
+            <div className="aspect-[4/3] xs:aspect-[1.5] sm:aspect-video w-full max-w-4xl mx-auto bg-zinc-950 rounded-2xl flex flex-col items-center justify-center p-8 text-center border border-zinc-800 shadow-2xl">
               <div className="w-20 h-20 bg-zinc-900 border border-zinc-700 rounded-full flex items-center justify-center mb-5 text-zinc-500 shadow-2xl">
                 <VideoCameraSlashIcon className="h-10 w-10 text-red-600" />
               </div>
@@ -535,7 +1185,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               <div className="grid grid-cols-2 gap-6 w-full max-w-sm bg-zinc-900/50 p-5 rounded-2xl border border-zinc-800/60 my-6">
                 <div>
                   <p className="text-[10px] font-black text-red-500 uppercase tracking-wider">Espectadores Totais</p>
-                  <p className="text-xl font-black mt-1 text-white">{viewerCount + 45}</p>
+                  <p className="text-xl font-black mt-1 text-white">{viewerCount}</p>
                 </div>
                 <div>
                   <p className="text-[10px] font-black text-pink-500 uppercase tracking-wider">Total de Likes</p>
@@ -555,35 +1205,256 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             <div className="w-full">
               
               {/* Aspect Ratio widescreen container */}
-              <div className="relative aspect-video w-full bg-black rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl group/player">
+              <div 
+                onClick={() => {
+                  if (!isHost && remoteStream && videoMuted) {
+                    setVideoMuted(false);
+                  }
+                }}
+                className={`relative aspect-[4/3] xs:aspect-[1.5] sm:aspect-video w-full bg-black rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl group/player ${!isHost && remoteStream && videoMuted ? 'cursor-pointer' : ''}`}
+              >
                 
-                {/* 1. Real Webcam Host Stream */}
-                {isHost && !isSimulationMode && cameraStream ? (
-                  <video 
-                    ref={videoRef} 
-                    autoPlay 
-                    playsInline 
-                    muted={videoMuted} 
-                    className="w-full h-full object-cover scale-x-[-1]" 
-                  />
+                {post.liveStream?.guestStatus === 'active' && post.liveStream?.guestId ? (
+                  /* Split Screen Co-hosting / YouTube Live Together Layout */
+                  <div className="w-full h-full grid grid-cols-1 sm:grid-cols-2 bg-zinc-950 p-1 gap-1 relative">
+                    
+                    {/* Host webcam frame */}
+                    <div className="relative rounded-lg overflow-hidden bg-black/85 aspect-[1.5] sm:aspect-auto sm:h-full border border-zinc-900 flex flex-col items-center justify-center">
+                      {isHost && cameraStream ? (
+                        <video 
+                          ref={(el) => {
+                            if (el && cameraStream) {
+                              try {
+                                if (el.srcObject !== cameraStream) {
+                                  el.srcObject = cameraStream;
+                                  el.play().catch(() => {});
+                                }
+                              } catch (e) {}
+                            }
+                            videoRef.current = el;
+                          }} 
+                          autoPlay 
+                          playsInline 
+                          muted={true} 
+                          className="w-full h-full object-cover scale-x-[-1]" 
+                        />
+                      ) : !isHost && remoteStream ? (
+                        <video 
+                          ref={(el) => {
+                            if (el && remoteStream) {
+                              try {
+                                if (el.srcObject !== remoteStream) {
+                                  el.srcObject = remoteStream;
+                                  el.play().catch(() => {});
+                                }
+                                el.muted = videoMuted;
+                                el.volume = videoVolume / 100;
+                              } catch (e) {}
+                            }
+                            remoteVideoRef.current = el;
+                          }} 
+                          autoPlay 
+                          playsInline 
+                          muted={videoMuted} 
+                          className="w-full h-full object-cover" 
+                        />
+                      ) : (
+                        <div className="text-center p-4">
+                          <img 
+                            src={creatorProfile?.profilePicture || '/default-avatar.png'} 
+                            alt="Streamer" 
+                            className="w-12 h-12 rounded-full mx-auto object-cover border border-red-500 animate-pulse animate-duration-1000" 
+                            referrerPolicy="no-referrer"
+                          />
+                          <p className="text-[9px] uppercase tracking-wider text-rose-500 font-black mt-2">Conectando Host...</p>
+                        </div>
+                      )}
+                      <span className="absolute bottom-2.5 left-2.5 z-20 text-[9px] font-black uppercase text-white bg-red-650 px-2 py-0.5 rounded shadow border border-red-500/30 font-sans">
+                        Apresentador (Host)
+                      </span>
+                    </div>
+
+                    {/* Guest webcam frame */}
+                    <div className="relative rounded-lg overflow-hidden bg-black/85 aspect-[1.5] sm:aspect-auto sm:h-full border border-zinc-900 flex flex-col items-center justify-center">
+                      {currentUser.id === post.liveStream?.guestId && guestCameraStream ? (
+                        <video 
+                          ref={(el) => {
+                            if (el && guestCameraStream) {
+                              try {
+                                if (el.srcObject !== guestCameraStream) {
+                                  el.srcObject = guestCameraStream;
+                                  el.play().catch(() => {});
+                                }
+                              } catch (e) {}
+                            }
+                          }} 
+                          autoPlay 
+                          playsInline 
+                          muted={true} 
+                          className="w-full h-full object-cover scale-x-[-1]" 
+                        />
+                      ) : currentUser.id !== post.liveStream?.guestId && guestRemoteStream ? (
+                        <video 
+                          ref={(el) => {
+                            if (el && guestRemoteStream) {
+                              try {
+                                if (el.srcObject !== guestRemoteStream) {
+                                  el.srcObject = guestRemoteStream;
+                                  el.play().catch(() => {});
+                                }
+                                el.muted = videoMuted;
+                                el.volume = videoVolume / 100;
+                              } catch (e) {}
+                            }
+                          }} 
+                          autoPlay 
+                          playsInline 
+                          muted={videoMuted} 
+                          className="w-full h-full object-cover" 
+                        />
+                      ) : (
+                        /* Falling back to gorgeous visual avatar representation if streams cannot be shared/locked */
+                        <div className="text-center p-4">
+                          <div className="w-11 h-11 bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-full flex items-center justify-center mb-1.5 mx-auto animate-pulse">
+                            <SparklesIcon className="h-5 w-5 animate-spin text-sky-400" style={{ animationDuration: '3s' }} />
+                          </div>
+                          <p className="font-black text-xs text-zinc-100 uppercase tracking-tight">{post.liveStream?.guestName || 'Participante Convidado'}</p>
+                          <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">Participando ao vivo</p>
+                          
+                          {/* Real-time audio waveform spectrum */}
+                          <div className="flex items-center gap-0.5 mt-3 justify-center">
+                            {[1, 2.5, 3.8, 2.2, 3.2, 1.8, 1].map((val, idx) => (
+                              <span 
+                                key={idx} 
+                                className="w-0.5 bg-sky-400 animate-pulse rounded" 
+                                style={{ 
+                                  height: `${6 + val * 3}px`,
+                                  opacity: 0.7,
+                                  animationDelay: `${idx * 160}ms`,
+                                  animationDuration: `${900 + Math.random() * 600}ms`
+                                }} 
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <span className="absolute bottom-2.5 left-2.5 z-20 text-[9px] font-black uppercase text-white bg-sky-600 px-2 py-0.5 rounded shadow border border-sky-500/30 font-sans">
+                        Convidado: {post.liveStream?.guestName}
+                      </span>
+                    </div>
+
+                  </div>
                 ) : (
-                  /* 2. Premium simulated Looping live presentation (ALWAYS works for viewers or if camera not active) */
-                  <video 
-                    ref={simVideoRef}
-                    src={getSimulationSource()}
-                    autoPlay 
-                    loop 
-                    muted={videoMuted} 
-                    playsInline 
-                    className="w-full h-full object-cover"
-                    onError={() => console.error("Simulated stream source error")}
-                  />
+                  <>
+                    {/* 1. Real Webcam Host Stream */}
+                    {isHost && cameraStream ? (
+                      <video 
+                        ref={(el) => {
+                          if (el && cameraStream) {
+                            try {
+                              if (el.srcObject !== cameraStream) {
+                                el.srcObject = cameraStream;
+                                el.play().catch(e => console.log("Host stream active:", e));
+                              }
+                            } catch (e) {
+                              console.error("Error setting camera stream:", e);
+                            }
+                          }
+                          videoRef.current = el;
+                        }} 
+                        autoPlay 
+                        playsInline 
+                        muted={true} /* Host is ALWAYS muted locally to prevent painful howling loop */
+                        className="w-full h-full object-cover scale-x-[-1]" 
+                      />
+                    ) : !isHost && remoteStream ? (
+                      /* 2. Real WebRTC Stream from Host */
+                      <video 
+                        ref={(el) => {
+                          if (el && remoteStream) {
+                            try {
+                              if (el.srcObject !== remoteStream) {
+                                  el.srcObject = remoteStream;
+                                  el.play().catch(e => console.log("Remote feed active:", e));
+                              }
+                              el.muted = videoMuted;
+                              el.volume = videoVolume / 100;
+                            } catch (e) {
+                              console.error("Error setting remote stream:", e);
+                            }
+                          }
+                          remoteVideoRef.current = el;
+                        }} 
+                        autoPlay 
+                        playsInline 
+                        muted={videoMuted} 
+                        className="w-full h-full object-cover" 
+                      />
+                    ) : (
+                      /* 3. Fully Polished Studio Live Standby/Loading Overlay (NO placeholder cartoon videos!) */
+                      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-950 via-[#121214] to-zinc-950 text-center p-6 relative">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.06),transparent_70%)] animate-pulse" />
+                        <div className="relative mb-4">
+                          <div className="absolute inset-0 bg-red-650/15 blur-xl rounded-full scale-110 animate-pulse duration-1000" />
+                          <img 
+                            src={creatorProfile?.profilePicture || '/default-avatar.png'} 
+                            alt="Streamer" 
+                            className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-red-600 shadow-2xl relative z-10 animate-pulse" 
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute -bottom-1 -right-1 z-20 bg-red-650 text-[9px] font-black uppercase text-white px-2 py-0.5 rounded-full border border-zinc-900 shadow-md">
+                            OFFLINE
+                          </div>
+                        </div>
+                        <p className="text-sm font-black text-white uppercase tracking-wider relative z-10">
+                          {creatorProfile ? `${creatorProfile.firstName} ${creatorProfile.lastName}` : 'Canal do Criador'}
+                         </p>
+                         <p className="text-[10px] sm:text-xs text-zinc-400 font-bold tracking-widest mt-1.5 uppercase relative z-10 max-w-[320px]">
+                           {isHost 
+                             ? "Permita o acesso à câmera para iniciar a transmissão..." 
+                             : "Aguardando sinal ao vivo do transmissor..."
+                           }
+                         </p>
+                        <div className="mt-4 flex items-center gap-1.5 bg-zinc-900/85 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-zinc-800 relative z-10">
+                          <div className="h-1.5 w-1.5 rounded-full bg-zinc-500 animate-pulse" />
+                          <span className="text-[9px] font-black uppercase text-zinc-400 tracking-widest">Sem Sinal de Vídeo</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Blinking Live Badge on screen */}
                 <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-md border border-white/10">
                   <div className="h-2 w-2 rounded-full bg-red-600 animate-ping" />
                   <span className="text-[9px] font-black text-white tracking-wider uppercase">AO VIVO</span>
+                  {!isHost && webrtcStatus === 'connected' && remoteStream && (
+                    <>
+                      <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
+                      <span className="text-[9px] font-black text-emerald-400 tracking-wider uppercase flex items-center gap-1.5 animate-pulse">
+                        <span className="h-2 w-2 bg-emerald-500 rounded-full" />
+                        Webcam Real
+                      </span>
+                    </>
+                  )}
+                  {!isHost && webrtcStatus === 'connecting' && (
+                    <>
+                      <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
+                      <span className="text-[9px] font-black text-amber-500 tracking-wider uppercase flex items-center gap-1.5 animate-pulse">
+                        <span className="h-2 w-2 bg-amber-500 rounded-full" />
+                        Sintonizando Canal...
+                      </span>
+                    </>
+                  )}
+                  {!isHost && webrtcStatus === 'offering' && (
+                    <>
+                      <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
+                      <span className="text-[9px] font-black text-zinc-400 tracking-wider uppercase flex items-center gap-1.5 animate-pulse">
+                        <span className="h-2 w-2 bg-zinc-500 rounded-full" />
+                        Conectando...
+                      </span>
+                    </>
+                  )}
                   <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
                   <div className="flex items-center gap-1 text-[10px] font-black text-zinc-100">
                     <Users className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
@@ -592,10 +1463,10 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                 </div>
 
                 {/* Host specific hardware HUD inside the player */}
-                {isHost && (
-                  <div className="absolute top-4 right-4 z-20 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-red-500/30 text-xs font-black text-red-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                    <span>MODO TRANSMISSÃO</span>
+                {isHost && cameraStream && (
+                  <div className="absolute top-4 right-4 z-20 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-red-650/40 text-[10px] font-black text-red-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping" />
+                    <span>TRANSMISSÃO ACTIVA</span>
                   </div>
                 )}
 
@@ -622,6 +1493,20 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                     ))}
                   </AnimatePresence>
                 </div>
+
+                {/* Floating click to unmute helper banner */}
+                {!isHost && remoteStream && videoMuted && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setVideoMuted(false);
+                    }}
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-35 bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase px-4.5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-red-500 animate-bounce cursor-pointer tracking-wider"
+                  >
+                    <VolumeX className="h-4 w-4 shrink-0 animate-pulse" />
+                    <span>Clique para Activar Som</span>
+                  </button>
+                )}
 
                 {/* 3. YouTube Widescreen Controls Overlay on hover */}
                 <div className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-4 opacity-0 group-hover/player:opacity-100 transition-opacity duration-350 flex flex-col gap-3">
@@ -731,13 +1616,15 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                       <p className="text-[11px] text-zinc-400 mt-0.5">{getSubscribersText()}</p>
                     </div>
 
-                    {/* Subscription Simulator Button */}
-                    <button 
-                      onClick={handleSubscribeToggle}
-                      className={`ml-3.5 px-4 py-2 text-xs font-black uppercase rounded-full tracking-wider transition-all duration-200 active:scale-95 shrink-0 ${isSubscribed ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : 'bg-[#f1f1f1] hover:bg-[#d9d9d9] text-[#0f0f0f]'}`}
-                    >
-                      {isSubscribed ? 'Inscrito' : 'Inscrever-se'}
-                    </button>
+                    {/* Subscription / Follow Button (Hidden for host) */}
+                    {!isHost && (
+                      <button 
+                        onClick={handleSubscribeToggle}
+                        className={`ml-3.5 px-4.5 py-2 text-xs font-black uppercase rounded-full tracking-wider transition-all duration-200 active:scale-95 shrink-0 ${isSubscribed ? 'bg-zinc-850 text-zinc-400 hover:bg-zinc-800 border border-zinc-800' : 'bg-red-600 hover:bg-red-500 text-white'}`}
+                      >
+                        {isSubscribed ? 'Seguindo' : 'Seguir'}
+                      </button>
+                    )}
                   </div>
 
                   {/* Right hand buttons */}
@@ -765,13 +1652,77 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                       </button>
                     )}
 
+                    {/* Dynamic Co-hosting buttons */}
+                    {isHost && (
+                      <>
+                        {post.liveStream?.guestStatus === 'active' ? (
+                          <button 
+                            type="button" 
+                            onClick={handleRemoveCoHost}
+                            className="flex items-center gap-1.5 bg-red-650/45 hover:bg-red-600 border border-red-500/30 text-white font-black text-xs uppercase px-4 py-2.5 rounded-full tracking-wider duration-150 active:scale-95 shrink-0"
+                            title="Remover co-apresentador do palco"
+                          >
+                            <Users className="h-3.5 w-3.5 shrink-0 text-red-400" />
+                            <span>Remover Participante</span>
+                          </button>
+                        ) : post.liveStream?.guestStatus === 'invited' ? (
+                          <button 
+                            type="button"
+                            onClick={handleCancelInvite}
+                            className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500 hover:text-[#0f0f0f] border border-amber-500/35 text-amber-400 font-black text-xs uppercase px-4 py-2.5 rounded-full tracking-wider duration-150 active:scale-95 shrink-0"
+                            title="Cancelar convite enviado"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping inline-block" />
+                            <span>Pendente: {post.liveStream?.invitedGuestName}</span>
+                          </button>
+                        ) : (
+                          <button 
+                            type="button"
+                            onClick={() => setShowInviteModal(true)}
+                            className="flex items-center gap-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-black text-xs uppercase px-4 py-2.5 rounded-full tracking-wider duration-150 active:scale-95 shrink-0"
+                            title="Convidar alguém para participar da live dividindo a tela"
+                          >
+                            <Users className="h-3.5 w-3.5 shrink-0" />
+                            <span>Convidar Participante</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {!isHost && post.liveStream?.guestId === currentUser.id && post.liveStream?.guestStatus === 'active' && (
+                      <button 
+                        type="button"
+                        onClick={handleLeaveCallAsGuest}
+                        className="flex items-center gap-1.5 bg-red-650 hover:bg-red-600 text-white font-black text-xs uppercase px-4 py-2.5 rounded-full tracking-wider duration-150 active:scale-95 shrink-0"
+                        title="Sair do palco da transmissão ao vivo"
+                      >
+                        <span>Sair da Chamada</span>
+                      </button>
+                    )}
+
                     {/* Share Simulation Pill */}
                     <button 
-                      onClick={() => alert(`Link de compartilhamento copiado! Envie: ${window.location.origin}/#/live/${postId}`)}
+                      onClick={() => {
+                        try {
+                          navigator.clipboard.writeText(`${window.location.origin}/#/live/${postId}`);
+                        } catch (e) {}
+                        setShowShareToast(true);
+                        setTimeout(() => setShowShareToast(false), 2200);
+                      }}
                       className="flex items-center gap-1.5 bg-[#272727] hover:bg-[#3f3f3f] text-white font-black text-xs uppercase px-4 py-2.5 rounded-full tracking-wider transition-all active:scale-95 border border-zinc-800 shrink-0"
                     >
                       <Share2 className="h-3.5 w-3.5 shrink-0 text-zinc-300" />
                       <span>Compartilhar</span>
+                    </button>
+
+                    {/* Toggle Comments Panel Button */}
+                    <button 
+                      onClick={() => setIsCommentsClosed(!isCommentsClosed)}
+                      className={`flex items-center gap-1.5 font-black text-xs uppercase px-4 py-2.5 rounded-full tracking-wider transition-all active:scale-95 border shrink-0 ${isCommentsClosed ? 'bg-red-600 hover:bg-red-500 border-red-500 text-white animate-pulse shadow-md shadow-red-600/20' : 'bg-[#272727] hover:bg-[#3f3f3f] border-zinc-800 text-white'}`}
+                      title={isCommentsClosed ? "Abrir Comentários" : "Fechar Comentários"}
+                    >
+                      <Send className="h-3.5 w-3.5 shrink-0 rotate-[-45deg] text-zinc-300" />
+                      <span>{isCommentsClosed ? 'Abrir Comentários' : 'Fechar Comentários'}</span>
                     </button>
 
                     {/* Host Special Exit & Terminate tools */}
@@ -796,7 +1747,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs font-black text-neutral-100 uppercase tracking-widest">
-                      <span className="text-red-500 font-extrabold">{viewerCount + 37} assistindo</span>
+                      <span className="text-red-500 font-extrabold">{viewerCount} assistindo</span>
                       <span>•</span>
                       <span>{new Date(post.timestamp).toLocaleDateString()}</span>
                     </div>
@@ -831,22 +1782,42 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
         </main>
 
+        {/* RIGHT COLUMN Placeholder when Chat is Closed */}
+        {!isEnded && isCommentsClosed && (
+          <aside className="hidden lg:flex lg:col-span-1 flex-col items-center justify-start pt-2 shrink-0 h-full">
+            <button
+              onClick={() => setIsCommentsClosed(false)}
+              className="w-full py-8 bg-zinc-900/60 hover:bg-zinc-805 border border-zinc-800 rounded-2xl flex flex-col items-center gap-4 text-zinc-400 hover:text-white transition-all duration-300 hover:border-zinc-700/80 select-none shadow-xl group border-dashed cursor-pointer"
+              title="Abrir Comentários"
+            >
+              <Send className="h-4 w-4 rotate-[-45deg] group-hover:scale-110 duration-200 text-red-500" />
+              <span className="font-black text-[9px] uppercase tracking-widest [writing-mode:vertical-lr] shrink-0 pointer-events-none">
+                Ver Comentários
+              </span>
+            </button>
+          </aside>
+        )}
+
         {/* RIGHT COLUMN: Live Chat Sidebar (independent scroll bar window) */}
-        {!isEnded && (
+        {!isEnded && !isCommentsClosed && (
           <aside className={`col-span-12 ${isCinemaMode ? 'lg:col-span-12 mt-4' : 'lg:col-span-3'} flex flex-col bg-[#181818] rounded-xl border border-zinc-800 overflow-hidden h-[500px] lg:h-[calc(100vh-100px)] min-h-[400px] shrink-0`}>
             
             {/* Live Chat Header styled exactly like YouTube live chat banner */}
-            <div className="px-4 py-3 border-b border-zinc-805 bg-[#1f1f1f] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-1.5 text-zinc-100">
+            <div className="px-4 py-3 border-b border-zinc-800 bg-[#1f1f1f] flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 text-zinc-100">
+                <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
                 <span className="text-xs font-black uppercase tracking-widest">Chat ao Vivo</span>
-                <ChevronDown className="h-4.5 w-4.5 text-zinc-400 cursor-pointer" />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="h-1 rounded-full w-4 bg-red-600 animate-pulse" />
-                <span className="text-[9px] font-mono font-bold bg-[#2a2a2a] text-zinc-400 border border-zinc-850 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                <span className="hidden xs:inline-block text-[9px] font-mono font-bold bg-[#2a2a2a] text-zinc-400 border border-zinc-800 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
                   Sincronizado
                 </span>
               </div>
+              <button 
+                onClick={() => setIsCommentsClosed(true)}
+                className="p-1.5 hover:bg-zinc-800 text-red-500 hover:text-red-400 hover:scale-105 duration-150 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center cursor-pointer"
+                title="Fechar Comentários"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
             {/* Comments List flow container */}
@@ -985,7 +1956,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                 disabled={donationStatus === 'processing'}
                 className="p-2 bg-zinc-800/70 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-full transition-all"
               >
-                <XMarkIcon className="h-4.5 w-4.5" />
+                <X className="h-4.5 w-4.5" />
               </button>
             </div>
 
@@ -1001,20 +1972,36 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               <div className="flex flex-col gap-5">
                 
                 {/* Donation selection grid */}
-                <div className="grid grid-cols-4 gap-2.5 text-left">
-                  {[20, 50, 100, 500].map(amount => (
-                    <button
-                      key={amount}
-                      type="button"
-                      onClick={() => setSelectedDonation(amount)}
-                      disabled={donationStatus === 'processing'}
-                      className={`py-3.5 rounded-xl border flex flex-col items-center gap-1 transition-all text-center ${selectedDonation === amount ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-transparent border-zinc-800 hover:border-zinc-700 text-zinc-300'}`}
-                    >
-                      <span className="text-xs font-black uppercase text-zinc-400">Pagar</span>
-                      <span className="text-sm font-black text-amber-400">{amount}</span>
-                      <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Coins</span>
-                    </button>
-                  ))}
+                <div>
+                  <label className="text-[10px] uppercase font-black tracking-wider text-zinc-400 block mb-2 text-left">Selecione o valor do Apoio</label>
+                  <div className="grid grid-cols-4 gap-2 text-left">
+                    {[20, 50, 100, 200, 500, 1000, 2000, 5000].map(amount => (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => setSelectedDonation(amount)}
+                        disabled={donationStatus === 'processing'}
+                        className={`py-2 rounded-xl border flex flex-col items-center gap-0.5 transition-all text-center ${selectedDonation === amount ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-transparent border-zinc-c6 shadow-inner border-zinc-850 hover:border-zinc-700 text-zinc-350'}`}
+                      >
+                        <span className="text-[11px] font-black text-amber-400">{amount}</span>
+                        <span className="text-[7.5px] font-bold text-zinc-500 uppercase tracking-widest">Coins</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom Tip Message input */}
+                <div className="flex flex-col gap-1.5 text-left">
+                  <label className="text-[10px] uppercase font-black tracking-wider text-zinc-400">Mensagem da Gorjeta (Opcional)</label>
+                  <input 
+                    type="text"
+                    value={tipMessage}
+                    onChange={e => setTipMessage(e.target.value)}
+                    placeholder="Escreva uma mensagem especial de apoio..."
+                    maxLength={100}
+                    disabled={donationStatus === 'processing'}
+                    className="w-full bg-[#272727] hover:bg-[#333333] focus:ring-1 focus:ring-amber-500 border border-transparent rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none transition-all font-medium"
+                  />
                 </div>
 
                 {/* Account balance verification checks warning indicator */}
@@ -1041,6 +2028,127 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* Share Toast Notification Banner */}
+      {showShareToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-zinc-900 border border-zinc-800 text-white font-bold text-xs uppercase px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-2.5 tracking-wider z-50 animate-bounce duration-300">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          <span>✓ Link da Live copiado! Compartilhe com os amigos</span>
+        </div>
+      )}
+
+      {/* Host: Select and invite registered user to co-host */}
+      {showInviteModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => setShowInviteModal(false)}
+        >
+          <div 
+            className="w-full max-w-md bg-[#181818] border border-zinc-800 rounded-2xl p-6 relative flex flex-col gap-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center text-left">
+              <div>
+                <h3 className="text-sm font-black uppercase text-white tracking-widest flex items-center gap-1.5">
+                  <VideoCameraIcon className="h-4.5 w-4.5 text-sky-400" />
+                  <span>Convidar Participante</span>
+                </h3>
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">O convidado dividirá a tela ao vivo no YouTube</p>
+              </div>
+              <button 
+                onClick={() => setShowInviteModal(false)}
+                className="p-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-full transition-all border border-zinc-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Search Filter textbox */}
+            <input 
+              type="text"
+              value={inviteSearch}
+              onChange={e => setInviteSearch(e.target.value)}
+              placeholder="Pesquisar participantes por nome..."
+              className="w-full bg-[#272727] hover:bg-[#333333] focus:ring-1 focus:ring-sky-500 border border-transparent rounded-xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none transition-all font-medium"
+            />
+
+            {/* Filtered Users List */}
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-zinc-800">
+              {allUsers
+                .filter(u => {
+                  const fullName = `${u.firstName} ${u.lastName}`.toLowerCase();
+                  return fullName.includes(inviteSearch.toLowerCase());
+                })
+                .length === 0 ? (
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center py-6">Nenhum membro encontrado</p>
+                ) : (
+                  allUsers
+                    .filter(u => {
+                      const fullName = `${u.firstName} ${u.lastName}`.toLowerCase();
+                      return fullName.includes(inviteSearch.toLowerCase());
+                    })
+                    .map(u => (
+                      <div key={u.id} className="flex items-center justify-between p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 hover:bg-zinc-900 hover:border-zinc-750 transition-all">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img 
+                            src={u.profilePicture || '/default-avatar.png'} 
+                            alt="Avatar" 
+                            className="w-8 h-8 rounded-full object-cover border border-zinc-700" 
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="text-left min-w-0">
+                            <p className="text-xs font-black text-white truncate max-w-[150px]">{u.firstName} {u.lastName}</p>
+                            <p className="text-[9px] font-mono text-zinc-500 truncate">@{u.id.substring(0, 8)}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSendInvite(u)}
+                          className="px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-zinc-950 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all active:scale-95"
+                        >
+                          Convidar
+                        </button>
+                      </div>
+                    ))
+                )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Guest: Animated push notification dialog overlay asking to join the streaming feed */}
+      {!isHost && post?.liveStream?.invitedGuestId === currentUser.id && post?.liveStream?.guestStatus === 'invited' && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-[#1b2230] border border-sky-500/35 rounded-2xl p-5 shadow-2xl shadow-sky-500/10 animate-bounce flex flex-col gap-3.5 text-left">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-sky-500/10 text-sky-400 rounded-xl border border-sky-500/20 shrink-0">
+              <VideoCameraIcon className="h-5 w-5 animate-pulse" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-black text-white uppercase tracking-wider">Convite ao Vivo</p>
+              <p className="text-[10px] text-zinc-300 font-medium mt-1 leading-relaxed">
+                O host te convidou para participar da transmissão e aparecer na mesma janela ao vivo! Deseja conectar sua câmera e mic?
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={handleRejectInvitation}
+              className="px-4 py-2 bg-zinc-905 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-red-400 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
+            >
+              Recusar
+            </button>
+            <button
+              type="button"
+              onClick={handleAcceptInvitation}
+              className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-zinc-950 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-lg animate-pulse"
+            >
+              Aceitar e Transmitir
+            </button>
           </div>
         </div>
       )}

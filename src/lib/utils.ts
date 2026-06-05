@@ -21,12 +21,20 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
         return '[Circular Reference]';
       }
       
-      // Bloqueio agressivo de tipos internos que frequentemente causam circularidade ou erros de acesso
-      const constructorName = value.constructor?.name;
+      const constructorName = value.constructor?.name || '';
       const isInternal = 
+        value._delegate || 
+        value.firestore || 
+        value.database || 
+        value.auth || 
+        value.app ||
+        constructorName.startsWith('Firestore') || 
+        constructorName.startsWith('Firebase') ||
+        constructorName.startsWith('Document') || 
+        constructorName.startsWith('Query') ||
+        constructorName.startsWith('Collection') ||
         ['Y2', 'Ka', 'Za', 'Firestore', 'FirestoreImpl', 'FirebaseAuthImpl', 'FirebaseAppImpl'].includes(constructorName) ||
-        (value._delegate) || 
-        (value.app && value.auth) || // Provável Auth de outra versão
+        (value.app && value.auth) || 
         (key === 'i' && value.src) ||
         (key === 'src' && value.i);
 
@@ -34,12 +42,10 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
         return `[Internal Object: ${constructorName || 'Unknown'}]`;
       }
 
-      // Evitar serializar o próprio Firebase App ou instâncias gigantes
       if (key === 'firebase' || key === 'auth' || key === 'db') {
         return `[Service Reference: ${key}]`;
       }
 
-      // Verificação de tipos de DOM/Browser
       if (
         (typeof Node !== 'undefined' && value instanceof Node) || 
         (typeof Window !== 'undefined' && value instanceof Window) || 
@@ -50,7 +56,6 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
 
       cache.add(value);
 
-      // Se for um Error, processamos manualmente para evitar campos não enumeráveis que JSON.stringify ignora
       if (value instanceof Error) {
         const errorObj: any = {
           name: value.name,
@@ -60,7 +65,24 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
         Object.getOwnPropertyNames(value).forEach(prop => {
           if (!['name', 'message', 'stack'].includes(prop)) {
             try {
-              errorObj[prop] = (value as any)[prop];
+              const valProp = (value as any)[prop];
+              if (typeof valProp === 'object' && valProp !== null) {
+                const propConstructor = valProp.constructor?.name || '';
+                if (
+                  valProp._delegate || 
+                  valProp.firestore || 
+                  valProp.database || 
+                  valProp.auth || 
+                  valProp.app ||
+                  ['Y2', 'Ka', 'Za', 'Firestore', 'FirestoreImpl', 'FirebaseAuthImpl', 'FirebaseAppImpl'].includes(propConstructor)
+                ) {
+                  errorObj[prop] = `[Internal Object: ${propConstructor}]`;
+                } else {
+                  errorObj[prop] = valProp;
+                }
+              } else {
+                errorObj[prop] = valProp;
+              }
             } catch (e) {
               errorObj[prop] = "[Unreadable Property]";
             }
@@ -70,7 +92,6 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
       }
     }
 
-    // Bloqueio de strings exageradamente grandes
     if (typeof value === 'string' && value.length > 50000) {
       return `[Large String: ${value.substring(0, 100)}...]`;
     }
@@ -82,7 +103,6 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
     return JSON.stringify(obj, replacer, indent);
   } catch (err) {
     try {
-      // Fallback para uma tentativa ainda mais simples se falhar por stack overflow
       const simpleReplacer = (_k: string, v: any) => {
         if (typeof v === 'object' && v !== null) {
           return `[Object: ${v.constructor?.name || 'Object'}]`;

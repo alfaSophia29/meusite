@@ -918,8 +918,8 @@ export const getMutualBlockedUserIds = async (userId: string): Promise<string[]>
     }
 };
 
-export const createNotification = async (recipientId: string, actorId: string, type: NotificationType, postId?: string, groupName?: string, callType?: CallType) => {
-  if (!isFirebaseConfigured || !db || recipientId === actorId) return;
+export const createNotification = async (recipientId: string, actorId: string, type: NotificationType, postId?: string, groupName?: string, callType?: CallType, goalPercentage?: number) => {
+  if (!isFirebaseConfigured || !db || (recipientId === actorId && type !== NotificationType.PRO_GOAL_ACHIEVED)) return;
   try {
     // Check if actor is blocked by recipient
     const recipientProfile = await findUserById(recipientId);
@@ -934,6 +934,7 @@ export const createNotification = async (recipientId: string, actorId: string, t
       postId: postId || null,
       groupName: groupName || null,
       callType: callType || null,
+      goalPercentage: goalPercentage || null,
       timestamp: Date.now(),
       isRead: false
     });
@@ -2662,7 +2663,7 @@ export const trackAffiliateClick = async (affiliateId: string, productId: string
     }
 };
 
-export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string, affiliateId?: string, product?: Product) => {
+export const addToCart = (productId: string, quantity: number = 1, selectedColor?: string, affiliateId?: string, product?: Product, selectedVariationId?: string) => {
     const cart = getCart();
     
     // Se passarmos o objeto do produto, salvamos no cache para o carrinho carregar instantâneo
@@ -2672,12 +2673,16 @@ export const addToCart = (productId: string, quantity: number = 1, selectedColor
         localStorage.setItem('cyber_product_cache', safeJsonStringify(localCache));
     }
 
-    const existingItem = cart.find((item: any) => item.productId === productId && item.selectedColor === selectedColor);
+    const existingItem = cart.find((item: any) => 
+        item.productId === productId && 
+        item.selectedColor === selectedColor && 
+        item.selectedVariationId === selectedVariationId
+    );
     if (existingItem) {
         existingItem.quantity += quantity;
         if (affiliateId) existingItem.affiliateId = affiliateId;
     } else {
-        cart.push({ productId, quantity, selectedColor, affiliateId });
+        cart.push({ productId, quantity, selectedColor, affiliateId, selectedVariationId });
     }
     localStorage.setItem('cyberphone_cart', safeJsonStringify(cart));
 };
@@ -3289,8 +3294,47 @@ export const deleteComment = async (pid: string, cid: string) => {
     const ref = doc(db, 'posts', pid);
     const d = await getDoc(ref);
     if(d.exists()){
-        const comments = (d.data().comments || []).filter((c:any) => c.id !== cid);
-        await updateDoc(ref, { comments });
+        const comments = d.data().comments || [];
+        const removeCommentRecursive = (list: any[]): any[] => {
+            return list
+                .filter((c: any) => c.id !== cid)
+                .map((c: any) => {
+                    if (c.replies && c.replies.length > 0) {
+                        return {
+                            ...c,
+                            replies: removeCommentRecursive(c.replies)
+                        };
+                    }
+                    return c;
+                });
+        };
+        const newComments = removeCommentRecursive(comments);
+        await updateDoc(ref, { comments: newComments });
+    }
+};
+
+export const editComment = async (pid: string, cid: string, newText: string) => {
+    if (!db) return;
+    const ref = doc(db, 'posts', pid);
+    const d = await getDoc(ref);
+    if(d.exists()){
+        const comments = d.data().comments || [];
+        const updateCommentRecursive = (list: any[]): any[] => {
+            return list.map((c: any) => {
+                if (c.id === cid) {
+                    return { ...c, text: newText };
+                }
+                if (c.replies && c.replies.length > 0) {
+                    return {
+                        ...c,
+                        replies: updateCommentRecursive(c.replies)
+                    };
+                }
+                return c;
+            });
+        };
+        const newComments = updateCommentRecursive(comments);
+        await updateDoc(ref, { comments: newComments });
     }
 };
 
