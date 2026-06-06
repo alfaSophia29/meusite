@@ -299,6 +299,7 @@ export interface Product {
   discountPercentage?: number;
   hasFreeShipping?: boolean;
   shippingFee?: number;
+  shippingTemplate?: string;
   
   // Posicionamento e Bidding (Leilão)
   positioning?: 'STANDARD' | 'TOP_SEARCH' | 'MAIN_BANNER';

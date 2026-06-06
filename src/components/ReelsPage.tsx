@@ -30,7 +30,8 @@ import {
   updatePostSaves,
   updatePostShares,
   createReport,
-  deletePost 
+  deletePost,
+  incrementShortsView
 } from '../services/storageService';
 import CommentsModal from './CommentsModal';
 import { useDialog } from '../services/DialogContext';
@@ -143,6 +144,13 @@ const ReelItem: React.FC<{
   useEffect(() => {
     setSaved(reel.saves?.includes(currentUser.id) || false);
   }, [reel, currentUser.id]);
+
+  useEffect(() => {
+    // Incrementar a contagem real de visualizações do criador do Reel no banco de dados Firestore
+    if (reel.userId) {
+      incrementShortsView(reel.userId);
+    }
+  }, [reel.userId, reel.id]);
 
   const fetchCommentsCount = async () => {
     const freshPost = await getPostById(reel.id);

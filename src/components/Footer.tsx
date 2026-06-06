@@ -110,6 +110,7 @@ const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate, activePage, on
     ]},
     { section: 'HUB PROFISSIONAL', items: [
       { name: 'Impulsionar (Ads)', page: 'ads', Icon: MegaphoneIcon, SolidIcon: MegaphoneIconSolid },
+      { name: 'Monetização (Estúdio)', page: 'monetization', Icon: PresentationChartLineIcon, SolidIcon: ChartIconSolid },
       { 
         name: isProfessional ? 'Gestão de Negócio' : 'Criar Loja', 
         page: 'manage-store', 

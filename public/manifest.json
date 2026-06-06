@@ -1,20 +1,25 @@
 {
-  "name": "CyberPhone",
-  "short_name": "CyberPhone",
+  "name": "FacePhone",
+  "short_name": "FacePhone",
+  "description": "Plataforma social de alta conexão com marketplace profissional, reels e ecossistema de monetização.",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#0a0c10",
   "theme_color": "#0a0c10",
+  "categories": ["social", "entertainment", "financial"],
   "icons": [
     {
       "src": "/icon-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

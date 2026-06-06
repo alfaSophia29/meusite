@@ -36,14 +36,29 @@ if (dbId) {
 }
   
 // Use initializeFirestore with auto-detect settings to fix "client is offline" issues
-// We use memoryLocalCache temporarily to resolve the "INTERNAL ASSERTION FAILED: Unexpected state" 
-// which is often caused by persistence corruption in iframe environments.
+// We use persistentLocalCache when outside iframes (PWA / Standalone mode) to ensure stored profiles,
+// posts, and messages load offline. In iframe/previews, we fallback to memoryLocalCache to prevent iframe storage crash.
+let localCacheOption;
+try {
+  const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+  if (isIframe) {
+    localCacheOption = memoryLocalCache();
+    console.log("ℹ️ [Firestore] Running inside iframe - using memoryLocalCache");
+  } else {
+    localCacheOption = persistentLocalCache();
+    console.log("🚀 [Firestore] Enabling persistentLocalCache for offline profile & app support");
+  }
+} catch (e) {
+  console.warn("⚠️ [Firestore] Failed to enable persistent cache, falling back to memory:", e);
+  localCacheOption = memoryLocalCache();
+}
+
 const db = app ? initializeFirestore(app, {
   // @ts-ignore
   experimentalAutoDetectLongPolling: true,
   // @ts-ignore
   ignoreUndefinedProperties: true,
-  localCache: memoryLocalCache()
+  localCache: localCacheOption
 }, dbId as any) : null;
 const storage = app ? getStorage(app) : null;
 

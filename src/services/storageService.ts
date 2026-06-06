@@ -790,7 +790,13 @@ export const uploadFile = async (file: File | Blob, folder: string, retryCount =
           contentType: processedFile.type || 'application/octet-stream'
       };
 
-      const snapshot = await uploadBytes(storageRef, processedFile, metadata);
+      // Adiciona Promise.race com timeout de 5 segundos para evitar travamento em conexões mortas ou CORS
+      const uploadPromise = uploadBytes(storageRef, processedFile, metadata);
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout de 5 segundos excedido no Firebase Storage")), 5000)
+      );
+
+      const snapshot = await Promise.race([uploadPromise, timeoutPromise]);
       const downloadURL = await getDownloadURL(snapshot.ref);
       
       console.log("✅ [Firebase Storage] Upload concluído com sucesso!");
@@ -1211,7 +1217,20 @@ export const addPostComment = async (pid: string, c: any) => {
 };
 
 // --- EXPORTS DE COMPATIBILIDADE ---
-export const generateUUID = () => crypto.randomUUID();
+export const generateUUID = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        try {
+            return crypto.randomUUID();
+        } catch (e) {
+            // Fallback inside catch
+        }
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
 export const saveUserAddress = async (uid: string, address: ShippingAddress) => {
     if (!db) return;
     await updateDoc(doc(db, 'profiles', uid), { address });
@@ -1300,10 +1319,12 @@ export const getCart = () => JSON.parse(localStorage.getItem('cyberphone_cart') 
 export const getProducts = async (limitCount?: number, startDoc?: QueryDocumentSnapshot, storeId?: string): Promise<PaginatedResult<Product>> => {
     if (!db) return { items: [], lastDoc: null, hasMore: false };
     try {
-        let q = query(collection(db, 'products'), orderBy('name', 'asc')); // Ordenação padrão
-        
+        let q;
         if (storeId) {
-          q = query(q, where('storeId', '==', storeId));
+            // Evita erro de índice composto no Firestore para listagem de produtos por loja
+            q = query(collection(db, 'products'), where('storeId', '==', storeId));
+        } else {
+            q = query(collection(db, 'products'), orderBy('name', 'asc'));
         }
 
         if (startDoc) {
@@ -1323,7 +1344,12 @@ export const getProducts = async (limitCount?: number, startDoc?: QueryDocumentS
         }
 
         const lastDoc = docs.length > 0 ? docs[docs.length - 1] : null;
-        const items = docs.map(d => ({...d.data(), id: d.id} as Product));
+        let items = docs.map(d => ({...d.data(), id: d.id} as Product));
+
+        // Ordena em memória se foi filtrado por loja
+        if (storeId) {
+            items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
 
         return {
             items,
@@ -1331,6 +1357,7 @@ export const getProducts = async (limitCount?: number, startDoc?: QueryDocumentS
             hasMore
         };
     } catch (error) {
+        console.error("Erro ao obter produtos:", error);
         handleFirestoreError(error, OperationType.LIST, 'products');
         return { items: [], lastDoc: null, hasMore: false };
     }
@@ -3202,6 +3229,27 @@ export const createProduct = async (p: Product) => {
         throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
     }
 
+    // Auto-provisione o documento de loja para satisfazer as regras do Firestore
+    try {
+        const storeRef = doc(db, 'stores', p.storeId);
+        const storeDoc = await getDoc(storeRef);
+        if (!storeDoc.exists()) {
+            await setDoc(storeRef, {
+                id: p.storeId,
+                professorId: p.storeId,
+                name: "Minha Loja",
+                description: "Bem-vindo à minha loja!",
+                productIds: [p.id]
+            });
+        } else {
+            await updateDoc(storeRef, {
+                productIds: arrayUnion(p.id)
+            });
+        }
+    } catch (storeErr) {
+        console.warn("⚠️ Erro ao assegurar documento da loja:", storeErr);
+    }
+
     await setDoc(doc(db, 'products', p.id), {
         ...p,
         soldCount: 0,
@@ -3211,6 +3259,26 @@ export const createProduct = async (p: Product) => {
 
 export const updateProduct = async (id: string, p: Partial<Product>) => {
     if (!db) return;
+
+    // Auto-provisione o documento de loja ao atualizar para satisfazer as regras do Firestore
+    if (p.storeId) {
+        try {
+            const storeRef = doc(db, 'stores', p.storeId);
+            const storeDoc = await getDoc(storeRef);
+            if (!storeDoc.exists()) {
+                await setDoc(storeRef, {
+                    id: p.storeId,
+                    professorId: p.storeId,
+                    name: "Minha Loja",
+                    description: "Bem-vindo à minha loja!",
+                    productIds: [id]
+                });
+            }
+        } catch (storeErr) {
+            console.warn("⚠️ Erro ao assegurar documento da loja no update:", storeErr);
+        }
+    }
+
     const productRef = doc(db, 'products', id);
     await updateDoc(productRef, {
         ...p,

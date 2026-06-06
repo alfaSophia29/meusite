@@ -26,9 +26,9 @@ export default defineConfig(({ mode }) => {
           enabled: false,
         },
         manifest: {
-          name: 'CyberPhone',
-          short_name: 'CyberPhone',
-          description: 'Rede Social Educacional',
+          name: 'FacePhone',
+          short_name: 'FacePhone',
+          description: 'Plataforma social de alta conexão com marketplace profissional, reels e ecossistema de monetização.',
           theme_color: '#0a0c10',
           background_color: '#0a0c10',
           display: 'standalone',

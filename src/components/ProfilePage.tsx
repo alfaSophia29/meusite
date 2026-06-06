@@ -340,35 +340,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                 </div>
              </div>
 
-             {/* Carteira (Apenas Dono) */}
-             {isOwnProfile && (
-                <div className="mt-8 w-full">
-                   <button 
-                     onClick={() => onNavigate('wallet')}
-                     className="w-full bg-blue-600 hover:bg-blue-700 text-white p-8 rounded-[2.5rem] shadow-xl shadow-blue-600/20 transition-all flex items-center justify-between group overflow-hidden relative"
-                   >
-                      <div className="absolute -right-4 top-1/2 -translate-y-1/2 opacity-10 group-hover:scale-110 transition-transform">
-                         <WalletIcon className="h-32 w-32 text-white" />
-                      </div>
-                      
-                      <div className="flex items-center gap-6 relative z-10 text-left">
-                         <div className="p-4 bg-white/20 backdrop-blur-md rounded-[1.5rem] text-white">
-                            <WalletIcon className="h-8 w-8" />
-                         </div>
-                         <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-100">Ganhos e Finanças</p>
-                            <h4 className="text-2xl font-black text-white uppercase tracking-tighter">Minha Carteira Digital</h4>
-                         </div>
-                      </div>
-                      
-                      <div className="relative z-10 pr-4">
-                         <div className="p-3 bg-white/10 rounded-full group-hover:bg-white group-hover:text-blue-600 transition-all">
-                            <ChevronRightIcon className="h-6 w-6 stroke-[3]" />
-                         </div>
-                      </div>
-                   </button>
-                </div>
-             )}
+
           </div>
 
           {/* Navegação de Abas */}
@@ -699,15 +671,31 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                       </div>
 
                       {profile.isMonetized ? (
-                        <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-2xl border border-green-100 dark:border-green-900/30 text-center">
-                           <p className="text-[10px] font-black text-green-600 uppercase">Parabéns! Conta Monetizada</p>
-                           <p className="text-[9px] text-green-500 mt-1">Você já está qualificado para receber ganhos.</p>
-                        </div>
+                        <>
+                           <div className="bg-green-50 dark:bg-green-900/10 p-4 rounded-2xl border border-green-100 dark:border-green-900/30 text-center">
+                              <p className="text-[10px] font-black text-green-600 uppercase">Parabéns! Conta Monetizada</p>
+                              <p className="text-[9px] text-green-500 mt-1">Você já está qualificado para receber ganhos.</p>
+                           </div>
+                           <button
+                              onClick={() => onNavigate('monetization')}
+                              className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white font-sans text-xs font-black py-3 px-4 rounded-xl uppercase tracking-wider transition-all duration-300 transform active:scale-95 shadow-md flex items-center justify-center gap-2"
+                           >
+                              Acessar Painel de Parceiro
+                           </button>
+                        </>
                       ) : (
-                        <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/10 text-center">
-                           <p className="text-[10px] font-black text-gray-500 uppercase">Quase lá!</p>
-                           <p className="text-[9px] text-gray-400 mt-1">Atingir as metas para habilitar anúncios.</p>
-                        </div>
+                        <>
+                           <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/10 text-center">
+                              <p className="text-[10px] font-black text-gray-500 uppercase">Quase lá!</p>
+                              <p className="text-[9px] text-gray-400 mt-1">Atingir as metas para habilitar anúncios.</p>
+                           </div>
+                           <button
+                              onClick={() => onNavigate('monetization')}
+                              className="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-sans text-xs font-black py-3 px-4 rounded-xl uppercase tracking-wider transition-all duration-300 transform active:scale-95 shadow-md flex items-center justify-center gap-2"
+                           >
+                              Acessar Estúdio de Monetização
+                           </button>
+                        </>
                       )}
                    </div>
                 </div>

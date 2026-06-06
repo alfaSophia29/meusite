@@ -54,7 +54,8 @@ import {
   deletePurchase,
   deleteSaleRecord,
   updateSaleTracking,
-  createNotification
+  createNotification,
+  generateUUID
 } from '../services/storageService';
 import { AffiliateSale, Product, OrderStatus, ProductType, User, NotificationType } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -68,6 +69,37 @@ interface StoreManagerPageProps {
 }
 
 const DEFAULT_PROFILE_PIC = 'https://firebasestorage.googleapis.com/v0/b/facephone-angola.appspot.com/o/placeholders%2Fdefault-avatar.png?alt=media&token=8e6b3c43-8e4d-4e9e-8a0b-1f8a8e8e8e8e'; // Placeholder consistent
+
+const SHIPPING_TEMPLATES = [
+  { id: 'standard', name: 'Standard Courier (7-15 dias úteis)', defaultFee: 2500, description: 'Envio padrão via transportadora terrestre' },
+  { id: 'expresso', name: 'Expresso Rápido (2-5 dias úteis)', defaultFee: 5000, description: 'Envio prioritário rápido' },
+  { id: 'flash', name: 'Entrega Local Flash (24 horas)', defaultFee: 7500, description: 'Entrega expressa no mesmo dia' },
+  { id: 'correios', name: 'Correios Registrado (10-20 dias úteis)', defaultFee: 1500, description: 'Envio tradicional nacional' },
+  { id: 'retirada', name: 'Retirada física na Loja (Imediato)', defaultFee: 0, description: 'O cliente retira o produto na loja' }
+];
+
+const SPEC_PRESETS = [
+  {
+    name: '📱 Smartphone / Telemóvel',
+    keys: ['Marca', 'Modelo', 'Memória RAM (GB)', 'Armazenamento Interno (GB)', 'Saúde da Bateria', 'Câmara Traseira (MP)', 'Cor', 'Condição do Ecrã']
+  },
+  {
+    name: '💻 Computador / Portátil',
+    keys: ['Marca', 'Modelo', 'Processador', 'Placa Gráfica', 'Memória RAM', 'Tipo de Disco / Capacidade', 'Sistema Operativo']
+  },
+  {
+    name: '👕 Vestuário / Roupas',
+    keys: ['Marca', 'Tipo de Peça / Estilo', 'Tamanho', 'Cor Principal', 'Composição do Tecido', 'Gênero']
+  },
+  {
+    name: '👟 Calçado / Ténis',
+    keys: ['Marca', 'Modelo', 'Tamanho (EUR)', 'Cor Principal', 'Material de Confecção', 'Gênero']
+  },
+  {
+    name: '🎧 Eletrónicos / Acessórios',
+    keys: ['Marca', 'Modelo', 'Tipo de Conectividade', 'Autonomia de Bateria', 'Cor Principal', 'Compatibilidade']
+  }
+];
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string }) => {
   if (!isOpen) return null;
@@ -121,6 +153,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
   const [pType, setPType] = useState<ProductType>(ProductType.PHYSICAL);
   const [pDigitalUrl, setPDigitalUrl] = useState('');
   const [pDigitalInstructions, setPDigitalInstructions] = useState('');
+  const [pWeight, setPWeight] = useState('');
+  const [pLength, setPLength] = useState('');
+  const [pWidth, setPWidth] = useState('');
+  const [pHeight, setPHeight] = useState('');
   const [pLessonsCount, setPLessonsCount] = useState('0');
   const [pTotalHours, setPTotalHours] = useState('0');
   const [pHasCertificate, setPHasCertificate] = useState(false);
@@ -130,9 +166,13 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
   const [pSpecifications, setPSpecifications] = useState<{key: string, value: string}[]>([]);
   const [pVariations, setPVariations] = useState<{id: string, name: string, price?: number, stock: number, imageUrl?: string}[]>([]);
   const [pCondition, setPCondition] = useState<'NEW' | 'USED'>('NEW');
+  const [pHasFreeShipping, setPHasFreeShipping] = useState(true);
+  const [pShippingFee, setPShippingFee] = useState('');
+  const [pShippingTemplate, setPShippingTemplate] = useState('Standard Courier (7-15 dias úteis)');
   const [activeVariationId, setActiveVariationId] = useState<string | null>(null);
   
   const [uploading, setUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [trackingModal, setTrackingModal] = useState<{saleId: string} | null>(null);
   const [trackingCode, setTrackingCode] = useState('');
   const [supplierOrderId, setSupplierOrderId] = useState('');
@@ -254,6 +294,22 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
     }
   };
 
+  const handleVariationImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, variationId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    try {
+      const url = await uploadFile(file, `products/${currentUser?.id}/variations/${variationId}_${Date.now()}`);
+      updateVariation(variationId, { imageUrl: url });
+      showAlert("Imagem da variante enviada com sucesso!", { type: 'success' });
+    } catch (err) {
+      showAlert("Erro no upload da imagem da variante.", { type: 'error' });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -279,8 +335,20 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
   };
 
   const handleCreateProduct = async () => {
-    if (!currentUser || !pName || !pPrice) return;
+    if (!currentUser) {
+      showAlert("Por favor, inicie sessão para poder guardar produtos.", { type: 'error' });
+      return;
+    }
+    if (!pName || !pName.trim()) {
+      showAlert("O preenchimento do 'Título do Produto' é obrigatório antes de publicar.", { type: 'error' });
+      return;
+    }
+    if (!pPrice || isNaN(parseFloat(pPrice)) || parseFloat(pPrice) <= 0) {
+      showAlert("O preenchimento de um 'Preço Final' válido (maior do que 0) é obrigatório.", { type: 'error' });
+      return;
+    }
     
+    setIsSaving(true);
     try {
       const productData: Partial<Product> = {
         name: pName,
@@ -291,7 +359,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
         imageUrls: pImageUrls,
         digitalContentUrl: pType !== ProductType.PHYSICAL ? pDigitalUrl : undefined,
         digitalDownloadInstructions: pType !== ProductType.PHYSICAL ? pDigitalInstructions : undefined,
-        affiliateCommissionRate: parseFloat(pAffiliateRate) || 10,
+         affiliateCommissionRate: parseFloat(pAffiliateRate) || 10,
         storeId: currentUser.id,
         userId: currentUser.id,
         status: 'active',
@@ -301,11 +369,19 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
         specifications: pSpecifications,
         variations: pVariations,
         condition: pCondition,
+        hasFreeShipping: pHasFreeShipping,
+        shippingFee: pHasFreeShipping ? 0 : (parseFloat(pShippingFee) || 0),
+        shippingTemplate: pShippingTemplate,
         courseDetails: pType === ProductType.DIGITAL_COURSE ? {
           lessonsCount: parseInt(pLessonsCount) || 0,
           totalHours: parseFloat(pTotalHours) || 0,
           hasCertificate: pHasCertificate,
           modules: pModules
+        } : undefined,
+        physicalDetails: pType === ProductType.PHYSICAL ? {
+          weight: parseFloat(pWeight) || 0.5,
+          dimensions: pLength && pWidth && pHeight ? `${pLength}x${pWidth}x${pHeight}` : '10x10x10',
+          stock: pVariations.reduce((sum, v) => sum + v.stock, 0) || 10
         } : undefined
       };
 
@@ -313,7 +389,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
         await updateProduct(editingProduct.id, productData);
         showAlert("Produto atualizado com sucesso!", { type: 'success' });
       } else {
-        const newProd = { ...productData, id: crypto.randomUUID() } as Product;
+        const newProd = { ...productData, id: generateUUID() } as Product;
         await createProduct(newProd);
         showAlert("Produto publicado!", { type: 'success' });
       }
@@ -321,8 +397,11 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
       resetForm();
       setIsAddingProduct(false);
       loadData();
-    } catch (err) {
-      showAlert("Erro ao salvar produto.", { type: 'error' });
+    } catch (err: any) {
+      console.error("Erro ao salvar produto:", err);
+      showAlert(err?.message?.includes("SENTINEL_BLOCK") ? `Bloqueado pelo Sentinela: ${err.message.replace("SENTINEL_BLOCK: ", "")}` : "Erro ao salvar produto.", { type: 'error' });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -335,6 +414,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
     setPType(ProductType.PHYSICAL);
     setPDigitalUrl('');
     setPDigitalInstructions('');
+    setPWeight('');
+    setPLength('');
+    setPWidth('');
+    setPHeight('');
     setPLessonsCount('0');
     setPTotalHours('0');
     setPHasCertificate(false);
@@ -344,6 +427,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
     setPSpecifications([]);
     setPVariations([]);
     setPCondition('NEW');
+    setPHasFreeShipping(true);
+    setPShippingFee('');
+    setPShippingTemplate('Standard Courier (7-15 dias úteis)');
     setEditingProduct(null);
   };
 
@@ -410,7 +496,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
       setPSpecifications(newSpecs);
   };
 
-  const addVariation = () => setPVariations([...pVariations, { id: crypto.randomUUID(), name: '', stock: 0 }]);
+  const addVariation = () => setPVariations([...pVariations, { id: generateUUID(), name: '', stock: 0 }]);
   const removeVariation = (id: string) => setPVariations(pVariations.filter(v => v.id !== id));
   const updateVariation = (id: string, updates: any) => {
       setPVariations(pVariations.map(v => v.id === id ? { ...v, ...updates } : v));
@@ -1162,16 +1248,43 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                    setPHasCertificate(product.courseDetails.hasCertificate);
                                    setPModules(product.courseDetails.modules || []);
                                  }
+                                 if (product.physicalDetails) {
+                                   setPWeight(product.physicalDetails.weight?.toString() || '');
+                                   const dims = product.physicalDetails.dimensions?.split('x') || [];
+                                   setPLength(dims[0]?.trim() || '');
+                                   setPWidth(dims[1]?.trim() || '');
+                                   setPHeight(dims[2]?.trim() || '');
+                                 }
                                  setPImageUrls(product.imageUrls || []);
                                  setPVariations(product.variations || []);
                                  setPSpecifications(product.specifications || []);
                                  setPCondition(product.condition || 'NEW');
+                                 setPHasFreeShipping(product.hasFreeShipping ?? true);
+                                 setPShippingFee(product.shippingFee?.toString() || '');
+                                 setPShippingTemplate(product.shippingTemplate || 'Standard Courier (7-15 dias úteis)');
                                }} className="flex-1 bg-white/20 backdrop-blur-md text-white py-3 rounded-xl font-black text-[9px] uppercase tracking-widest">Editar</button>
                                <button onClick={() => setDeleteConfirmation({ isOpen: true, productId: product.id })} className="w-12 h-12 bg-red-500/20 backdrop-blur-md text-red-500 rounded-xl flex items-center justify-center"><TrashIcon className="h-4 w-4" /></button>
                             </div>
                          </div>
                          <div className="p-6">
-                            <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-2">{product.category}</p>
+                            <div className="flex items-center justify-between mb-2">
+                               <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{product.category}</p>
+                               <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                                 product.type === ProductType.PHYSICAL 
+                                   ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400' 
+                                   : product.type === ProductType.DIGITAL_COURSE 
+                                   ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400' 
+                                   : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                               }`}>
+                                 {product.type === ProductType.PHYSICAL 
+                                   ? 'Físico' 
+                                   : product.type === ProductType.DIGITAL_COURSE 
+                                   ? 'Curso' 
+                                   : product.type === ProductType.DIGITAL_EBOOK 
+                                   ? 'E-book' 
+                                   : 'Digital'}
+                               </span>
+                            </div>
                             <h4 className="font-black text-gray-900 dark:text-white uppercase text-sm tracking-tight mb-2 truncate">{product.name}</h4>
                             <p className="text-xl font-black text-gray-900 dark:text-white">{(product.price).toLocaleString('pt-BR')} KZ</p>
                          </div>
@@ -1598,7 +1711,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                initial={{ opacity: 0, scale: 0.97, y: 40 }}
                animate={{ opacity: 1, scale: 1, y: 0 }}
                transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-               className="bg-white dark:bg-[#0c0e16] w-full max-w-5xl h-full md:h-[90vh] rounded-none md:rounded-[2.5rem] shadow-[0_32px_64px_rgba(0,0,0,0.45)] relative border-0 md:border border-gray-100 dark:border-white/15 overflow-hidden flex flex-col" 
+               className="bg-white dark:bg-[#0c0e16] w-full max-w-5xl h-[100dvh] md:h-[90vh] rounded-none md:rounded-[2.5rem] shadow-[0_32px_64px_rgba(0,0,0,0.45)] relative border-0 md:border border-gray-100 dark:border-white/15 overflow-hidden flex flex-col" 
                onClick={e => e.stopPropagation()}
              >
                 {/* Premium Header */}
@@ -1615,8 +1728,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                    <button onClick={() => { setIsAddingProduct(false); setEditingProduct(null); }} className="p-3 hover:bg-gray-100 dark:hover:bg-white/10 rounded-2xl transition-all"><XMarkIcon className="h-6 w-6 dark:text-white" /></button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto no-scrollbar bg-gray-50/40 dark:bg-transparent">
-                   <div className="max-w-4xl mx-auto p-6 md:p-12 space-y-10">
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar bg-gray-50/40 dark:bg-transparent">
+                   <div className="max-w-4xl mx-auto p-3 sm:p-6 md:p-12 space-y-6 md:space-y-10">
                       
                       {/* Section 1: Informações Básicas com Estilo Estável Premium */}
                       <section className="bg-white dark:bg-[#131724] p-8 rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-6">
@@ -1697,7 +1810,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                       </section>
 
                       {/* Section 2: Mídia */}
-                      <section className="bg-white dark:bg-[#131724] p-8 rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-6">
+                      <section className="bg-white dark:bg-[#131724] p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-4 sm:space-y-6">
                          <div className="flex items-center gap-3 mb-4">
                             <div className="p-2 bg-orange-50 dark:bg-orange-500/10 rounded-lg text-orange-500">
                                <PhotoIcon className="h-5 w-5" />
@@ -1724,7 +1837,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                    setPImageUrls(prev => [...prev, rawUrl]);
                                    // Adiciona variante opcional padrão para este url
                                    setPVariations(prev => [...prev, {
-                                     id: crypto.randomUUID(),
+                                     id: generateUUID(),
                                      name: '',
                                      stock: 10,
                                      price: undefined,
@@ -1756,10 +1869,26 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                       className="bg-gray-50 dark:bg-[#171b2a] p-4 rounded-3xl border border-gray-150 dark:border-white/5 space-y-4 relative group"
                                     >
                                        <div className="relative aspect-square rounded-2xl overflow-hidden shadow-sm bg-gray-200 dark:bg-white/5">
-                                          <img src={url} className="w-full h-full object-cover" />
-                                          <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                                             <button type="button" onClick={() => removeProductImage(idx)} className="w-full py-2 bg-red-500 hover:bg-red-650 hover:bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Remover Foto</button>
+                                          <img src={url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                          
+                                          {/* Botão de apagar sempre visível para perfeita usabilidade móvel e web */}
+                                          <button 
+                                            type="button" 
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              removeProductImage(idx);
+                                            }} 
+                                            className="absolute top-2 right-2 p-1.5 bg-[#ff4747] hover:bg-red-650 hover:bg-red-600 text-white rounded-full shadow-lg z-20 hover:scale-110 active:scale-95 transition-all text-center flex items-center justify-center cursor-pointer border border-white/20"
+                                            title="Remover Foto"
+                                          >
+                                             <XMarkIcon className="h-4 w-4 stroke-[3.5]" />
+                                          </button>
+
+                                          <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                             <span className="w-full text-center py-2 bg-red-500/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Remover no X acima</span>
                                           </div>
+                                          
                                           {idx === 0 && (
                                             <div className="absolute top-2 left-2 bg-[#ff4747] text-[8px] font-black text-white px-2 py-0.5 rounded-md uppercase tracking-widest shadow-lg">Capa do Produto</div>
                                           )}
@@ -1782,7 +1911,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                                  if (existing) {
                                                    setPVariations(pVariations.map(v => v.imageUrl === url ? { ...v, name: val } : v));
                                                  } else {
-                                                   setPVariations([...pVariations, { id: crypto.randomUUID(), name: val, stock: 10, price: undefined, imageUrl: url }]);
+                                                   setPVariations([...pVariations, { id: generateUUID(), name: val, stock: 10, price: undefined, imageUrl: url }]);
                                                  }
                                                }}
                                                placeholder="Ex: Celular com Carregador" 
@@ -1803,7 +1932,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                                     if (existing) {
                                                       setPVariations(pVariations.map(v => v.imageUrl === url ? { ...v, price: val } : v));
                                                     } else {
-                                                      setPVariations([...pVariations, { id: crypto.randomUUID(), name: '', stock: 10, price: val, imageUrl: url }]);
+                                                      setPVariations([...pVariations, { id: generateUUID(), name: '', stock: 10, price: val, imageUrl: url }]);
                                                     }
                                                   }}
                                                   placeholder={pPrice || "Ex: 2500"} 
@@ -1822,7 +1951,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                                     if (existing) {
                                                       setPVariations(pVariations.map(v => v.imageUrl === url ? { ...v, stock: val } : v));
                                                     } else {
-                                                      setPVariations([...pVariations, { id: crypto.randomUUID(), name: '', stock: val, price: undefined, imageUrl: url }]);
+                                                      setPVariations([...pVariations, { id: generateUUID(), name: '', stock: val, price: undefined, imageUrl: url }]);
                                                     }
                                                   }}
                                                   placeholder="10" 
@@ -1853,7 +1982,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                       </section>
 
                       {/* Section 3: Variantes & SKUs */}
-                      <section className="bg-white dark:bg-[#131724] p-8 rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-6">
+                      <section className="bg-white dark:bg-[#131724] p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-4 sm:space-y-6">
                          <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-3">
                                <div className="p-2 bg-blue-50 dark:bg-blue-500/10 rounded-lg text-blue-500">
@@ -1915,6 +2044,60 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                                   <label className="text-[8px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 block">Estoque Local</label>
                                   <input type="number" value={pVariations.find(v => v.id === activeVariationId)?.stock} onChange={e => updateVariation(activeVariationId, { stock: parseInt(e.target.value) })} className="w-full p-3 bg-white dark:bg-[#131724] dark:text-white rounded-lg font-bold text-xs border-2 border-gray-200 dark:border-white/10 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" />
                                </div>
+
+                               <div className="col-span-2 md:col-span-3 border-t border-gray-100 dark:border-white/5 pt-4 mt-2">
+                                  <label className="text-[9px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-3 block">Mídia da Variante</label>
+                                  <div className="flex flex-col sm:flex-row gap-4 items-center">
+                                     {pVariations.find(v => v.id === activeVariationId)?.imageUrl ? (
+                                        <div className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-gray-200 dark:border-white/10 group">
+                                           <img 
+                                             src={pVariations.find(v => v.id === activeVariationId)?.imageUrl} 
+                                             alt="Variant" 
+                                             className="w-full h-full object-cover"
+                                             referrerPolicy="no-referrer"
+                                           />
+                                           {/* Botão de remoção de imagem de variante sempre disponível e visível */}
+                                           <button 
+                                             type="button" 
+                                             onClick={(e) => {
+                                               e.preventDefault();
+                                               e.stopPropagation();
+                                               updateVariation(activeVariationId, { imageUrl: '' });
+                                             }}
+                                             className="absolute top-1.5 right-1.5 p-1 bg-[#ff4747] hover:bg-red-600 text-white rounded-full shadow-md z-15 transition-all hover:scale-110 active:scale-95 flex items-center justify-center cursor-pointer border border-white/10"
+                                             title="Remover Imagem"
+                                           >
+                                              <XMarkIcon className="h-3.5 w-3.5 stroke-[3.5]" />
+                                           </button>
+                                        </div>
+                                     ) : (
+                                        <div className="flex-1 w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                           <label className="flex flex-col items-center justify-center p-4 bg-white dark:bg-[#131724] border-2 border-dashed border-gray-200 dark:border-white/10 rounded-xl cursor-pointer hover:border-blue-500 dark:hover:border-blue-500/50 transition-all text-center">
+                                              <PhotoIcon className="h-5 w-5 text-gray-400 mb-1" />
+                                              <span className="text-[9px] font-black dark:text-white uppercase tracking-wider">Enviar Imagem</span>
+                                              <span className="text-[7px] text-gray-400 font-bold uppercase mt-0.5">Clique ou solte aqui</span>
+                                              <input 
+                                                type="file" 
+                                                accept="image/*" 
+                                                className="hidden" 
+                                                onChange={e => handleVariationImageUpload(e, activeVariationId)} 
+                                              />
+                                           </label>
+                                           
+                                           <div className="flex flex-col justify-center p-4 bg-white dark:bg-[#131724] border-2 border-gray-200 dark:border-white/10 rounded-xl">
+                                              <span className="text-[8px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 block">Ou cole uma URL</span>
+                                              <input 
+                                                type="text" 
+                                                placeholder="https://exemplo.com/imagem.png" 
+                                                value={pVariations.find(v => v.id === activeVariationId)?.imageUrl || ''} 
+                                                onChange={e => updateVariation(activeVariationId, { imageUrl: e.target.value })} 
+                                                className="w-full p-2.5 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-lg font-bold text-[10px] border border-gray-200 dark:border-white/5 outline-none transition-all" 
+                                              />
+                                           </div>
+                                        </div>
+                                     )}
+                                  </div>
+                               </div>
                             </div>
                          </motion.div>
                       )}
@@ -1922,7 +2105,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
 
                    {/* Section: Conteúdo Digital (Condicional) */}
                    {pType !== ProductType.PHYSICAL && (
-                     <section className="bg-white dark:bg-white/5 p-8 rounded-[2rem] border-2 border-dashed border-red-500/30 shadow-xl space-y-6 animate-fade-in">
+                     <section className="bg-white dark:bg-white/5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] border-2 border-dashed border-red-500/30 shadow-xl space-y-4 sm:space-y-6 animate-fade-in">
                         <div className="flex items-center gap-3 mb-4">
                            <div className="p-2 bg-red-50 dark:bg-red-500/10 rounded-lg text-red-600">
                               <ArchiveBoxIcon className="h-5 w-5" />
@@ -2003,7 +2186,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
 
                   {/* Section: Logistics & Weight (AliExpress Style) */}
                   {pType === ProductType.PHYSICAL && (
-                    <section className="bg-white dark:bg-[#131724] p-8 rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-6 animate-fade-in">
+                    <section className="bg-white dark:bg-[#131724] p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-4 sm:space-y-6 animate-fade-in">
                      <div className="flex items-center gap-3 mb-4">
                         <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg text-indigo-500">
                            <TruckIcon className="h-5 w-5" />
@@ -2014,36 +2197,138 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                         <div className="space-y-4">
                            <div className="relative group">
                               <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 block ml-1">Peso da Embalagem (KG)</label>
-                              <input type="number" step="0.01" className="w-full p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" placeholder="0.50" />
+                              <input type="number" step="0.01" value={pWeight} onChange={e => setPWeight(e.target.value)} className="w-full p-2.5 sm:p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-xs sm:text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" placeholder="0.50" />
                            </div>
                            <div className="relative group">
                               <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 block ml-1">Dimensões (C x L x A) cm</label>
-                              <div className="flex gap-2">
-                                 <input type="number" placeholder="C" className="flex-1 p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" />
-                                 <input type="number" placeholder="L" className="flex-1 p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" />
-                                 <input type="number" placeholder="A" className="flex-1 p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" />
+                              <div className="grid grid-cols-3 gap-2">
+                                 <div className="relative text-center">
+                                     <input 
+                                       type="number" 
+                                       placeholder="C" 
+                                       value={pLength} 
+                                       onChange={e => setPLength(e.target.value)} 
+                                       className="w-full text-center p-2.5 sm:p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-xs sm:text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" 
+                                     />
+                                     <span className="text-[8px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider block mt-1">Comp. (cm)</span>
+                                  </div>
+                                  <div className="relative text-center">
+                                     <input 
+                                       type="number" 
+                                       placeholder="L" 
+                                       value={pWidth} 
+                                       onChange={e => setPWidth(e.target.value)} 
+                                       className="w-full text-center p-2.5 sm:p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-xs sm:text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" 
+                                     />
+                                     <span className="text-[8px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider block mt-1">Larg. (cm)</span>
+                                  </div>
+                                  <div className="relative text-center">
+                                     <input 
+                                       type="number" 
+                                       placeholder="A" 
+                                       value={pHeight} 
+                                       onChange={e => setPHeight(e.target.value)} 
+                                       className="w-full text-center p-2.5 sm:p-4 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-xl outline-none font-bold text-xs sm:text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" 
+                                     />
+                                     <span className="text-[8px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-wider block mt-1">Alt. (cm)</span>
+                                  </div>
                               </div>
                            </div>
                         </div>
                         <div className="bg-gray-50 dark:bg-[#1a1e2e] rounded-2xl p-6 border-2 border-gray-200 dark:border-white/10">
-                           <p className="text-[9px] font-black text-indigo-550 uppercase tracking-widest mb-4">Templates de Frete</p>
-                           <div className="space-y-3">
-                              <label className="flex items-center gap-3 p-3 bg-white dark:bg-[#131724] rounded-xl border-2 border-indigo-500 cursor-pointer transition-all">
-                                 <input type="radio" checked readOnly className="accent-indigo-500" />
-                                 <div>
-                                    <p className="text-[10px] font-black dark:text-white uppercase tracking-tight">Standard Shipping (7-15 dias)</p>
-                                    <p className="text-[8px] font-bold text-gray-400 dark:text-gray-500">Gratuito para todo o mundo (Ativo)</p>
-                                 </div>
-                              </label>
-                              <label className="flex items-center gap-3 p-3 bg-white/50 dark:bg-[#131724]/40 rounded-xl border-2 border-transparent grayscale cursor-not-allowed">
-                                 <input type="radio" disabled className="accent-indigo-500" />
-                                 <div>
-                                    <p className="text-[10px] font-black dark:text-white/40 uppercase tracking-tight">Express Priority (3-5 dias)</p>
-                                    <p className="text-[8px] font-bold text-gray-400/40">Custo calculado no checkout</p>
-                                 </div>
-                              </label>
-                           </div>
-                        </div>
+                           <p className="text-[9px] font-black text-indigo-550 uppercase tracking-widest mb-4">Opções de Frete</p>
+                            <div className="space-y-4">
+                               <div 
+                                 onClick={() => setPHasFreeShipping(true)} 
+                                 className={`flex items-center gap-3 p-3 bg-white dark:bg-[#131724] rounded-xl border-2 cursor-pointer transition-all ${
+                                   pHasFreeShipping ? 'border-indigo-500 shadow-md' : 'border-gray-200 dark:border-white/10'
+                                 }`}
+                               >
+                                  <input 
+                                    type="radio" 
+                                    name="shippingType" 
+                                    checked={pHasFreeShipping} 
+                                    onChange={() => setPHasFreeShipping(true)} 
+                                    className="accent-indigo-500 pointer-events-none" 
+                                  />
+                                  <div>
+                                     <p className="text-[10px] font-black dark:text-white uppercase tracking-tight">Frete Grátis</p>
+                                     <p className="text-[8px] font-bold text-gray-400 dark:text-gray-500">Ideal para aumentar conversões (Ativo)</p>
+                                  </div>
+                               </div>
+
+                               <div 
+                                 onClick={() => setPHasFreeShipping(false)} 
+                                 className={`flex items-center gap-3 p-3 bg-white dark:bg-[#131724] rounded-xl border-2 cursor-pointer transition-all ${
+                                   !pHasFreeShipping ? 'border-indigo-500 shadow-md' : 'border-gray-200 dark:border-white/10'
+                                 }`}
+                               >
+                                  <input 
+                                    type="radio" 
+                                    name="shippingType" 
+                                    checked={!pHasFreeShipping} 
+                                    onChange={() => setPHasFreeShipping(false)} 
+                                    className="accent-indigo-500 pointer-events-none" 
+                                  />
+                                  <div className="flex-1">
+                                     <p className="text-[10px] font-black dark:text-white uppercase tracking-tight">Frete Fixo / Pago</p>
+                                     <p className="text-[8px] font-bold text-gray-400 dark:text-gray-500">Defina um valor fixo de envio</p>
+                                  </div>
+                               </div>
+
+                               <div className="relative group pt-2 border-t border-gray-100 dark:border-white/10">
+                                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 block">Template de Frete / Prazo</label>
+                                  <div className="relative">
+                                     <select 
+                                       value={pShippingTemplate} 
+                                       onChange={e => {
+                                         const selectedTpl = e.target.value;
+                                         setPShippingTemplate(selectedTpl);
+                                         if (!pHasFreeShipping) {
+                                           const found = SHIPPING_TEMPLATES.find(t => t.name === selectedTpl);
+                                           if (found) {
+                                             setPShippingFee(found.defaultFee.toString());
+                                           }
+                                         }
+                                       }} 
+                                       className="w-full p-3.5 bg-white dark:bg-[#131724] dark:text-white rounded-xl outline-none font-bold text-xs border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 appearance-none cursor-pointer pr-10 transition-all font-sans"
+                                     >
+                                        {SHIPPING_TEMPLATES.map(t => (
+                                          <option key={t.id} value={t.name}>{t.name}</option>
+                                        ))}
+                                     </select>
+                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-gray-500">
+                                        <ChevronDownIcon className="h-5 w-5" />
+                                     </div>
+                                  </div>
+                                  <p className="text-[8px] font-bold text-gray-400 dark:text-gray-500 mt-1.5 uppercase tracking-wider block ml-1">
+                                     {SHIPPING_TEMPLATES.find(t => t.name === pShippingTemplate)?.description}
+                                  </p>
+                                </div>
+
+                               {!pHasFreeShipping && (
+                                 <motion.div 
+                                   initial={{ opacity: 0, height: 0 }}
+                                   animate={{ opacity: 1, height: 'auto' }}
+                                   className="relative group mt-2 pt-2 border-t border-gray-100 dark:border-white/10"
+                                 >
+                                    <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 block">Taxa de Frete (KZ)</label>
+                                    <div className="relative">
+                                      <input 
+                                        type="number" 
+                                        step="0.01" 
+                                        required={!pHasFreeShipping}
+                                        value={pShippingFee} 
+                                        onChange={e => setPShippingFee(e.target.value)} 
+                                        placeholder="0.00" 
+                                        className="w-full p-3 bg-white dark:bg-[#131724] dark:text-white rounded-xl outline-none font-bold text-xs sm:text-sm border-2 border-gray-200 dark:border-white/10 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono" 
+                                      />
+                                      <div className="absolute right-3 top-3 text-[10px] font-bold text-gray-400 dark:text-gray-500">KZ</div>
+                                    </div>
+                                 </motion.div>
+                               )}
+                            </div>
+                         </div>
                      </div>
                   </section>
                 )}
@@ -2069,9 +2354,21 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                              </div>
                              <div className="relative group">
                                 <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-2 block ml-1">Tipo de Entrega</label>
-                                <div className="p-5 bg-gray-50 dark:bg-[#1a1e2e] dark:text-white rounded-[1.2rem] border-2 border-gray-200 dark:border-white/10 flex items-center justify-between">
-                                   <span className="text-xs font-bold uppercase tracking-widest text-gray-700 dark:text-gray-300">Frete Grátis</span>
-                                   <input type="checkbox" defaultChecked className="w-6 h-6 accent-[#ff4747] cursor-pointer" />
+                                <div 
+                                  onClick={() => setPHasFreeShipping(!pHasFreeShipping)}
+                                  className={`p-5 rounded-[1.2rem] border-2 flex items-center justify-between cursor-pointer transition-all ${pHasFreeShipping ? 'bg-red-50/10 dark:bg-red-500/5 border-red-500/30' : 'bg-gray-50 dark:bg-[#1a1e2e] border-gray-200 dark:border-white/10'}`}
+                                >
+                                   <div className="flex flex-col">
+                                      <span className="text-xs font-bold uppercase tracking-widest text-gray-700 dark:text-gray-300">Frete Grátis</span>
+                                      <span className="text-[8px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest mt-0.5">{pHasFreeShipping ? 'Grátis p/ o Cliente' : 'Com cobrança de taxa'}</span>
+                                   </div>
+                                   <input 
+                                     type="checkbox" 
+                                     checked={pHasFreeShipping} 
+                                     onChange={e => setPHasFreeShipping(e.target.checked)} 
+                                     onClick={e => e.stopPropagation()}
+                                     className="w-6 h-6 accent-[#ff4747] cursor-pointer" 
+                                   />
                                 </div>
                              </div>
                           </div>
@@ -2079,26 +2376,100 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
 
                        {/* Section 5: Especificações */}
                        <section className="bg-white dark:bg-[#131724] p-8 rounded-[2rem] border border-gray-200/60 dark:border-white/10 shadow-sm space-y-6">
-                          <div className="flex items-center justify-between mb-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
                              <div className="flex items-center gap-3">
-                                <div className="p-2 bg-purple-50 dark:bg-purple-500/10 rounded-lg text-purple-555">
+                                <div className="p-2 bg-purple-50 dark:bg-purple-500/10 rounded-lg text-[#a855f7]">
                                    <ListBulletIcon className="h-5 w-5" />
                                 </div>
-                                <h4 className="text-sm font-black dark:text-white uppercase tracking-widest text-[#a855f7]">Atributos & Specs</h4>
-                             </div>
-                             <button type="button" onClick={addSpecification} className="px-4 py-2 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-[#a855f7] hover:text-white transition-all">+ Nova Spec</button>
-                          </div>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                             {pSpecifications.map((spec, idx) => (
-                                <div key={idx} className="flex gap-2 p-2 bg-gray-50 dark:bg-[#1a1e2e] rounded-xl border-2 border-gray-200 dark:border-white/10 transition-all focus-within:border-purple-500">
-                                   <input placeholder="Chave" value={spec.key} onChange={e => updateSpecification(idx, 'key', e.target.value)} className="flex-1 p-2.5 bg-transparent font-bold text-xs dark:text-white outline-none" />
-                                   <div className="w-px bg-gray-200 dark:bg-white/10 my-1"></div>
-                                   <input placeholder="Valor" value={spec.value} onChange={e => updateSpecification(idx, 'value', e.target.value)} className="flex-1 p-2.5 bg-transparent font-bold text-xs dark:text-white outline-none text-[#ff4747]" />
-                                   <button type="button" onClick={() => removeSpecification(idx)} className="p-2 text-gray-300 dark:text-gray-500 hover:text-red-500 transition-all"><XMarkIcon className="h-4 w-4" /></button>
+                                <div>
+                                   <h4 className="text-sm font-black dark:text-white uppercase tracking-widest text-[#a855f7]">Especificações Técnicas</h4>
+                                   <p className="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase mt-0.5 animate-pulse">Preenchimento Fácil e Organizado</p>
                                 </div>
-                             ))}
+                             </div>
+                             <button 
+                               type="button" 
+                               onClick={addSpecification} 
+                               className="px-5 py-2.5 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#a855f7] hover:text-white transition-all shadow-sm flex items-center justify-center gap-1.5 self-start sm:self-center"
+                             >
+                                <PlusCircleIcon className="h-4 w-4" />
+                                Adicionar Atributo
+                             </button>
                           </div>
+
+                          {/* Bloco de ajuda educacional */}
+                          <div className="p-4 bg-purple-50/50 dark:bg-purple-500/5 rounded-2xl border border-purple-100 dark:border-purple-500/10 text-xs text-purple-950 dark:text-purple-250 font-medium leading-relaxed font-sans shadow-inner">
+                             <span className="font-black block text-[10px] uppercase tracking-wider text-purple-800 dark:text-purple-400 mb-1">Guia Técnico Simples:</span>
+                             Especifique características como <strong>Marca</strong>, <strong>Cor</strong>, <strong>Modelo</strong>, <strong>Tamanho</strong> ou <strong>Capacidade</strong> para aumentar as hipóteses de venda em até 80%! A <strong>Propriedade</strong> é o campo e o <strong>Valor</strong> é o dado técnico.
+                          </div>
+
+                          {/* Modelos Rápidos */}
+                          <div className="space-y-2 bg-gray-50/50 dark:bg-white/5 p-4 rounded-2xl border border-gray-150 dark:border-white/5">
+                             <p className="text-[9px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1">📋 Modelos Rápidos (Escolha uma categoria):</p>
+                             <div className="flex flex-wrap gap-2">
+                                {SPEC_PRESETS.map((preset, idx) => (
+                                   <button
+                                     key={idx}
+                                     type="button"
+                                     onClick={() => {
+                                       if (pSpecifications.some(s => s.key || s.value)) {
+                                         if (confirm(`Preencher com o modelo de "${preset.name.split(' ').slice(1).join(' ')}"? Isso substituirá suas especificações atuais.`)) {
+                                           setPSpecifications(preset.keys.map(k => ({ key: k, value: '' })));
+                                         }
+                                       } else {
+                                         setPSpecifications(preset.keys.map(k => ({ key: k, value: '' })));
+                                       }
+                                     }}
+                                     className="px-3.5 py-2 bg-white dark:bg-[#131724] hover:bg-purple-50 dark:hover:bg-purple-500/10 text-gray-700 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 border border-gray-200 dark:border-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm"
+                                   >
+                                      {preset.name}
+                                   </button>
+                                ))}
+                             </div>
+                          </div>
+
+                          {pSpecifications.length === 0 ? (
+                             <div className="py-8 text-center border-2 border-dashed border-gray-200 dark:border-white/10 rounded-2xl bg-gray-50/50 dark:bg-[#1a1e2e]/50">
+                                <TableCellsIcon className="h-8 w-8 mx-auto text-gray-350 dark:text-gray-650 mb-2" />
+                                <p className="text-xs font-bold text-gray-400 dark:text-gray-500">Nenhuma especificação técnica de momento.</p>
+                                <p className="text-[9px] text-gray-400 font-medium uppercase mt-0.5">Utilize os modelos rápidos ou clique em "Adicionar Atributo" acima para começar.</p>
+                             </div>
+                          ) : (
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {pSpecifications.map((spec, idx) => (
+                                   <div key={idx} className="flex flex-col sm:flex-row gap-3 p-4 bg-gray-50 dark:bg-[#1a1e2e] rounded-2xl border-2 border-gray-200 dark:border-white/10 transition-all focus-within:border-purple-500 hover:border-gray-300 dark:hover:border-white/20 relative group">
+                                      <div className="flex-1 space-y-1">
+                                         <span className="text-[8px] font-black text-purple-700 dark:text-purple-400 uppercase tracking-wider block">Propriedade / Chave (Ex: Cor)</span>
+                                         <input 
+                                           placeholder="Ex: Marca, Cor, Tamanho, etc." 
+                                           value={spec.key} 
+                                           onChange={e => updateSpecification(idx, 'key', e.target.value)} 
+                                           className="w-full bg-white dark:bg-[#131724] p-3 rounded-xl border border-gray-200 dark:border-white/10 font-bold text-xs dark:text-white outline-none focus:border-purple-400 transition-all" 
+                                        />
+                                      </div>
+                                      <div className="hidden sm:flex items-center justify-center pt-4">
+                                         <ChevronRightIcon className="h-4 w-4 text-gray-350" />
+                                      </div>
+                                      <div className="flex-1 space-y-1">
+                                         <span className="text-[8px] font-black text-emerald-500 uppercase tracking-wider block">Valor / Resposta (Ex: Preto)</span>
+                                         <input 
+                                           placeholder="Ex: Apple, Azul, 42, etc." 
+                                           value={spec.value} 
+                                           onChange={e => updateSpecification(idx, 'value', e.target.value)} 
+                                           className="w-full bg-white dark:bg-[#131724] p-3 rounded-xl border border-gray-200 dark:border-white/10 font-bold text-xs dark:text-white outline-none focus:border-purple-400 transition-all text-[#ff4747] dark:text-[#ff6b6b]" 
+                                        />
+                                      </div>
+                                      <button 
+                                        type="button" 
+                                        onClick={() => removeSpecification(idx)} 
+                                        className="absolute top-2 right-2 sm:relative sm:top-0 sm:right-0 p-2 text-gray-350 dark:text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all self-end sm:self-center"
+                                        title="Remover especificação"
+                                      >
+                                         <XMarkIcon className="h-4 w-4" />
+                                      </button>
+                                   </div>
+                                ))}
+                             </div>
+                          )}
                        </section>
 
                        {/* Section 6: Descrição Detalhada */}
@@ -2130,10 +2501,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({ currentUser, onNavi
                    </button>
                    <button 
                      onClick={handleCreateProduct} 
-                     disabled={uploading || !pName || !pPrice} 
+                     disabled={uploading || isSaving} 
                      className="flex-[2] py-5 bg-[#ff4747] hover:bg-[#e03d3d] text-white rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-[0_12px_24px_rgba(255,71,71,0.25)] hover:shadow-[0_16px_32px_rgba(255,71,71,0.35)] hover:scale-[1.01] active:scale-[0.98] transition-all duration-300 disabled:opacity-40 disabled:pointer-events-none"
                    >
-                     {uploading ? 'Processando Database...' : (editingProduct ? 'Atualizar no Global' : 'Publicar no Global')}
+                     {isSaving ? 'Processando Database...' : (uploading ? 'Enviando Mídia...' : (editingProduct ? 'Atualizar no Global' : 'Publicar no Global'))}
                    </button>
                 </div>
              </motion.div>
