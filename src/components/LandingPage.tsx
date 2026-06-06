@@ -81,8 +81,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
             id: 'fallback-p2',
             storeId: 'system-store',
             userId: 'system',
-            name: 'Curso Digital: Sucesso no E-commerce em Angola',
-            description: 'Aprenda do absoluto zero de forma prática com vídeo-aulas a importar mercadorias, criar sua marca própria, gerenciar stock e alavancar vendas online em Luanda e províncias.',
+            name: 'Curso Digital: Sucesso no E-commerce',
+            description: 'Aprenda do absoluto zero de forma prática com vídeo-aulas a importar mercadorias, criar sua marca própria, gerenciar stock e alavancar vendas online em qualquer região.',
             price: 15000,
             imageUrls: ['https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=600'],
             affiliateCommissionRate: 20,
@@ -198,12 +198,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
           </div>
           
           <h1 className="text-[13vw] sm:text-[10vw] md:text-[8vw] font-black text-gray-900 dark:text-white tracking-tighter leading-[0.85] mb-8 uppercase text-balance">
-            Angola em <br />
+            Conectados em <br />
             <span className="text-blue-600 italic font-serif lowercase tracking-normal">outra</span> dimensão
           </h1>
           
           <p className="text-gray-500 dark:text-gray-400 text-lg md:text-xl max-w-2xl mx-auto font-medium leading-relaxed mb-12 px-4 italic font-serif">
-            "Mais do que uma rede social, o FacePhone é o epicentro da nova economia digital angolana. Conecte-se com o que realmente importa."
+            "Mais do que uma rede social, o FacePhone é o epicentro da nova economia digital. Conecte-se com o que realmente importa."
           </p>
           
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
@@ -477,7 +477,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
             >
                <div className="hidden md:block">
                   <h4 className="text-gray-900 font-black uppercase text-xs tracking-widest mb-1">Crie sua conta</h4>
-                  <p className="text-[10px] text-gray-500 font-medium">Participe da conversa em Angola.</p>
+                  <p className="text-[10px] text-gray-500 font-medium">Participe da conversa hoje mesmo.</p>
                </div>
                <button onClick={onGoToAuth} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-500/30">Inscrever-se Grátis</button>
                <button onClick={onGoToAuth} className="px-6 py-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs tracking-widest text-gray-900">Login</button>
@@ -553,7 +553,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                 <span className="text-green-600">AKZ</span>.
               </h2>
               <p className="text-gray-500 dark:text-gray-400 font-serif italic text-xl">
-                 "O maior marketplace seguro de Angola agora no seu bolso. Escrow, integridade e oportunidades para todos os empreendedores."
+                 "O maior marketplace seguro agora no seu bolso. Escrow, integridade e oportunidades para todos os empreendedores."
               </p>
               <div className="flex gap-4 pt-6">
                  <div className="p-6 bg-white dark:bg-white/5 rounded-3xl shadow-xl flex-1 border border-gray-100 dark:border-white/5 group hover:border-green-500/30 transition-colors">
@@ -725,7 +725,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                { label: 'Cidadãos', val: '100K+', icon: UserGroupIcon },
                { label: 'Negócios', val: '5K+', icon: ShoppingBagIcon },
                { label: 'Transações', val: '2B+', icon: BanknotesIcon },
-               { label: 'Alcance', val: 'Global', icon: GlobeAltIcon }
+               { label: 'Alcance', val: 'Ilimitado', icon: GlobeAltIcon }
              ].map((stat, i) => (
                <div key={i} className="group cursor-default">
                   <div className="mb-6 mx-auto w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center group-hover:scale-110 group-hover:bg-blue-600 transition-all duration-500">
@@ -756,7 +756,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
             >
               Criar minha conta agora
             </motion.button>
-            <p className="mt-8 text-blue-100/60 text-xs font-black uppercase tracking-[0.3em]">Junte-se a milhares de angolanos hoje.</p>
+            <p className="mt-8 text-blue-100/60 text-xs font-black uppercase tracking-[0.3em]">Junte-se a milhares de usuários hoje.</p>
          </div>
       </section>
 
@@ -802,7 +802,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
              </div>
           </div>
           <div className="pt-8 border-t border-gray-100 dark:border-white/5 flex flex-col md:row items-center justify-between gap-6">
-             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">© 2026 FacePhone Angola — All Rights Reserved.</p>
+             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">© 2026 FacePhone — All Rights Reserved.</p>
              <div className="flex gap-6">
                 <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center hover:bg-blue-600 transition-colors group cursor-pointer">
                    <GlobeAltIcon className="h-4 w-4 text-gray-400 group-hover:text-white" />
@@ -857,7 +857,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                   </div>
                   <div className="flex items-center gap-3">
                     <CheckCircleIcon className="h-5 w-5 text-green-500 shrink-0" />
-                    <span className="text-xs font-black uppercase text-gray-700 dark:text-gray-300">Suporte ao Empreendedor Angolano</span>
+                    <span className="text-xs font-black uppercase text-gray-700 dark:text-gray-300">Suporte ao Empreendedor</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <CheckCircleIcon className="h-5 w-5 text-green-500 shrink-0" />

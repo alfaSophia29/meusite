@@ -105,7 +105,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
         monetizationStatus: 'PENDING'
       });
       await refreshUser();
-      showToast("Candidatura enviada para a banca oficial do FacePhone Angola!");
+      showToast("Candidatura enviada para a banca oficial do FacePhone!");
     } catch (e) {
       console.error(e);
       showToast("Falha ao processar candidatura.");
@@ -193,7 +193,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
               Estúdio de <span className="text-red-600">Monetização</span>
             </h1>
             <p className="text-xs text-gray-500 dark:text-zinc-400 max-w-2xl font-medium leading-relaxed">
-              Descubra o ecossistema completo de criadores de Angola. Regras transparentes, acompanhamento de metas em tempo real e procedimentos oficiais para capacitar a sua comunidade no FacePhone Angola Partner Program.
+              Descubra o ecossistema completo de criadores. Regras transparentes, acompanhamento de metas em tempo real e procedimentos oficiais para capacitar a sua comunidade no FacePhone Partner Program.
             </p>
           </div>
 
@@ -262,7 +262,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
                       <div className="space-y-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-red-100 bg-white/10 px-3.5 py-1 rounded-full border border-white/10 inline-block">Membro Ativo Certificado</span>
                         <h2 className="text-3xl md:text-5xl font-black tracking-tighter uppercase leading-none">Você é Parceiro FacePhone!</h2>
-                        <p className="text-xs text-red-100 max-w-lg font-medium">Parabéns! Sua conta monetizada está gerando lucros através do FacePhone Ads Angola e publicidade nativa do ecossistema.</p>
+                        <p className="text-xs text-red-100 max-w-lg font-medium">Parabéns! Sua conta monetizada está gerando lucros através do FacePhone Ads e publicidade nativa do ecossistema.</p>
                       </div>
                       <div className="flex gap-3">
                         <button 
@@ -358,7 +358,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
                 <div className="space-y-1 max-w-xl">
                   <h3 className="text-lg font-black uppercase tracking-tight text-gray-950 dark:text-white">Requisitos de Qualidade para Parceiros</h3>
                   <p className="text-xs text-gray-500 dark:text-zinc-400 font-medium leading-relaxed">
-                    Acompanhe seu desempenho ao vivo. Quando atingir as metas em Angola, o formulário de candidatura é disponibilizado instantaneamente.
+                    Acompanhe seu desempenho ao vivo. Quando atingir as metas do programa, o formulário de candidatura é disponibilizado instantaneamente.
                   </p>
                 </div>
 
@@ -495,7 +495,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
               
               <div className="space-y-2">
                 <h3 className="text-sm font-black uppercase tracking-wider text-gray-900 dark:text-white">Processo de Inscrição Oficial</h3>
-                <p className="text-xs text-gray-500 dark:text-zinc-400">Complete as seguintes etapas obrigatórias na ordem especificada para obter a moeda líquida de parceiro em Angola.</p>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">Complete as seguintes etapas obrigatórias na ordem especificada para obter a liquidez de parceiro nas suas moedas cadastradas.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -547,7 +547,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
                     <div className="space-y-1.5">
                       <h4 className="text-base font-black uppercase tracking-tight text-gray-950 dark:text-white">Verificar Identidade</h4>
                       <p className="text-xs text-gray-500 dark:text-zinc-500 leading-relaxed font-semibold">
-                        Aprovação cadastral (BI, Passaporte e Selfie) contra fraudes e conformidade do comitê de Angola.
+                        Aprovação cadastral (Documento de Identidade, Passaporte e Selfie) contra fraudes e cumprimento de diretrizes do comitê.
                       </p>
                     </div>
                   </div>
@@ -719,7 +719,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
                     </div>
 
                     <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed font-medium">
-                      Contas qualificadas que possuem strikes ou violações severas das diretrizes sobre discurso de ódio, golpes de pirâmides em Angola ou imitações de marca podem ser automaticamente suspensas de receber dividendos publicitários.
+                      Contas qualificadas que possuem strikes ou violações severas das diretrizes sobre discurso de ódio, fraudes de pirâmides ou imitações de marca podem ser automaticamente suspensas de receber dividendos publicitários.
                     </p>
                   </div>
                 </div>
@@ -771,7 +771,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
                 </p>
                 <div className="flex gap-4">
                   <a href="#rules" className="text-[10px] font-black uppercase tracking-widest text-red-600 hover:underline flex items-center gap-1">
-                    Ver regras completas de Angola <ExternalLink className="h-3.5 w-3.5" />
+                    Ver regras completas de conformidade <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                   <a href="#support" className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:underline flex items-center gap-1">
                     Central de Ajuda de Parceiros <ExternalLink className="h-3.5 w-3.5" />
@@ -810,20 +810,20 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
 
               <div className="text-xs text-gray-600 dark:text-zinc-300 space-y-4 leading-relaxed font-medium">
                 <p>
-                  Por favor, leia atentamente esses Termos do Programa de Parceria de Monetização (YPP) da rede FacePhone Angola, regulada pelas diretrizes oficiais do FacePhone Pay S.A.
+                  Por favor, leia atentamente esses Termos do Programa de Parceria de Monetização (YPP) da rede FacePhone, regulada pelas diretrizes oficiais do FacePhone Pay S.A.
                 </p>
 
                 <div className="p-4 bg-gray-50 dark:bg-white/[0.02] border border-gray-100 dark:border-white/5 rounded-2xl space-y-3 font-semibold text-[11px] dark:text-zinc-400">
                   <p>
                     <span className="text-red-500 font-bold block uppercase text-[10px] tracking-wider">1. Divisão Líquida de Receitas Publicitárias</span>
-                    O criador qualificado fará jus ao percentual de 55% da receita líquida comprovadamente arrecadada pela FacePhone em Angola com anúncios exibidos no player de seus vídeos ou no carrossel de transição entre Reels.
+                    O criador qualificado fará jus ao percentual de 55% da receita líquida comprovadamente arrecadada pela FacePhone com anúncios exibidos no player de seus vídeos ou no carrossel de transição entre Reels.
                   </p>
                   <p>
                     <span className="text-red-500 font-bold block uppercase text-[10px] tracking-wider">2. Liquidação de Saldos na Wallet</span>
                     Os repasses financeiros calculados no encerramento de cada dia útil de aferição de visualizações (views) serão creditados em USDT (TRC-20) ou diretamente na conta em Kwanzas. O FacePhone S.A. é o agente de pagamento legal.
                   </p>
                   <p>
-                    <span className="text-red-500 font-bold block uppercase text-[10px] tracking-wider">3. Padrões de Qualidade de Angola</span>
+                    <span className="text-red-500 font-bold block uppercase text-[10px] tracking-wider">3. Padrões de Qualidade e Integridade</span>
                     O criador de conteúdo assegura que todas as produções publicadas são de propriedade intelectual própria, abstendo-se de re-upload de canais internacionais (falsos cortes) ou mídias não autorizadas sem prévia alteração expressiva.
                   </p>
                   <p>
@@ -846,7 +846,7 @@ export const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser,
                     className="mt-1 h-5 w-5 rounded border-gray-300 text-red-600 focus:ring-red-500 dark:border-white/10 dark:bg-white/5"
                   />
                   <span className="text-xs font-semibold text-gray-700 dark:text-zinc-300 select-none group-hover:text-gray-950 dark:group-hover:text-white transition-colors">
-                    Li, entendi e concordo integralmente com todas as cláusulas de monetização do FacePhone Angola.
+                    Li, entendi e concordo integralmente com todas as cláusulas de monetização do FacePhone.
                   </span>
                 </label>
 

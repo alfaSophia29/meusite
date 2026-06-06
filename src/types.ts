@@ -74,7 +74,8 @@ export enum TransactionType {
   BOOST = 'BOOST',
   DONATION = 'DONATION',
   TICKET = 'TICKET',
-  REFUND = 'REFUND'
+  REFUND = 'REFUND',
+  TRANSFER = 'TRANSFER'
 }
 
 export interface Transaction {
@@ -543,7 +544,8 @@ export enum NotificationType {
   INDICATION = 'INDICATION',
   GROUP_POST = 'GROUP_POST',
   MISSED_CALL = 'MISSED_CALL',
-  PRO_GOAL_ACHIEVED = 'PRO_GOAL_ACHIEVED'
+  PRO_GOAL_ACHIEVED = 'PRO_GOAL_ACHIEVED',
+  WALLET_TRANSFER = 'WALLET_TRANSFER'
 }
 
 export interface Notification {

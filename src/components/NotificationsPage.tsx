@@ -71,6 +71,7 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
       case NotificationType.GROUP_POST: return <UserGroupIcon className="h-6 w-6 text-white bg-blue-600 rounded-full p-1" />;
       case NotificationType.MISSED_CALL: return <PhoneXMarkIcon className="h-6 w-6 text-white bg-red-600 rounded-full p-1" />;
       case NotificationType.PRO_GOAL_ACHIEVED: return <TrophyIcon className="h-6 w-6 text-white bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full p-1 shadow-md animate-bounce" />;
+      case NotificationType.WALLET_TRANSFER: return <CurrencyDollarIcon className="h-6 w-6 text-white bg-blue-600 rounded-full p-1 shadow-md" />;
       default: return null;
     }
   };
@@ -89,6 +90,7 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
       case NotificationType.GROUP_POST: return <>{actorName} publicou no grupo {notification.groupName}.</>;
       case NotificationType.MISSED_CALL: return <>{actorName} ligou para você ({notification.callType === CallType.VIDEO ? 'Vídeo' : 'Voz'}).</>;
       case NotificationType.PRO_GOAL_ACHIEVED: return <>Parabéns! Você alcançou {notification.goalPercentage || 50}% da sua meta mensal de vendas estipulada!</>;
+      case NotificationType.WALLET_TRANSFER: return <>{actorName} enviou uma transferência de saldo para o seu saldo digital.</>;
       default: return 'Nova notificação.';
     }
   };

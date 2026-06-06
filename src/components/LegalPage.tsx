@@ -15,7 +15,7 @@ const LegalPage: React.FC<LegalPageProps> = ({ type, onBack }) => {
       sections: [
         {
           h: '1. Aceitação dos Termos',
-          p: 'Ao utilizar a FacePhone, você concorda integralmente com estes termos. Nossa plataforma facilita o comércio social em Angola, permitindo a criação de lojas e venda de produtos.'
+          p: 'Ao utilizar a FacePhone, você concorda integralmente com estes termos. Nossa plataforma facilita o comércio social, permitindo a criação de lojas e venda de produtos.'
         },
         {
           h: '2. Responsabilidades do Vendedor',

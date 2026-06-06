@@ -21,10 +21,13 @@ import {
   Info,
   Layers,
   ArrowUpDown,
-  Download
+  Download,
+  Search,
+  Send,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getTransactions } from '../services/storageService';
+import { getTransactions, searchTransferRecipient, executeWalletTransfer } from '../services/storageService';
 
 interface WalletPageProps {
   currentUser: User;
@@ -38,6 +41,87 @@ const WalletPage: React.FC<WalletPageProps> = ({ currentUser, onNavigate, refres
   const [activeCurrency, setActiveCurrency] = useState<'KZ' | 'USDT'>('KZ');
   const [realTransactions, setRealTransactions] = useState<any[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
+
+  // Transfer States
+  const [transferQuery, setTransferQuery] = useState('');
+  const [isSearchingRecipient, setIsSearchingRecipient] = useState(false);
+  const [transferRecipient, setTransferRecipient] = useState<{ id: string; firstName: string; lastName?: string; profilePicture?: string; isVerified?: boolean } | null>(null);
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferDesc, setTransferDesc] = useState('');
+  const [transferStatus, setTransferStatus] = useState<'idle' | 'confirming' | 'processing' | 'success' | 'error'>('idle');
+  const [transferError, setTransferError] = useState('');
+  const [txSuccessId, setTxSuccessId] = useState('');
+
+  const handleSearchRecipient = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!transferQuery.trim()) return;
+    try {
+      setIsSearchingRecipient(true);
+      setTransferError('');
+      setTransferRecipient(null);
+      const res = await searchTransferRecipient(transferQuery);
+      if (res) {
+        if (res.id === currentUser.id) {
+          setTransferError('Você não pode realizar uma transferência para a sua própria conta.');
+        } else {
+          setTransferRecipient(res);
+        }
+      } else {
+        setTransferError('Destinatário não encontrado. Verifique se o e-mail ou número de telefone estão corretos.');
+      }
+    } catch (err: any) {
+      setTransferError('Erro ao buscar destinatário: ' + err.message);
+    } finally {
+      setIsSearchingRecipient(false);
+    }
+  };
+
+  const handleExecuteTransfer = async () => {
+    if (!transferRecipient) return;
+    const amount = parseFloat(transferAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setTransferError('Por favor, informe um montante válido maior que zero.');
+      return;
+    }
+
+    const baseAmount = activeCurrency === 'KZ' ? amount / exchangeRate : amount;
+
+    if (baseAmount > (currentUser.balance || 0)) {
+      setTransferError(`Saldo insuficiente. Seu saldo é de ${(currentUser.balance || 0).toFixed(2)} USDT (${((currentUser.balance || 0) * exchangeRate).toLocaleString('pt-BR')} KZ).`);
+      return;
+    }
+
+    try {
+      setTransferStatus('processing');
+      setTransferError('');
+      
+      const res = await executeWalletTransfer(
+        currentUser.id,
+        transferRecipient.id,
+        baseAmount,
+        transferDesc.trim() || undefined
+      );
+
+      if (res && res.success) {
+        setTxSuccessId(res.transactionId);
+        setTransferStatus('success');
+        setTransferAmount('');
+        setTransferDesc('');
+        setTransferQuery('');
+        setTransferRecipient(null);
+        await refreshUser();
+        // Recarrega transações
+        const updatedTx = await getTransactions(currentUser.id, undefined, 20);
+        setRealTransactions(updatedTx.items || []);
+      } else {
+        setTransferStatus('error');
+        setTransferError('A transação falhou de forma inesperada.');
+      }
+    } catch (err: any) {
+      setTransferStatus('error');
+      setTransferError(err.message || 'Erro ao processar transferência.');
+    }
+  };
 
   // Conversion calculator state
   const [calcInput, setCalcInput] = useState('1');
@@ -134,7 +218,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ currentUser, onNavigate, refres
     const cityLine = addr?.city || '';
     const stateLine = addr?.state || '';
     const zipCodeLine = addr?.zipCode || '';
-    const countryLine = currentUser.country || 'Angola';
+    const countryLine = currentUser.country || '';
 
     const formattedAddress = addr 
       ? `${addressLine}${cityLine ? `, ${cityLine}` : ''}${stateLine ? `, ${stateLine}` : ''}${zipCodeLine ? ` - CEP: ${zipCodeLine}` : ''}${countryLine ? ` (${countryLine})` : ''}`
@@ -531,7 +615,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ currentUser, onNavigate, refres
     <div class="footer">
       <p>FacePhone Pay S.A. - Serviços Financeiros de Moeda Digital e Afiliados</p>
       <p>Este extrato é um documento oficial emitido eletronicamente para fins informativos de contabilidade de rede.</p>
-      <p>&copy; 2026 FacePhone Angola. Todos os direitos reservados.</p>
+      <p>&copy; 2026 FacePhone. Todos os direitos reservados.</p>
     </div>
   </div>
 </body>
@@ -677,6 +761,289 @@ const WalletPage: React.FC<WalletPageProps> = ({ currentUser, onNavigate, refres
                   </div>
                </div>
 
+               {/* Painel de Transferência de Saldo de Carteira para Carteira */}
+               <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900 border border-slate-800 p-8 rounded-[3rem] text-white space-y-6 relative overflow-hidden shadow-2xl">
+                  {/* Visual Background Details */}
+                  <div className="absolute top-0 right-0 p-6 opacity-5">
+                     <ArrowRightLeft className="h-40 w-40" />
+                  </div>
+                  
+                  <div className="relative z-10 space-y-6">
+                     <div className="flex items-center gap-3">
+                        <div className="p-3 bg-blue-600/20 text-blue-400 rounded-2xl border border-blue-500/20">
+                           <ArrowRightLeft className="h-5 w-5" />
+                        </div>
+                        <div>
+                           <h3 className="font-black text-lg uppercase tracking-tighter">Transferência de Saldo</h3>
+                           <p className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">De carteira para carteira sem taxas adicionais</p>
+                        </div>
+                     </div>
+
+                     {transferStatus === 'success' ? (
+                        <motion.div 
+                           initial={{ opacity: 0, scale: 0.95 }}
+                           animate={{ opacity: 1, scale: 1 }}
+                           className="text-center py-8 space-y-6"
+                        >
+                           <div className="inline-flex items-center justify-center p-4 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
+                              <Check className="h-12 w-12 stroke-[3]" />
+                           </div>
+                           <div className="space-y-2">
+                              <h4 className="text-xl font-black uppercase tracking-tight text-emerald-400">Transferência Concluída!</h4>
+                              <p className="text-sm text-slate-300">O saldo foi transferido com sucesso para a conta do destinatário.</p>
+                           </div>
+                           <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800 text-left font-mono text-xs space-y-2 max-w-sm mx-auto">
+                              <p className="text-slate-400">
+                                 <span className="text-slate-500 font-sans uppercase font-black tracking-widest text-[9px] block">CÓDIGO DE TRANSAÇÃO</span> 
+                                 {txSuccessId}
+                              </p>
+                              <p className="text-slate-400">
+                                 <span className="text-slate-500 font-sans uppercase font-black tracking-widest text-[9px] block">ENTREGUE EM</span> 
+                                 {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
+                              </p>
+                           </div>
+                           <button 
+                              onClick={() => {
+                                 setTransferStatus('idle');
+                                 setTransferQuery('');
+                                 setTransferAmount('');
+                                 setTransferDesc('');
+                                 setTransferError('');
+                              }}
+                              className="px-6 py-3.5 bg-blue-600 text-white font-black text-[10px] uppercase tracking-widest rounded-full hover:bg-blue-700 transition cursor-pointer"
+                           >
+                              Nova Transferência
+                           </button>
+                        </motion.div>
+                     ) : (
+                        <div className="space-y-4">
+                           {/* Step 1: Input Query / Search */}
+                           {!transferRecipient && (
+                              <form onSubmit={handleSearchRecipient} className="space-y-4">
+                                 <div>
+                                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 px-1">Buscar Destinatário</label>
+                                    <div className="relative">
+                                       <input 
+                                          type="text"
+                                          placeholder="Digite o e-mail ou telemóvel do destinatário (ex: 244926815124)..."
+                                          value={transferQuery}
+                                          onChange={(e) => setTransferQuery(e.target.value)}
+                                          disabled={isSearchingRecipient}
+                                          className="w-full px-5 py-4 bg-slate-950/50 border border-slate-800 rounded-2xl focus:border-blue-500 focus:ring-0 text-white placeholder-slate-500 text-sm transition font-medium"
+                                       />
+                                       <button 
+                                          type="submit"
+                                          disabled={isSearchingRecipient || !transferQuery.trim()}
+                                          className="absolute right-2.5 top-2.5 p-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-800 text-white transition flex items-center justify-center gap-1.5 cursor-pointer font-bold text-xs"
+                                       >
+                                          {isSearchingRecipient ? (
+                                             <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                             <>
+                                                <Search className="h-3.5 w-3.5" />
+                                                <span className="text-[9px] font-black uppercase tracking-wider">Buscar</span>
+                                             </>
+                                          )}
+                                       </button>
+                                    </div>
+                                 </div>
+                              </form>
+                           )}
+
+                           {/* Recipient card if found */}
+                           {transferRecipient && (
+                              <motion.div 
+                                 initial={{ opacity: 0, y: 10 }}
+                                 animate={{ opacity: 1, y: 0 }}
+                                 className="bg-slate-950/60 p-6 rounded-[2rem] border border-slate-800 space-y-6"
+                              >
+                                 <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                                    <div className="flex items-center gap-3">
+                                       <div className="relative">
+                                          <img 
+                                             src={transferRecipient.profilePicture || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'} 
+                                             alt={transferRecipient.firstName}
+                                             className="w-12 h-12 rounded-full object-cover border border-white/10"
+                                          />
+                                          {transferRecipient.isVerified && (
+                                             <span className="absolute -bottom-1 -right-1 bg-blue-500 text-white p-0.5 rounded-full border border-slate-950 flex items-center justify-center">
+                                                <Check className="w-2.5 h-2.5 stroke-[4]" />
+                                             </span>
+                                          )}
+                                       </div>
+                                       <div>
+                                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Destinatário</p>
+                                          <p className="font-semibold text-white leading-tight">
+                                             {transferRecipient.firstName} {transferRecipient.lastName || ''}
+                                          </p>
+                                       </div>
+                                    </div>
+                                    <button 
+                                       onClick={() => {
+                                          setTransferRecipient(null);
+                                          setTransferAmount('');
+                                          setTransferDesc('');
+                                          setTransferError('');
+                                          setTransferStatus('idle');
+                                       }}
+                                       className="text-[10px] font-black uppercase text-slate-400 hover:text-white transition bg-white/5 px-3 py-1.5 rounded-full cursor-pointer"
+                                    >
+                                       Mudar
+                                    </button>
+                                 </div>
+
+                                 {transferStatus === 'confirming' ? (
+                                    <div className="space-y-4">
+                                       <div className="bg-blue-600/10 p-4 rounded-xl border border-blue-500/20 flex gap-3 text-sm text-blue-300">
+                                          <Info className="h-5 w-5 shrink-0" />
+                                          <div>
+                                             <p className="font-bold">Por favor, revise os dados antes de transferir.</p>
+                                             <p className="text-xs text-blue-400/90 mt-1">Estas transações são processadas instantaneamente no ecossistema FacePhone. Não podem ser desfeitas.</p>
+                                          </div>
+                                       </div>
+
+                                       <div className="space-y-2 text-sm font-medium">
+                                          <div className="flex justify-between text-slate-400">
+                                             <span>Destinatário:</span>
+                                             <span className="text-white font-bold">{transferRecipient.firstName} {transferRecipient.lastName || ''}</span>
+                                          </div>
+                                          <div className="flex justify-between text-slate-400">
+                                             <span>Montante de Transferência:</span>
+                                             <span className="text-white font-bold">{parseFloat(transferAmount).toLocaleString('pt-BR')} {activeCurrency}</span>
+                                          </div>
+                                          {activeCurrency === 'KZ' ? (
+                                             <div className="flex justify-between text-slate-400 text-xs">
+                                                <span>Equivalente em USDT:</span>
+                                                <span className="text-white font-bold">{(parseFloat(transferAmount) / exchangeRate).toFixed(2)} USDT</span>
+                                             </div>
+                                          ) : (
+                                             <div className="flex justify-between text-slate-400 text-xs text-slate-400">
+                                                <span>Equivalente em Kwanza:</span>
+                                                <span className="text-white font-bold">{(parseFloat(transferAmount) * exchangeRate).toLocaleString('pt-BR')} KZ</span>
+                                             </div>
+                                          )}
+                                          <div className="flex justify-between text-slate-400">
+                                             <span>Taxa Administrativa:</span>
+                                             <span className="text-emerald-400 font-bold uppercase text-xs">0% Grátis</span>
+                                          </div>
+                                          {transferDesc && (
+                                             <div className="border-t border-white/5 pt-2 text-xs">
+                                                <span className="text-slate-500 block">Mensagem anexada:</span>
+                                                <span className="text-slate-300 italic">"{transferDesc}"</span>
+                                             </div>
+                                          )}
+                                       </div>
+
+                                       <div className="flex gap-3 pt-2">
+                                          <button 
+                                             onClick={() => setTransferStatus('idle')}
+                                             disabled={transferStatus as string === 'processing'}
+                                             className="flex-1 py-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white font-black text-[10px] uppercase tracking-widest transition cursor-pointer"
+                                          >
+                                             Voltar
+                                          </button>
+                                          <button 
+                                             onClick={handleExecuteTransfer}
+                                             disabled={transferStatus as string === 'processing'}
+                                             className="flex-1 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-2xl text-white font-black text-[10px] uppercase tracking-widest transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 cursor-pointer"
+                                          >
+                                             <Lock className="h-4 w-4" /> Confirmar Envio
+                                          </button>
+                                       </div>
+                                    </div>
+                                 ) : (
+                                    <div className="space-y-4">
+                                       <div className="grid grid-cols-2 gap-4">
+                                          <div>
+                                             <label className="block text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1.5">Moeda Ativa</label>
+                                             <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1 justify-between items-center text-xs font-bold">
+                                                <button 
+                                                   type="button"
+                                                   onClick={() => setActiveCurrency('KZ')}
+                                                   className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${activeCurrency === 'KZ' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+                                                >
+                                                   KZ (AOA)
+                                                </button>
+                                                <button 
+                                                   type="button"
+                                                   onClick={() => setActiveCurrency('USDT')}
+                                                   className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${activeCurrency === 'USDT' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+                                                >
+                                                   USDT ($)
+                                                </button>
+                                             </div>
+                                          </div>
+                                          <div>
+                                             <label className="block text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1.5">Montante</label>
+                                             <div className="relative">
+                                                <input 
+                                                   type="number"
+                                                   step="0.01"
+                                                   placeholder="0.00"
+                                                   value={transferAmount}
+                                                   onChange={(e) => setTransferAmount(e.target.value)}
+                                                   className="w-full pl-3 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white focus:border-indigo-500 focus:ring-0 text-sm font-semibold"
+                                                />
+                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">{activeCurrency}</span>
+                                             </div>
+                                          </div>
+                                       </div>
+
+                                       <div>
+                                          <label className="block text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1.5">Mensagem ou Nota (Opcional)</label>
+                                          <input 
+                                             type="text"
+                                             placeholder="Ex: Reembolso, pagamento de serviço..."
+                                             value={transferDesc}
+                                             onChange={(e) => setTransferDesc(e.target.value)}
+                                             className="w-full px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-white focus:border-indigo-500 focus:ring-0 text-xs font-medium"
+                                          />
+                                       </div>
+
+                                       <button 
+                                          type="button"
+                                          onClick={() => {
+                                             if (!transferAmount || parseFloat(transferAmount) <= 0) {
+                                                setTransferError('Por favor, informe um valor de transferência válido.');
+                                                return;
+                                             }
+                                             setTransferError('');
+                                             setTransferStatus('confirming');
+                                          }}
+                                          className="w-full py-4 bg-blue-600 hover:bg-blue-700 rounded-2xl text-white font-black text-[10px] uppercase tracking-widest transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 active:scale-98 cursor-pointer"
+                                       >
+                                          <Send className="h-3.5 w-3.5" /> Prosseguir com a Transferência
+                                       </button>
+                                    </div>
+                                 )}
+                              </motion.div>
+                           )}
+
+                           {/* Error Box if exists */}
+                           {transferError && (
+                              <motion.div 
+                                 initial={{ opacity: 0, y: -5 }}
+                                 animate={{ opacity: 1, y: 0 }}
+                                 className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-2xl flex gap-3 text-sm"
+                              >
+                                 <ShieldAlert className="h-5 w-5 shrink-0 text-rose-400" />
+                                 <span className="font-semibold">{transferError}</span>
+                              </motion.div>
+                           )}
+
+                           {/* Processing State spinner */}
+                           {transferStatus === 'processing' && (
+                              <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-xs flex flex-col items-center justify-center z-50 rounded-[3rem] space-y-4 animate-fade-in animate-out duration-300">
+                                 <RefreshCw className="h-10 w-10 text-blue-500 animate-spin" />
+                                 <p className="text-xs uppercase tracking-widest font-black text-slate-400 text-center">Efetuando transação segura de carteira...</p>
+                              </div>
+                           )}
+
+                        </div>
+                     )}
+                  </div>
+               </div>
+
 
            </div>
 
@@ -697,7 +1064,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ currentUser, onNavigate, refres
 
                     <div className="space-y-4">
                        <p className="text-[10px] text-zinc-300 leading-relaxed">
-                          Descubra o valor em tempo real de acordo com as atuais oscilações de mercado e integrações com o Banco de Angola e exchanges Web3.
+                          Descubra o valor em tempo real de acordo com as atuais oscilações de mercado e integrações com bancos e exchanges Web3.
                        </p>
 
                        <div className="space-y-3">

@@ -81,7 +81,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [coverPhoto, setCoverPhoto] = useState(currentUser.coverPhoto || '');
   const [email, setEmail] = useState(currentUser.email || '');
   const [phone, setPhone] = useState(currentUser.phone || '');
-  const [country, setCountry] = useState(currentUser.country || 'Angola');
+  const [country, setCountry] = useState(currentUser.country || '');
   
   const [birthDate, setBirthDate] = useState(() => {
     const d = new Date(currentUser.birthDate);
@@ -251,7 +251,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                <div className="flex gap-4">
                   <GlobeAltIcon className="h-8 w-8 text-brand shrink-0" />
                   <p className="text-xs text-brand/80 font-bold leading-relaxed">
-                     A Cyber Social é uma plataforma global. Ao alterar o idioma, todos os textos do sistema serão atualizados para sua preferência regional.
+                     A Cyber Social é uma plataforma integrada. Ao alterar o idioma, todos os textos do sistema serão atualizados para sua preferência regional.
                   </p>
                </div>
             </div>
@@ -501,7 +501,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           } 
         },
         { label: 'Usuários Bloqueados', desc: 'Gerenciar lista negra', icon: NoSymbolIcon, onClick: () => onNavigate('blocked-users') },
-        { label: 'Idioma do Sistema', desc: 'Alterar linguagem global', icon: LanguageIcon, onClick: () => setView('language') }
+        { label: 'Idioma do Sistema', desc: 'Alterar linguagem da interface', icon: LanguageIcon, onClick: () => setView('language') }
       ]
     },
     {

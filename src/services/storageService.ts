@@ -3898,3 +3898,140 @@ export const getSalesByStoreId = async (storeId: string): Promise<AffiliateSale[
     }
 };
 
+/**
+ * Searches uniqueness_registry for email or phone digits, confirming against public_profiles.
+ */
+export const searchTransferRecipient = async (identifier: string): Promise<{ id: string; firstName: string; lastName?: string; profilePicture?: string; isVerified?: boolean } | null> => {
+    if (!db || !identifier) return null;
+    const clean = identifier.trim().toLowerCase();
+    
+    let userId: string | null = null;
+    
+    if (clean.includes('@')) {
+        const registryId = `email_${clean}`;
+        const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+        if (docSnap.exists()) {
+            userId = docSnap.data().userId;
+        }
+    } else {
+        const phoneDigits = clean.replace(/\D/g, '');
+        if (phoneDigits) {
+            let registryId = `phone_${phoneDigits}`;
+            let docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+            if (docSnap.exists()) {
+                userId = docSnap.data().userId;
+            } else if (phoneDigits.startsWith('244') && phoneDigits.length > 3) {
+                const withoutPrefix = phoneDigits.substring(3);
+                registryId = `phone_${withoutPrefix}`;
+                docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+                if (docSnap.exists()) {
+                    userId = docSnap.data().userId;
+                }
+            } else {
+                const withPrefix = '244' + phoneDigits;
+                registryId = `phone_${withPrefix}`;
+                docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+                if (docSnap.exists()) {
+                    userId = docSnap.data().userId;
+                }
+            }
+        }
+    }
+    
+    if (!userId && clean.length >= 15) {
+        const publicSnap = await getDoc(doc(db, 'public_profiles', identifier));
+        if (publicSnap.exists()) {
+            userId = identifier;
+        }
+    }
+    
+    if (userId) {
+        const publicSnap = await getDoc(doc(db, 'public_profiles', userId));
+        if (publicSnap.exists()) {
+            const data = publicSnap.data();
+            return {
+                id: userId,
+                firstName: data.firstName || 'Membro',
+                lastName: data.lastName || 'FacePhone',
+                profilePicture: data.profilePicture || '',
+                isVerified: !!data.isVerified
+            };
+        }
+    }
+    return null;
+};
+
+/**
+ * Safely deducts balance from sender and deposits to recipient, writing double ledger transactions.
+ */
+export const executeWalletTransfer = async (fromUserId: string, toUserId: string, amount: number, description?: string) => {
+    if (!db) throw new Error("Banco de dados não conectado.");
+    if (fromUserId === toUserId) throw new Error("SENTINEL_BLOCK: Não é possível transferir fundos para si mesmo.");
+    if (amount <= 0) throw new Error("SENTINEL_BLOCK: O montante deve ser maior que zero.");
+
+    await checkUserFrozen(fromUserId);
+    
+    const senderRef = doc(db, 'profiles', fromUserId);
+    const senderPublicRef = doc(db, 'public_profiles', fromUserId);
+    const recipientRef = doc(db, 'profiles', toUserId);
+    const recipientPublicRef = doc(db, 'public_profiles', toUserId);
+    
+    const senderSnap = await getDoc(senderRef);
+    const recipientSnap = await getDoc(recipientRef);
+    
+    if (!senderSnap.exists()) throw new Error("Sua conta de remetente não foi encontrada.");
+    if (!recipientSnap.exists()) throw new Error("A conta do destinatário não foi encontrada.");
+    
+    const senderData = senderSnap.data();
+    const recipientData = recipientSnap.data();
+    
+    const senderBalance = Number(senderData.balance || 0);
+    if (senderBalance < amount) {
+        throw new Error(`SENTINEL_BLOCK: Saldo insuficiente. Seu saldo atual é de $${senderBalance.toFixed(2)}.`);
+    }
+    
+    const newSenderBalance = senderBalance - amount;
+    await updateDoc(senderRef, { balance: newSenderBalance });
+    await updateDoc(senderPublicRef, { balance: newSenderBalance });
+    
+    const newRecipientBalance = Number(recipientData.balance || 0) + amount;
+    await updateDoc(recipientRef, { balance: newRecipientBalance });
+    await updateDoc(recipientPublicRef, { balance: newRecipientBalance });
+    
+    const senderTxId = generateUUID();
+    const senderTxDesc = description || `Transferido para ${recipientData.firstName} ${recipientData.lastName || ''}`.trim();
+    await setDoc(doc(db, 'transactions', senderTxId), {
+        id: senderTxId,
+        userId: fromUserId,
+        amount: -amount,
+        type: TransactionType.TRANSFER,
+        description: senderTxDesc,
+        timestamp: Date.now(),
+        status: 'COMPLETED'
+    });
+    
+    const recipientTxId = generateUUID();
+    const recipientTxDesc = `Recebido de ${senderData.firstName} ${senderData.lastName || ''}`.trim();
+    await setDoc(doc(db, 'transactions', recipientTxId), {
+        id: recipientTxId,
+        userId: toUserId,
+        amount: amount,
+        type: TransactionType.TRANSFER,
+        description: recipientTxDesc,
+        timestamp: Date.now(),
+        status: 'COMPLETED'
+    });
+    
+    await createNotification(
+        toUserId,
+        fromUserId,
+        NotificationType.WALLET_TRANSFER
+    ).catch(e => console.warn("Falha ao enviar notificação de transferência:", e));
+    
+    return {
+        success: true,
+        transactionId: senderTxId,
+        senderNewBalance: newSenderBalance
+    };
+};
+
