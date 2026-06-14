@@ -90,12 +90,12 @@ const SupportPage: React.FC<SupportPageProps> = ({ currentUser, onNavigate }) =>
     },
     {
       q: 'Qual o prazo de entrega para produtos físicos?',
-      a: 'Para Luanda, entregamos entre 24h a 48h. Para as províncias, o prazo médio é de 3 a 7 dias úteis via nossas transportadoras parceiras oficiais.',
+      a: 'Para a capital e arredores, entregamos entre 24h a 48h. Para as demais regiões, o prazo médio é de 3 a 7 dias úteis via nossas transportadoras parceiras oficiais.',
       icon: Truck
     },
     {
       q: 'É seguro comprar no FacePhone?',
-      a: 'Sim. Utilizamos tecnologia Escrow e verificação de identidade oficial de Angola para garantir que seu dinheiro só chegue ao vendedor após a entrega confirmada.',
+      a: 'Sim. Utilizamos tecnologia Escrow e verificação de identidade oficial para garantir que seu dinheiro só chegue ao vendedor após a entrega confirmada.',
       icon: HelpCircle
     }
   ];
@@ -207,7 +207,7 @@ const SupportPage: React.FC<SupportPageProps> = ({ currentUser, onNavigate }) =>
                 Estamos prontos para <span className="text-blue-600 italic">ajudar você</span>
               </h2>
               <p className="text-gray-500 dark:text-zinc-400 font-medium text-xs md:text-sm max-w-xl mx-auto italic font-serif">
-                "Fale diretamente com os administradores oficiais do FacePhone ou use o WhatsApp direto para urgências em Angola. Nada de e-mail."
+                "Fale diretamente com os administradores oficiais do FacePhone ou use o WhatsApp direto para urgências. Nada de e-mail."
               </p>
             </div>
 
@@ -227,7 +227,7 @@ const SupportPage: React.FC<SupportPageProps> = ({ currentUser, onNavigate }) =>
                     WhatsApp dos Administradores
                   </h4>
                   <p className="text-xs text-gray-500 dark:text-zinc-400 font-medium leading-relaxed font-semibold">
-                    Fale directamente no WhatsApp do administrador oficial em Angola. Tire dúvidas de recargas, pagamentos ou verificação de conta instantaneamente.
+                    Fale diretamente no WhatsApp do administrador oficial. Tire dúvidas de recargas, pagamentos ou verificação de conta instantaneamente.
                   </p>
                 </div>
                 <div className="pt-4 flex items-center justify-between">

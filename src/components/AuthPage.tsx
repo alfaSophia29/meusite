@@ -28,7 +28,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
   const [birthMonth, setBirthMonth] = useState('1');
   const [birthYear, setBirthYear] = useState('2000');
   const [gender, setGender] = useState<'Masculino' | 'Feminino' | 'Personalizado' | ''>('');
-  const [country, setCountry] = useState('Angola');
+  const [country, setCountry] = useState(COUNTRIES[0]?.name || '');
   
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);

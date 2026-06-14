@@ -413,7 +413,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                            <div key={video.id} className="bg-[#1a1c23] rounded-2xl overflow-hidden border border-white/5 group cursor-pointer" onClick={handleAction}>
                               <div className="aspect-video relative overflow-hidden bg-black">
                                  {video.reel?.videoUrl && (
-                                   <video src={video.reel.videoUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" muted loop playsInline onMouseEnter={e => e.currentTarget.play()} onMouseLeave={e => e.currentTarget.pause()} />
+                                   <video src={video.reel.videoUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" muted loop playsInline onMouseEnter={e => { e.currentTarget.play().catch(() => {}); }} onMouseLeave={e => e.currentTarget.pause()} />
                                  )}
                                  <div className="absolute inset-0 flex items-center justify-center group-hover:opacity-0 transition-opacity">
                                     <PlayIcon className="h-10 w-10 text-white/50" />

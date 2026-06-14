@@ -125,7 +125,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             activeVideoElement.pause();
         }
         activeVideoElement = videoRef.current;
-        videoRef.current.play();
+        videoRef.current.play().catch((err) => {
+          console.log("Play interrupted or prevented by browser policy:", err);
+        });
         setIsPlaying(true);
       }
     }
@@ -160,11 +162,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      const current = videoRef.current.currentTime;
-      const total = videoRef.current.duration;
+      const current = videoRef.current.currentTime || 0;
+      const total = videoRef.current.duration || 0;
       setCurrentTime(current);
       setDuration(total);
-      setProgress((current / total) * 100);
+      
+      if (total > 0 && !isNaN(total) && isFinite(total)) {
+        setProgress((current / total) * 100);
+      } else {
+        setProgress(0);
+      }
       onTimeUpdate?.(current);
     }
   };
@@ -263,7 +270,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <input 
               type="range" 
               min="0" max="100" step="0.1"
-              value={progress} 
+              value={isNaN(progress) ? 0 : progress} 
               onChange={handleSeek}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30"
             />
@@ -296,7 +303,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     <input 
                       type="range"
                       min="0" max="1" step="0.01"
-                      value={isMuted ? 0 : volume}
+                      value={isMuted ? 0 : (isNaN(volume) ? 1 : volume)}
                       onChange={handleVolumeChange}
                       className="w-full h-1 bg-white/30 accent-red-600 cursor-pointer"
                     />

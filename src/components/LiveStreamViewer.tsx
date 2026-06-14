@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { ZegoUIKitPrebuilt } from '@zegocloud/zego-uikit-prebuilt';
 import { User, Post, Comment } from '../types';
 import { 
   HeartIcon, 
@@ -25,6 +26,7 @@ import {
 } from '../services/storageService';
 import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
+import WalletModal from './WalletModal';
 import { 
   Heart, 
   Send, 
@@ -48,7 +50,10 @@ import {
   ArrowLeft,
   Youtube,
   Clock,
-  X
+  X,
+  Trophy,
+  Target,
+  Edit
 } from 'lucide-react';
 
 interface LiveStreamViewerProps {
@@ -117,6 +122,15 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   // Comments Visibility State (Abrir/Fechar comentários)
   const [isCommentsClosed, setIsCommentsClosed] = useState(false);
 
+  // Gamified & live interactive donation states
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [activeDonationAlert, setActiveDonationAlert] = useState<{ userName: string; profilePic: string; amount: number; message: string } | null>(null);
+  const [lastProcessedDonationId, setLastProcessedDonationId] = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<'chat' | 'ranking'>('chat');
+  const [showGoalConfig, setShowGoalConfig] = useState(false);
+  const [goalTargetInput, setGoalTargetInput] = useState<number>(1000);
+  const [goalDescInput, setGoalDescInput] = useState<string>('Comprar Microfone Profissional 🎙️');
+
   // WebRTC Live Peer Stream States
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [webrtcStatus, setWebrtcStatus] = useState<'idle' | 'offering' | 'connecting' | 'connected' | 'failed'>('idle');
@@ -125,6 +139,9 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [guestCameraStream, setGuestCameraStream] = useState<MediaStream | null>(null);
   const [guestRemoteStream, setGuestRemoteStream] = useState<MediaStream | null>(null);
   const [guestWebrtcStatus, setGuestWebrtcStatus] = useState<'idle' | 'offering' | 'connecting' | 'connected' | 'failed'>('idle');
+
+  const isHost = post ? post.userId === currentUser.id : false;
+  const isCurrentGuest = post ? (post.liveStream?.guestId === currentUser.id && post.liveStream?.guestStatus === 'active') : false;
 
   // Refs for video elements & auto-scrolling
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -138,7 +155,117 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const guestProcessedTimestampsRef = useRef<{ [viewerId: string]: number }>({});
   const guestViewerPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
 
-  const isHost = post ? post.userId === currentUser.id : false;
+  // ZEGO Cloud Refs
+  const zegoContainerRef = useRef<HTMLDivElement | null>(null);
+  const zegoInstanceRef = useRef<any>(null);
+
+  const getsZegoConfig = () => {
+    const envAppId = import.meta.env.VITE_ZEGO_APP_ID;
+    const envSecret = import.meta.env.VITE_ZEGO_SERVER_SECRET;
+    
+    // Safety Fallback test App ID and Server Secret for out-of-the-box streaming demo/sandbox test
+    const appId = envAppId ? Number(envAppId) : 1083925039; 
+    const serverSecret = envSecret || "077bd5dfbfb7fd6864fe786c666579df";
+    
+    return { appId, serverSecret };
+  };
+
+  useEffect(() => {
+    let active = true;
+    
+    const initZego = async () => {
+      if (!post || post.liveStream?.status !== 'LIVE') return;
+      if (!zegoContainerRef.current) return;
+      
+      const { appId, serverSecret } = getsZegoConfig();
+      const roomID = postId;
+      const userID = currentUser.id;
+      const userName = currentUser.firstName + " " + (currentUser.lastName || "");
+      
+      try {
+        console.log("Setting up ZEGO Cloud Live Stream. RoomID:", roomID, "UserID:", userID, "IsHost:", isHost);
+        
+        const kitToken = ZegoUIKitPrebuilt.generateKitTokenForTest(
+          appId,
+          serverSecret,
+          roomID,
+          userID,
+          userName
+        );
+        
+        if (!active) return;
+        
+        if (zegoInstanceRef.current) {
+          try {
+            zegoInstanceRef.current.destroy();
+          } catch (_) {}
+          zegoInstanceRef.current = null;
+        }
+
+        const zp = ZegoUIKitPrebuilt.create(kitToken);
+        if (!active) return;
+        zegoInstanceRef.current = zp;
+        
+        zp.joinRoom({
+          container: zegoContainerRef.current,
+          scenario: {
+            mode: (ZegoUIKitPrebuilt as any).ScenarioLiveStreaming,
+            config: {
+              role: isHost 
+                ? (ZegoUIKitPrebuilt as any).Host 
+                : (isCurrentGuest 
+                    ? (ZegoUIKitPrebuilt as any).Cohost 
+                    : (ZegoUIKitPrebuilt as any).Audience),
+            },
+          },
+          showUserList: false,
+          showMyChat: false,
+          showRoomDetails: false,
+          showInviteButton: false,
+          showAudioVideoSettingsButton: true,
+          showScreenSharingButton: isHost,
+          turnOnCameraWhenJoining: isHost || isCurrentGuest,
+          turnOnMicrophoneWhenJoining: isHost || isCurrentGuest,
+          onLeaveRoom: () => {
+            console.log("Left ZEGO stream room successfully");
+          }
+        } as any);
+
+        if (isHost || isCurrentGuest) {
+          setCameraStream({
+            getTracks: () => [],
+            getVideoTracks: () => [],
+            getAudioTracks: () => [],
+          } as any);
+        } else {
+          setRemoteStream({} as any);
+          setWebrtcStatus('connected');
+        }
+      } catch (err) {
+        console.error("Failed to initialize ZEGO live streaming:", err);
+      }
+    };
+
+    if (post?.liveStream?.status === 'LIVE') {
+      const timer = setTimeout(() => {
+        if (active) {
+          initZego();
+        }
+      }, 300);
+      return () => {
+        clearTimeout(timer);
+        active = false;
+        if (zegoInstanceRef.current) {
+          try {
+            zegoInstanceRef.current.destroy();
+          } catch (e) {
+            console.log("Error destroying ZEGO instance:", e);
+          }
+          zegoInstanceRef.current = null;
+        }
+      };
+    }
+  }, [post?.liveStream?.status, isHost, isCurrentGuest, postId, currentUser.id]);
 
   // 1. Subscribe to Live stream updates, join and sync viewers count
   useEffect(() => {
@@ -267,9 +394,10 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   // --- WebRTC Host/Broadcaster Session handler ---
   useEffect(() => {
     if (!isHost || !post || !post.webrtc_requests || !cameraStream || !db) return;
+    return; // ZEGO handles all sessions and participants
     
     const handleRequests = async () => {
-      const requests = post.webrtc_requests || {};
+      const requests = post?.webrtc_requests || {};
       for (const viewerId of Object.keys(requests)) {
         const req = requests[viewerId];
         if (req && req.status === 'offer_ready') {
@@ -297,8 +425,8 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               peerConnectionsRef.current[viewerId] = pc;
 
               // Bind camera/mic tracks to peer channel
-              cameraStream.getTracks().forEach(track => {
-                pc.addTrack(track, cameraStream);
+              cameraStream?.getTracks().forEach(track => {
+                pc.addTrack(track, cameraStream!);
               });
 
               // Apply remote offer
@@ -346,6 +474,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   // --- WebRTC Viewer Side Session Caller ---
   useEffect(() => {
+    return; // ZEGO handles all client-side rendering and connectivity
     if (isHost || !postId || post?.liveStream?.status === 'ENDED' || webrtcStatus !== 'idle' || !db) return;
 
     const startViewerWebRTC = async () => {
@@ -502,9 +631,10 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   useEffect(() => {
     const isCurrentGuest = post?.liveStream?.guestId === currentUser.id && post?.liveStream?.guestStatus === 'active';
     if (!isCurrentGuest || !post || !post.webrtc_requests || !guestCameraStream || !db) return;
+    return; // ZEGO handles multi-participation seamlessly
 
     const handleGuestRequests = async () => {
-      const requests = post.webrtc_requests || {};
+      const requests = post?.webrtc_requests || {};
       const postRef = doc(db as any, 'posts', postId);
 
       for (const key of Object.keys(requests)) {
@@ -537,8 +667,8 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               guestPeerConnectionsRef.current[viewerId] = pc;
 
               // Bind Guest tracks
-              guestCameraStream.getTracks().forEach(track => {
-                pc.addTrack(track, guestCameraStream);
+              guestCameraStream?.getTracks().forEach(track => {
+                pc.addTrack(track, guestCameraStream!);
               });
 
               await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: req.viewerSdp }));
@@ -582,6 +712,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   // --- WebRTC Guest Stream Receiver/Viewer side (runs on Host and other Viewers) ---
   useEffect(() => {
+    return; // ZEGO handles all participants in one single streamlined feed container
     const isCurrentGuest = post?.liveStream?.guestId === currentUser.id;
     const isGuestActive = post?.liveStream?.guestStatus === 'active' && post?.liveStream?.guestId;
     if (isCurrentGuest || !postId || !isGuestActive || guestWebrtcStatus !== 'idle' || !db) return;
@@ -690,40 +821,13 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   }, [post, isHost]);
 
   const initiateBroadcasterStream = async () => {
-    try {
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 1280, height: 720 },
-          audio: true
-        });
-      } catch (e) {
-        console.warn("Retrying with standard constraints...");
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
-          });
-        } catch (e2) {
-          console.warn("Retrying with video-only...");
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: true
-            });
-          } catch (e3) {
-            console.warn("Retrying with audio-only...");
-            stream = await navigator.mediaDevices.getUserMedia({
-              audio: true
-            });
-          }
-        }
-      }
-      setCameraStream(stream);
-      setIsCameraOff(!stream.getVideoTracks().length);
-      setIsMuted(!stream.getAudioTracks().length);
-    } catch (err) {
-      console.error("Could not acquire media stream:", err);
-    }
+    // ZEGO handles video capture and streaming natively! We don't want constraints/locks conflicts.
+    console.log("ZEGO is handling the active stream broadcasting capture natively.");
+    setCameraStream({
+      getTracks: () => [],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as any);
   };
 
   const stopBroadcasterStream = () => {
@@ -998,6 +1102,115 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }
   };
 
+  // Web Audio Synth Coin sound
+  const playLiveCoinSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+      osc1.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+      gain1.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+      
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+      osc1.start();
+      osc1.stop(audioCtx.currentTime + 0.25);
+
+      setTimeout(() => {
+        const osc2 = audioCtx.createOscillator();
+        const gain2 = audioCtx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(1046.50, audioCtx.currentTime); // C6
+        gain2.gain.setValueAtTime(0.06, audioCtx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+        osc2.connect(gain2);
+        gain2.connect(audioCtx.destination);
+        osc2.start();
+        osc2.stop(audioCtx.currentTime + 0.35);
+      }, 70);
+    } catch (e) {
+      console.log("Synth audio failed/blocked:", e);
+    }
+  };
+
+  // Listens to live comments changes to trigger dynamic donation alerts
+  useEffect(() => {
+    if (liveComments.length > 0) {
+      const lastComment = liveComments[liveComments.length - 1];
+      const isSystem = lastComment.userId === 'system' || lastComment.userId?.startsWith('system_');
+      const isSuperChat = isSystem && lastComment.text.includes('SUPER CHAT');
+      
+      if (isSuperChat && lastComment.id !== lastProcessedDonationId) {
+        setLastProcessedDonationId(lastComment.id);
+        
+        // Parse coins amount
+        const coinsWord = lastComment.text.match(/(\d+)\s+FaceCoins/);
+        const amount = coinsWord ? parseInt(coinsWord[1], 10) : 50;
+        
+        // Extract message inside quotes
+        const msgMatch = lastComment.text.match(/"([^"]+)"/);
+        const message = msgMatch ? msgMatch[1] : '';
+
+        // Play Synthesized sound
+        playLiveCoinSound();
+
+        // Spawn visual flying hearts
+        for (let i = 0; i < 8; i++) {
+          setTimeout(spawnLocalHeart, i * 80);
+        }
+
+        // Set donation overlay message
+        setActiveDonationAlert({
+          userName: lastComment.userName,
+          profilePic: lastComment.profilePic || '',
+          amount,
+          message
+        });
+
+        // Hide alert box automatically after 6 seconds
+        const timer = setTimeout(() => {
+          setActiveDonationAlert(null);
+        }, 6000);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [liveComments, lastProcessedDonationId]);
+
+  // Dynamically group donations from comments
+  const getLeaderboard = () => {
+    const contributors: Record<string, { id: string; userName: string; profilePic: string; totalAmount: number }> = {};
+    
+    liveComments.forEach(c => {
+      const isSystem = c.userId === 'system' || c.userId?.startsWith('system_');
+      const isSuperChat = isSystem && c.text.includes('SUPER CHAT');
+      
+      if (isSuperChat) {
+        // Derive real user ID
+        const realUserId = c.userId.startsWith('system_') ? c.userId.replace('system_', '') : c.userName;
+        const coinsWord = c.text.match(/(\d+)\s+FaceCoins/);
+        const amount = coinsWord ? parseInt(coinsWord[1], 10) : 50;
+
+        if (contributors[realUserId]) {
+          contributors[realUserId].totalAmount += amount;
+        } else {
+          contributors[realUserId] = {
+            id: realUserId,
+            userName: c.userName,
+            profilePic: c.profilePic || '',
+            totalAmount: amount
+          };
+        }
+      }
+    });
+
+    // Convert to list and sort descending
+    return Object.values(contributors).sort((a, b) => b.totalAmount - a.totalAmount);
+  };
+
   // Process SuperChat or tipped donation
   const handleTipDonate = async () => {
     if (!post || !creatorProfile) return;
@@ -1024,10 +1237,16 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         throw new Error("Transação recusada.");
       }
 
+      // Increment donation progress current
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.donationCurrent': (post.liveStream?.donationCurrent || 0) + selectedDonation
+      });
+
       // 2. Post a system notifier comment on the live chat representing Super Chat
       const systemMessage: Comment = {
         id: 'spec_donation_' + Date.now(),
-        userId: 'system',
+        userId: 'system_' + currentUser.id,
         userName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
         profilePic: currentUser.profilePicture || '',
         text: `💰 SUPER CHAT: Apoiou o criador com ${selectedDonation} FaceCoins!${tipMessage ? ` "${tipMessage.trim()}"` : ''} 🎉`,
@@ -1214,215 +1433,79 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                 className={`relative aspect-[4/3] xs:aspect-[1.5] sm:aspect-video w-full bg-black rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl group/player ${!isHost && remoteStream && videoMuted ? 'cursor-pointer' : ''}`}
               >
                 
-                {post.liveStream?.guestStatus === 'active' && post.liveStream?.guestId ? (
-                  /* Split Screen Co-hosting / YouTube Live Together Layout */
-                  <div className="w-full h-full grid grid-cols-1 sm:grid-cols-2 bg-zinc-950 p-1 gap-1 relative">
-                    
-                    {/* Host webcam frame */}
-                    <div className="relative rounded-lg overflow-hidden bg-black/85 aspect-[1.5] sm:aspect-auto sm:h-full border border-zinc-900 flex flex-col items-center justify-center">
-                      {isHost && cameraStream ? (
-                        <video 
-                          ref={(el) => {
-                            if (el && cameraStream) {
-                              try {
-                                if (el.srcObject !== cameraStream) {
-                                  el.srcObject = cameraStream;
-                                  el.play().catch(() => {});
-                                }
-                              } catch (e) {}
-                            }
-                            videoRef.current = el;
-                          }} 
-                          autoPlay 
-                          playsInline 
-                          muted={true} 
-                          className="w-full h-full object-cover scale-x-[-1]" 
-                        />
-                      ) : !isHost && remoteStream ? (
-                        <video 
-                          ref={(el) => {
-                            if (el && remoteStream) {
-                              try {
-                                if (el.srcObject !== remoteStream) {
-                                  el.srcObject = remoteStream;
-                                  el.play().catch(() => {});
-                                }
-                                el.muted = videoMuted;
-                                el.volume = videoVolume / 100;
-                              } catch (e) {}
-                            }
-                            remoteVideoRef.current = el;
-                          }} 
-                          autoPlay 
-                          playsInline 
-                          muted={videoMuted} 
-                          className="w-full h-full object-cover" 
-                        />
-                      ) : (
-                        <div className="text-center p-4">
-                          <img 
-                            src={creatorProfile?.profilePicture || '/default-avatar.png'} 
-                            alt="Streamer" 
-                            className="w-12 h-12 rounded-full mx-auto object-cover border border-red-500 animate-pulse animate-duration-1000" 
-                            referrerPolicy="no-referrer"
-                          />
-                          <p className="text-[9px] uppercase tracking-wider text-rose-500 font-black mt-2">Conectando Host...</p>
-                        </div>
-                      )}
-                      <span className="absolute bottom-2.5 left-2.5 z-20 text-[9px] font-black uppercase text-white bg-red-650 px-2 py-0.5 rounded shadow border border-red-500/30 font-sans">
-                        Apresentador (Host)
-                      </span>
-                    </div>
-
-                    {/* Guest webcam frame */}
-                    <div className="relative rounded-lg overflow-hidden bg-black/85 aspect-[1.5] sm:aspect-auto sm:h-full border border-zinc-900 flex flex-col items-center justify-center">
-                      {currentUser.id === post.liveStream?.guestId && guestCameraStream ? (
-                        <video 
-                          ref={(el) => {
-                            if (el && guestCameraStream) {
-                              try {
-                                if (el.srcObject !== guestCameraStream) {
-                                  el.srcObject = guestCameraStream;
-                                  el.play().catch(() => {});
-                                }
-                              } catch (e) {}
-                            }
-                          }} 
-                          autoPlay 
-                          playsInline 
-                          muted={true} 
-                          className="w-full h-full object-cover scale-x-[-1]" 
-                        />
-                      ) : currentUser.id !== post.liveStream?.guestId && guestRemoteStream ? (
-                        <video 
-                          ref={(el) => {
-                            if (el && guestRemoteStream) {
-                              try {
-                                if (el.srcObject !== guestRemoteStream) {
-                                  el.srcObject = guestRemoteStream;
-                                  el.play().catch(() => {});
-                                }
-                                el.muted = videoMuted;
-                                el.volume = videoVolume / 100;
-                              } catch (e) {}
-                            }
-                          }} 
-                          autoPlay 
-                          playsInline 
-                          muted={videoMuted} 
-                          className="w-full h-full object-cover" 
-                        />
-                      ) : (
-                        /* Falling back to gorgeous visual avatar representation if streams cannot be shared/locked */
-                        <div className="text-center p-4">
-                          <div className="w-11 h-11 bg-sky-500/10 border border-sky-500/20 text-sky-400 rounded-full flex items-center justify-center mb-1.5 mx-auto animate-pulse">
-                            <SparklesIcon className="h-5 w-5 animate-spin text-sky-400" style={{ animationDuration: '3s' }} />
-                          </div>
-                          <p className="font-black text-xs text-zinc-100 uppercase tracking-tight">{post.liveStream?.guestName || 'Participante Convidado'}</p>
-                          <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">Participando ao vivo</p>
-                          
-                          {/* Real-time audio waveform spectrum */}
-                          <div className="flex items-center gap-0.5 mt-3 justify-center">
-                            {[1, 2.5, 3.8, 2.2, 3.2, 1.8, 1].map((val, idx) => (
-                              <span 
-                                key={idx} 
-                                className="w-0.5 bg-sky-400 animate-pulse rounded" 
-                                style={{ 
-                                  height: `${6 + val * 3}px`,
-                                  opacity: 0.7,
-                                  animationDelay: `${idx * 160}ms`,
-                                  animationDuration: `${900 + Math.random() * 600}ms`
-                                }} 
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <span className="absolute bottom-2.5 left-2.5 z-20 text-[9px] font-black uppercase text-white bg-sky-600 px-2 py-0.5 rounded shadow border border-sky-500/30 font-sans">
-                        Convidado: {post.liveStream?.guestName}
-                      </span>
-                    </div>
-
-                  </div>
+                {post.liveStream?.status === 'LIVE' ? (
+                  /* 1. ZEGO Cloud Video Streaming container */
+                  <div ref={zegoContainerRef} className="w-full h-full relative bg-zinc-950" />
                 ) : (
-                  <>
-                    {/* 1. Real Webcam Host Stream */}
-                    {isHost && cameraStream ? (
-                      <video 
-                        ref={(el) => {
-                          if (el && cameraStream) {
-                            try {
-                              if (el.srcObject !== cameraStream) {
-                                el.srcObject = cameraStream;
-                                el.play().catch(e => console.log("Host stream active:", e));
-                              }
-                            } catch (e) {
-                              console.error("Error setting camera stream:", e);
-                            }
-                          }
-                          videoRef.current = el;
-                        }} 
-                        autoPlay 
-                        playsInline 
-                        muted={true} /* Host is ALWAYS muted locally to prevent painful howling loop */
-                        className="w-full h-full object-cover scale-x-[-1]" 
+                  /* 2. Fully Polished Studio Live Standby/Loading Overlay (NO placeholder cartoon videos!) */
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-950 via-[#121214] to-zinc-950 text-center p-6 relative">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.06),transparent_70%)] animate-pulse" />
+                    <div className="relative mb-4">
+                      <div className="absolute inset-0 bg-red-650/15 blur-xl rounded-full scale-110 animate-pulse duration-1000" />
+                      <img 
+                        src={creatorProfile?.profilePicture || '/default-avatar.png'} 
+                        alt="Streamer" 
+                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-red-600 shadow-2xl relative z-10 animate-pulse" 
+                        referrerPolicy="no-referrer"
                       />
-                    ) : !isHost && remoteStream ? (
-                      /* 2. Real WebRTC Stream from Host */
-                      <video 
-                        ref={(el) => {
-                          if (el && remoteStream) {
-                            try {
-                              if (el.srcObject !== remoteStream) {
-                                  el.srcObject = remoteStream;
-                                  el.play().catch(e => console.log("Remote feed active:", e));
-                              }
-                              el.muted = videoMuted;
-                              el.volume = videoVolume / 100;
-                            } catch (e) {
-                              console.error("Error setting remote stream:", e);
-                            }
-                          }
-                          remoteVideoRef.current = el;
-                        }} 
-                        autoPlay 
-                        playsInline 
-                        muted={videoMuted} 
-                        className="w-full h-full object-cover" 
-                      />
-                    ) : (
-                      /* 3. Fully Polished Studio Live Standby/Loading Overlay (NO placeholder cartoon videos!) */
-                      <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-950 via-[#121214] to-zinc-950 text-center p-6 relative">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.06),transparent_70%)] animate-pulse" />
-                        <div className="relative mb-4">
-                          <div className="absolute inset-0 bg-red-650/15 blur-xl rounded-full scale-110 animate-pulse duration-1000" />
-                          <img 
-                            src={creatorProfile?.profilePicture || '/default-avatar.png'} 
-                            alt="Streamer" 
-                            className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-red-600 shadow-2xl relative z-10 animate-pulse" 
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="absolute -bottom-1 -right-1 z-20 bg-red-650 text-[9px] font-black uppercase text-white px-2 py-0.5 rounded-full border border-zinc-900 shadow-md">
-                            OFFLINE
-                          </div>
-                        </div>
-                        <p className="text-sm font-black text-white uppercase tracking-wider relative z-10">
-                          {creatorProfile ? `${creatorProfile.firstName} ${creatorProfile.lastName}` : 'Canal do Criador'}
-                         </p>
-                         <p className="text-[10px] sm:text-xs text-zinc-400 font-bold tracking-widest mt-1.5 uppercase relative z-10 max-w-[320px]">
-                           {isHost 
-                             ? "Permita o acesso à câmera para iniciar a transmissão..." 
-                             : "Aguardando sinal ao vivo do transmissor..."
-                           }
-                         </p>
-                        <div className="mt-4 flex items-center gap-1.5 bg-zinc-900/85 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-zinc-800 relative z-10">
-                          <div className="h-1.5 w-1.5 rounded-full bg-zinc-500 animate-pulse" />
-                          <span className="text-[9px] font-black uppercase text-zinc-400 tracking-widest">Sem Sinal de Vídeo</span>
-                        </div>
+                      <div className="absolute -bottom-1 -right-1 z-20 bg-red-650 text-[9px] font-black uppercase text-white px-2 py-0.5 rounded-full border border-zinc-900 shadow-md">
+                        OFFLINE
                       </div>
-                    )}
-                  </>
+                    </div>
+                    <p className="text-sm font-black text-white uppercase tracking-wider relative z-10">
+                      {creatorProfile ? `${creatorProfile.firstName} ${creatorProfile.lastName}` : 'Canal do Criador'}
+                     </p>
+                     <p className="text-[10px] sm:text-xs text-zinc-400 font-bold tracking-widest mt-1.5 uppercase relative z-10 max-w-[320px]">
+                       {isHost 
+                         ? "Permita o acesso à câmera para iniciar a transmissão..." 
+                         : "Aguardando sinal ao vivo do transmissor..."
+                       }
+                     </p>
+                    <div className="mt-4 flex items-center gap-1.5 bg-zinc-900/85 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-zinc-800 relative z-10">
+                      <div className="h-1.5 w-1.5 rounded-full bg-zinc-500 animate-pulse" />
+                      <span className="text-[9px] font-black uppercase text-zinc-400 tracking-widest">Sem Sinal de Vídeo</span>
+                    </div>
+                  </div>
                 )}
+
+                {/* 4. Active Live Donation Alert Slider (Displays in video frame overlay) */}
+                <AnimatePresence>
+                  {activeDonationAlert && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -80, scale: 0.9 }}
+                      animate={{ opacity: 1, y: 16, scale: 1 }}
+                      exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                      transition={{ type: 'spring', damping: 15 }}
+                      className="absolute top-16 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-sm bg-gradient-to-r from-amber-505 via-yellow-500 to-amber-600 rounded-2xl p-4 shadow-2xl border border-amber-300/30 flex items-center gap-3 text-left overflow-hidden pointer-events-none"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full animate-shine pointer-events-none" />
+                      
+                      <img 
+                        src={activeDonationAlert.profilePic || '/default-avatar.png'} 
+                        alt="Donor avatar" 
+                        className="w-10 h-10 rounded-full object-cover border-2 border-zinc-950 shadow-md shrink-0" 
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-xs text-zinc-950 uppercase tracking-tight truncate">
+                            {activeDonationAlert.userName}
+                          </span>
+                          <span className="text-[8px] bg-zinc-950 text-amber-500 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0">
+                            SUPORTE
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-amber-950 font-black uppercase tracking-wider mt-0.5">
+                          Apoiou o canal com <span className="text-zinc-950 font-mono text-xs">{activeDonationAlert.amount}</span> Coins! 🌟
+                        </p>
+                        {activeDonationAlert.message && (
+                          <p className="text-[11px] font-bold text-white bg-black/20 px-2 py-1 rounded-md mt-1 italic truncate">
+                            "{activeDonationAlert.message}"
+                          </p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Blinking Live Badge on screen */}
                 <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-md border border-white/10">
@@ -1802,88 +1885,227 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         {!isEnded && !isCommentsClosed && (
           <aside className={`col-span-12 ${isCinemaMode ? 'lg:col-span-12 mt-4' : 'lg:col-span-3'} flex flex-col bg-[#181818] rounded-xl border border-zinc-800 overflow-hidden h-[500px] lg:h-[calc(100vh-100px)] min-h-[400px] shrink-0`}>
             
-            {/* Live Chat Header styled exactly like YouTube live chat banner */}
-            <div className="px-4 py-3 border-b border-zinc-800 bg-[#1f1f1f] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 text-zinc-100">
-                <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
-                <span className="text-xs font-black uppercase tracking-widest">Chat ao Vivo</span>
-                <span className="hidden xs:inline-block text-[9px] font-mono font-bold bg-[#2a2a2a] text-zinc-400 border border-zinc-800 px-1.5 py-0.5 rounded-full uppercase tracking-wider">
-                  Sincronizado
-                </span>
+            {/* Live Chat Header with tab controls */}
+            <div className="border-b border-zinc-800 bg-[#1f1f1f] flex flex-col shrink-0">
+              <div className="px-4 py-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-zinc-100">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-650 animate-ping shrink-0" />
+                  <span className="text-[10px] font-black uppercase tracking-widest truncate">Live Interactiva</span>
+                </div>
+                <button 
+                  onClick={() => setIsCommentsClosed(true)}
+                  className="p-1 px-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 hover:text-white text-zinc-400 rounded-md transition-all text-[9.5px] font-black uppercase tracking-wider shrink-0"
+                  title="Fechar Painel"
+                >
+                  Ocultar
+                </button>
               </div>
-              <button 
-                onClick={() => setIsCommentsClosed(true)}
-                className="p-1.5 hover:bg-zinc-800 text-red-500 hover:text-red-400 hover:scale-105 duration-150 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center cursor-pointer"
-                title="Fechar Comentários"
-              >
-                <X className="h-4 w-4" />
-              </button>
+
+              {/* Tabs buttons row */}
+              <div className="grid grid-cols-2 border-t border-zinc-800/80">
+                <button 
+                  onClick={() => setSidebarTab('chat')}
+                  className={`py-2 px-1 text-[10px] font-black uppercase tracking-widest transition-all truncate ${sidebarTab === 'chat' ? 'bg-[#181818] text-white border-b-2 border-red-650' : 'bg-[#1f1f1f] text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  💬 Chat ao Vivo
+                </button>
+                <button 
+                  onClick={() => setSidebarTab('ranking')}
+                  className={`py-2 px-1 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shrink-0 truncate ${sidebarTab === 'ranking' ? 'bg-[#181818] text-white border-b-2 border-red-650' : 'bg-[#1f1f1f] text-zinc-500 hover:text-zinc-300'}`}
+                >
+                  <Trophy className="h-3 w-3 text-amber-500 shrink-0" />
+                  <span>Doadores 🏆</span>
+                </button>
+              </div>
             </div>
 
-            {/* Comments List flow container */}
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 scrollbar-thin scrollbar-thumb-zinc-800 scroll-smooth">
-              {liveComments.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center opacity-40 p-5 mt-20">
-                  <div className="w-12 h-12 bg-red-650/10 rounded-full flex items-center justify-center mb-3">
-                    <Tv className="h-6 w-6 text-red-500" />
-                  </div>
-                  <h4 className="text-[11px] font-black uppercase tracking-widest mb-1 text-white">Nenhuma Mensagem</h4>
-                  <p className="text-[10px] text-zinc-400 font-medium max-w-[200px]">Participe do fluxo enviando uma mensagem ou apoiando o canal!</p>
+            {/* Donation Goal sticky block inside Sidebar */}
+            <div className="bg-[#1a1a1c] border-b border-zinc-800/80 p-3 flex flex-col gap-2 shrink-0 text-left">
+              <div className="flex justify-between items-center bg-[#1a1a1c]">
+                <div className="flex items-center gap-1.5 text-amber-400 bg-[#1a1a1c]">
+                  <Target className="h-3.5 w-3.5 shrink-0" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Meta de Apoio</span>
                 </div>
-              ) : (
-                liveComments.map(c => {
-                  const isSystem = c.userId === 'system';
-                  // Check if comment is custom tipped SuperChat message
-                  const isSuperChat = isSystem && c.text.includes('SUPER CHAT');
+                {/* Edit meta for stream host */}
+                {isHost && (
+                  <button 
+                    onClick={() => {
+                      setGoalTargetInput(post.liveStream?.donationGoal || 1000);
+                      setGoalDescInput(post.liveStream?.donationGoalMsg || 'Comprar Microfone Profissional 🎙️');
+                      setShowGoalConfig(true);
+                    }}
+                    className="p-1 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded transition-colors"
+                    title="Configurar Meta de Doação"
+                  >
+                    <Edit className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
 
-                  if (isSuperChat) {
-                    // Extract tipped coins from message text if available (usually default or from text)
-                    const coinsWord = c.text.match(/(\d+)\s+FaceCoins/);
-                    const amount = coinsWord ? coinsWord[1] : '50';
-                    const cleanedMsg = c.text.replace('💰 SUPER CHAT: ', '');
+              {/* Progress bar and statistics */}
+              {(() => {
+                const goal = post.liveStream?.donationGoal || 1000;
+                const current = post.liveStream?.donationCurrent || 0;
+                const pct = Math.min(100, Math.round((current / goal) * 100));
+                const msg = post.liveStream?.donationGoalMsg || 'Comprar Novo Equipamento para o Canal';
+                
+                return (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-[10px] text-zinc-300 font-bold uppercase truncate tracking-wide" title={msg}>
+                      🎯 {msg}
+                    </p>
+                    
+                    {/* The Bar */}
+                    <div className="w-full bg-zinc-800 h-3.5 rounded-full overflow-hidden relative border border-zinc-700/30">
+                      <div 
+                        className="bg-gradient-to-r from-amber-500 to-yellow-500 h-full rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${pct}%` }}
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center text-[8.5px] font-extrabold text-white uppercase tracking-widest mix-blend-difference drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+                        {pct}% Completo
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-[9px] text-zinc-500 font-black uppercase tracking-widest">
+                      <span>{current} Coins</span>
+                      <span>Alvo: {goal} Coins</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {sidebarTab === 'ranking' ? (
+              /* Leaderboard ranking list tab */
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 scrollbar-thin scrollbar-thumb-zinc-800">
+                <div className="text-center py-1">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400">TOP APOIADORES DA LIVE 👑</h4>
+                </div>
+                {getLeaderboard().length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center opacity-40 p-5 mt-10">
+                    <div className="w-10 h-10 bg-amber-500/10 rounded-full flex items-center justify-center mb-3 text-amber-500">
+                      <Trophy className="h-5 w-5" />
+                    </div>
+                    <h5 className="text-[10px] font-bold uppercase tracking-wider text-white">Sem Doações Ainda</h5>
+                    <p className="text-[9px] text-zinc-400 mt-1 max-w-[200px] leading-relaxed">Seja o primeiro a apoiar o canal! Clique no botão de apoio abaixo.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {getLeaderboard().map((backer, idx) => {
+                      const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                      const isTop3 = idx < 3;
+                      
+                      return (
+                        <div 
+                          key={backer.id} 
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                            idx === 0 
+                              ? 'bg-amber-500/10 border-amber-500/40 shadow-md shadow-amber-500/5' 
+                              : idx === 1 
+                                ? 'bg-zinc-850/60 border-zinc-800' 
+                                : idx === 2 
+                                  ? 'bg-amber-600/5 border-amber-600/20' 
+                                  : 'bg-[#1f1f1f] border-zinc-800/80'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Ranking position / Medal */}
+                            <span className={`text-[11px] font-black ${isTop3 ? 'text-lg' : 'text-zinc-500 font-mono w-4 text-center'}`}>
+                              {medal}
+                            </span>
+                            <img 
+                              src={backer.profilePic || '/default-avatar.png'} 
+                              alt={backer.userName} 
+                              className="w-8 h-8 rounded-full object-cover border border-zinc-700 shrink-0" 
+                            />
+                            <div className="text-left min-w-0 leading-tight">
+                              <p className="text-xs font-black text-white truncate max-w-[110px]">
+                                {backer.userName}
+                              </p>
+                              <span className="text-[8px] font-extrabold uppercase tracking-widest text-[#a8a8a8]">
+                                Contribuinte
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right shrink-0">
+                            <span className="text-xs font-black text-amber-400 font-mono flex items-center gap-1 select-none">
+                              💰 {backer.totalAmount}
+                            </span>
+                            <p className="text-[7.5px] uppercase font-black tracking-widest text-zinc-500 mt-0.5">FaceCoins</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Comments List flow container (Chat tab) */
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 scrollbar-thin scrollbar-thumb-zinc-800 scroll-smooth">
+                {liveComments.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center opacity-40 p-5 mt-20">
+                    <div className="w-12 h-12 bg-red-650/10 rounded-full flex items-center justify-center mb-3">
+                      <Tv className="h-6 w-6 text-red-500" />
+                    </div>
+                    <h4 className="text-[11px] font-black uppercase tracking-widest mb-1 text-white">Nenhuma Mensagem</h4>
+                    <p className="text-[10px] text-zinc-400 font-medium max-w-[200px]">Participe do fluxo enviando uma mensagem ou apoiando o canal!</p>
+                  </div>
+                ) : (
+                  liveComments.map(c => {
+                    const isSystem = c.userId === 'system' || c.userId?.startsWith('system_');
+                    // Check if comment is custom tipped SuperChat message
+                    const isSuperChat = isSystem && c.text.includes('SUPER CHAT');
+
+                    if (isSuperChat) {
+                      // Extract tipped coins from message text if available (usually default or from text)
+                      const coinsWord = c.text.match(/(\d+)\s+FaceCoins/);
+                      const amount = coinsWord ? coinsWord[1] : '50';
+                      const cleanedMsg = c.text.replace('💰 SUPER CHAT: ', '');
+
+                      return (
+                        <div key={c.id} className="bg-gradient-to-r from-amber-500 to-yellow-600 rounded-xl overflow-hidden shadow-lg border border-amber-400/30 text-left my-2 animate-bounce flex flex-col">
+                          <div className="bg-amber-600 px-3.5 py-2 flex items-center justify-between text-xs font-black text-zinc-950">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-zinc-950 text-amber-400 text-[8px] font-black px-1.5 py-0.5 rounded">SUPER CHAT</span>
+                              <span className="truncate max-w-[130px]">{c.userName}</span>
+                            </div>
+                            <span className="font-mono bg-black/15 px-2 py-0.5 rounded-full text-[9px]">💰 {amount} COINS</span>
+                          </div>
+                          <div className="p-3 text-xs font-semibold text-amber-50">
+                            {cleanedMsg}
+                          </div>
+                        </div>
+                      );
+                    }
 
                     return (
-                      <div key={c.id} className="bg-gradient-to-r from-amber-500 to-yellow-600 rounded-xl overflow-hidden shadow-lg border border-amber-400/30 text-left my-2 animate-bounce flex flex-col">
-                        <div className="bg-amber-600 px-3.5 py-2 flex items-center justify-between text-xs font-black text-zinc-950">
-                          <div className="flex items-center gap-2">
-                            <span className="bg-zinc-950 text-amber-400 text-[8px] font-black px-1.5 py-0.5 rounded">SUPER CHAT</span>
-                            <span className="truncate max-w-[130px]">{c.userName}</span>
+                      <div key={c.id} className="text-left flex gap-2.5 items-start bg-zinc-900/10 p-1 rounded hover:bg-zinc-900/30 duration-100">
+                        <img 
+                          src={c.profilePic || '/default-avatar.png'} 
+                          alt="avatar" 
+                          className="w-7 h-7 rounded-full object-cover border border-zinc-800 shrink-0" 
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className={`text-[10px] font-black tracking-tight ${isSystem ? 'text-amber-400' : 'text-zinc-400 hover:text-white cursor-pointer'}`}>
+                              {c.userName}
+                            </span>
+                            {c.userId === post.userId && (
+                              <span className="text-[7px] bg-red-650 text-white font-black uppercase px-1 rounded">CRIADOR</span>
+                            )}
                           </div>
-                          <span className="font-mono bg-black/15 px-2 py-0.5 rounded-full text-[9px]">💰 {amount} COINS</span>
-                        </div>
-                        <div className="p-3 text-xs font-semibold text-amber-50">
-                          {cleanedMsg}
+                          <p className={`text-xs mt-0.5 leading-relaxed break-words font-medium ${isSystem ? 'text-amber-300 mt-1 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10' : 'text-zinc-200'}`}>
+                            {c.text}
+                          </p>
                         </div>
                       </div>
                     );
-                  }
-
-                  return (
-                    <div key={c.id} className="text-left flex gap-2.5 items-start bg-zinc-900/10 p-1 rounded hover:bg-zinc-900/30 duration-100">
-                      <img 
-                        src={c.profilePic || '/default-avatar.png'} 
-                        alt="avatar" 
-                        className="w-7 h-7 rounded-full object-cover border border-zinc-800 shrink-0" 
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline gap-1.5">
-                          <span className={`text-[10px] font-black tracking-tight ${isSystem ? 'text-amber-400' : 'text-zinc-400 hover:text-white cursor-pointer'}`}>
-                            {c.userName}
-                          </span>
-                          {c.userId === post.userId && (
-                            <span className="text-[7px] bg-red-650 text-white font-black uppercase px-1 rounded">CRIADOR</span>
-                          )}
-                        </div>
-                        <p className={`text-xs mt-0.5 leading-relaxed break-words font-medium ${isSystem ? 'text-amber-300 mt-1 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10' : 'text-zinc-200'}`}>
-                          {c.text}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-              <div ref={chatEndRef} />
-            </div>
+                  })
+                )}
+                <div ref={chatEndRef} />
+              </div>
+            )}
 
             {/* Live Chat message Form with Coin button right there! */}
             <form onSubmit={handleCommentSubmit} className="p-3 bg-[#121212] border-t border-zinc-800 flex flex-col gap-2 relative shrink-0">
@@ -1945,11 +2167,20 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
             <div className="flex justify-between items-center text-left">
               <div>
-                <h3 className="text-base font-black uppercase text-white tracking-tight flex items-center gap-1.5">
-                  <DollarSign className="h-5 w-5 text-amber-500" />
+                <h3 className="text-base font-black uppercase text-white tracking-tight flex items-center gap-1.5 animate-pulse">
+                  <DollarSign className="h-5 w-5 text-amber-500 shrink-0" />
                   <span>Apoiar Canal (FaceTube Super Chat)</span>
                 </h3>
-                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Saldo em conta: {currentUser.balance || 0} FaceCoins</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Saldo em conta: {currentUser.balance || 0} FaceCoins</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsWalletModalOpen(true)}
+                    className="text-[9px] bg-[#d32f2f]/30 text-[#ef5350] hover:bg-red-600 hover:text-white px-2 py-0.5 rounded-full transition-colors border border-red-500/30 uppercase font-black tracking-wider shrink-0"
+                  >
+                    + Recarregar
+                  </button>
+                </div>
               </div>
               <button 
                 onClick={() => setShowDonation(false)}
@@ -2149,6 +2380,94 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             >
               Aceitar e Transmitir
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Recharge Wallet popup directly within livestream preview */}
+      {isWalletModalOpen && (
+        <WalletModal 
+          isOpen={isWalletModalOpen} 
+          mode="deposit" 
+          onClose={() => setIsWalletModalOpen(false)} 
+          currentUser={currentUser} 
+          refreshUser={async () => {
+            await refreshUser();
+          }} 
+        />
+      )}
+
+      {/* 4. Host Donation Goal Configurer Modal */}
+      {showGoalConfig && (
+        <div 
+          className="fixed inset-0 z-[1200] bg-black/75 backdrop-blur-md flex items-center justify-center p-4 text-[#bfbfbf]"
+          onClick={() => setShowGoalConfig(false)}
+        >
+          <div 
+            className="w-full max-w-sm bg-[#1e1e1e] border border-zinc-800 rounded-3xl p-6 relative flex flex-col gap-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center text-left">
+              <div className="flex items-center gap-2 bg-[#1e1e1e]">
+                <Target className="h-5 w-5 text-amber-400 shrink-0" />
+                <h4 className="font-extrabold uppercase tracking-tight text-white text-sm">Definir Meta da Live</h4>
+              </div>
+              <button 
+                onClick={() => setShowGoalConfig(false)}
+                className="p-1 px-2.5 bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-zinc-400 hover:text-white rounded-full text-xs font-black uppercase tracking-wider shrink-0 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <p className="text-[10px] text-zinc-400 uppercase tracking-wider leading-relaxed text-left">
+              Estabeleça uma meta de moedas para que todos os espectadores apoiem a live em tempo real!
+            </p>
+
+            <div className="flex flex-col gap-4 text-left">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Meta (Coins Alvo)</label>
+                <input 
+                  type="number"
+                  min={100}
+                  step={100}
+                  value={goalTargetInput}
+                  onChange={e => setGoalTargetInput(Number(e.target.value))}
+                  className="w-full bg-[#2a2a2a] border border-zinc-800 focus:ring-1 focus:ring-amber-500 rounded-xl px-4 py-3 text-xs text-white outline-none font-bold"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#a8a8a8]">Descrição da Meta</label>
+                <input 
+                  type="text"
+                  maxLength={50}
+                  value={goalDescInput}
+                  placeholder="Ex: Microfone Novo, Teclado Mecânico"
+                  onChange={e => setGoalDescInput(e.target.value)}
+                  className="w-full bg-[#2a2a2a] border border-zinc-800 focus:ring-1 focus:ring-amber-500 rounded-xl px-4 py-3 text-xs text-white outline-none font-medium"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const postRef = doc(db as any, 'posts', postId);
+                    await updateDoc(postRef, {
+                      'liveStream.donationGoal': Number(goalTargetInput),
+                      'liveStream.donationGoalMsg': goalDescInput || 'Meta do Canal'
+                    });
+                    setShowGoalConfig(false);
+                  } catch (err) {
+                    console.error("Error setting goal:", err);
+                  }
+                }}
+                className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-lg text-center"
+              >
+                Guardar Configurações
+              </button>
+            </div>
           </div>
         </div>
       )}

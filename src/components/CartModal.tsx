@@ -6,6 +6,7 @@ import { XMarkIcon, PlusIcon, MinusIcon, TrashIcon, BanknotesIcon, ShoppingBagIc
 import { CheckIcon, BoltIcon } from '@heroicons/react/24/solid';
 import CryptomusPaymentForm from './CryptomusPaymentForm';
 import UnitelMoneyForm from './UnitelMoneyForm';
+import { DEFAULT_PRODUCT_IMG } from '../data/constants';
 
 interface CartModalProps {
   isOpen: boolean;
@@ -210,7 +211,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, currentUser, onC
                     <div key={item.product ? `${item.product.id}-${item.selectedVariationId || ''}` : `loading-${idx}`} className="flex gap-3 xs:gap-4 p-3 xs:p-4 bg-gray-50 dark:bg-white/5 rounded-[1.5rem] xs:rounded-[2rem] border border-transparent transition-all">
                       {item.product ? (
                         <>
-                          <img src={matchedVariation?.imageUrl || item.product.imageUrls[0]} className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl object-cover" />
+                          <img src={matchedVariation?.imageUrl || (item.product.imageUrls && item.product.imageUrls[0]) || DEFAULT_PRODUCT_IMG} onError={(e) => { e.currentTarget.src = DEFAULT_PRODUCT_IMG; }} className="w-14 h-14 xs:w-16 xs:h-16 rounded-xl object-cover animate-fade-in" />
                           <div className="flex-1 min-w-0">
                             <p className="font-black text-xs xs:text-sm text-gray-900 dark:text-white truncate">{item.product.name}</p>
                             {matchedVariation && (

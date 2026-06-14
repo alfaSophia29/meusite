@@ -1,9 +1,8 @@
 
 import React, { useState } from 'react';
-import { User } from '../types';
+import { User, TransactionType, Transaction } from '../types';
 import { db } from '../services/firebaseClient';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { generateUUID } from '../services/storageService';
+import { generateUUID, createTransaction } from '../services/storageService';
 
 interface CryptomusPaymentFormProps {
   currentUser: User;
@@ -27,40 +26,26 @@ const CryptomusPaymentForm: React.FC<CryptomusPaymentFormProps> = ({ currentUser
 
     setLoading(true);
     try {
-      const userRef = doc(db, 'users', currentUser.id);
-      
-      const transaction = {
+      const txAmt = mode === 'deposit' ? finalAmount : (mode === 'withdraw' ? -finalAmount : 0);
+
+      if (mode === 'withdraw' && (currentUser.balance || 0) < finalAmount) {
+        alert('Saldo insuficiente');
+        setLoading(false);
+        return;
+      }
+
+      const tx: Transaction = {
         id: generateUUID(),
         userId: currentUser.id,
-        amount: finalAmount,
-        currency: 'USDT',
-        type: mode === 'purchase' ? 'payment' : mode,
-        method: 'cryptomus',
-        status: mode === 'withdraw' ? 'pending' : 'completed',
+        amount: txAmt,
+        type: mode === 'deposit' ? TransactionType.DEPOSIT : 
+              (mode === 'withdraw' ? TransactionType.WITHDRAWAL : TransactionType.PURCHASE),
+        description: mode === 'withdraw' ? `Saque para carteira: ${address}` : (mode === 'purchase' ? 'Compra Direta via Cryptomus' : 'Depósito via Cryptomus'),
         timestamp: Date.now(),
-        details: mode === 'withdraw' ? `Withdraw to: ${address}` : mode === 'purchase' ? 'Direct Purchase' : 'Deposit via Cryptomus'
+        status: mode === 'withdraw' ? 'PENDING' : 'COMPLETED'
       };
 
-      if (mode === 'deposit') {
-        await updateDoc(userRef, {
-          balance: (currentUser.balance || 0) + finalAmount,
-        });
-      } else if (mode === 'withdraw') {
-        if ((currentUser.balance || 0) < finalAmount) {
-          alert('Saldo insuficiente');
-          return;
-        }
-        await updateDoc(userRef, {
-          balance: (currentUser.balance || 0) - finalAmount,
-        });
-      }
-      // For 'purchase', the balance doesn't change directly in the transaction record here usually,
-      // the caller handles the order logic.
-
-      await updateDoc(userRef, {
-        transactions: arrayUnion(transaction.id)
-      });
-
+      await createTransaction(tx);
       onSuccess();
     } catch (error) {
       console.error('Payment error:', error);

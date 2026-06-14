@@ -182,6 +182,23 @@ export interface User {
     estimatedEarnings: number;
     strikes?: number;
   };
+  monetizationFeatures?: {
+    videoAdsEnabled?: boolean;
+    videoAdFormatSkippable?: boolean;
+    videoAdFormatNonSkippable?: boolean;
+    videoAdFormatOverlay?: boolean;
+    videoAdFrequency?: number;
+    reelsAdsEnabled?: boolean;
+    reelsAdFormatOverlay?: boolean;
+    reelsAdFormatSticker?: boolean;
+    clubEnabled?: boolean;
+    clubTiers?: Array<{ name: string; price: number; perk: string }>;
+    supersEnabled?: boolean;
+    supersMinAmount?: number;
+    supersHighlightColor?: string;
+    shoppingEnabled?: boolean;
+    shoppingFeaturedProductIds?: string[];
+  };
   isPremium?: boolean;
   premiumExpiry?: number;
   address?: ShippingAddress;
@@ -189,6 +206,7 @@ export interface User {
   resellerName?: string;
   resellerBio?: string;
   resellerBanner?: string;
+  clubSubscriptions?: { [creatorId: string]: { tierName: string; price: number; joinedAt: number } };
 }
 
 export enum PostType {
@@ -211,6 +229,8 @@ export interface Comment {
   isAnonymous?: boolean;
   isSuperChat?: boolean;
   superChatAmount?: number;
+  isChannelMember?: boolean;
+  channelMemberTier?: string;
 }
 
 export interface Post {
@@ -260,6 +280,9 @@ export interface Post {
     guestId?: string | null;
     guestName?: string | null;
     guestStatus?: 'none' | 'invited' | 'active';
+    donationGoal?: number;
+    donationGoalMsg?: string;
+    donationCurrent?: number;
   };
   // Dados persistentes da Live
   liveChat?: Comment[];
@@ -367,15 +390,15 @@ export interface Carrier {
 }
 
 export const CARRIERS: Carrier[] = [
-  // Angola
-  { id: 'macom', name: 'Macom', countries: ['Angola'], type: 'ROAD', estimatedDays: '1-3 dias' },
-  { id: 'huambo-express', name: 'Huambo Express', countries: ['Angola'], type: 'ROAD', estimatedDays: '1-2 dias' },
-  { id: 'terceiros-ligeiros', name: 'Terceiros Ligeiros', countries: ['Angola'], type: 'ROAD', estimatedDays: 'Mesmo dia/24h' },
-  // Internacional / PALOP / CPLP
-  { id: 'dhl', name: 'DHL Express', countries: ['Brasil', 'Portugal', 'Moçambique', 'Cabo Verde', 'Guiné-Bissau', 'São Tomé e Príncipe', 'Timor-Leste', 'EUA', 'China'], type: 'AIR', estimatedDays: '3-7 dias' },
-  { id: 'fedex', name: 'FedEx', countries: ['EUA', 'Brasil', 'Portugal', 'Espanha', 'Reino Unido'], type: 'AIR', estimatedDays: '3-5 dias' },
-  { id: 'ctt', name: 'CTT Portugal', countries: ['Portugal'], type: 'LOCAL', estimatedDays: '1-3 dias' },
-  { id: 'correios-br', name: 'Correios Brasil', countries: ['Brasil'], type: 'LOCAL', estimatedDays: '2-10 dias' },
+  // Região Local / Nacional
+  { id: 'expresso-local', name: 'Expresso Local', countries: ['Brasil', 'Portugal', 'Angola', 'Moçambique', 'Cabo Verde'], type: 'ROAD', estimatedDays: '1-2 dias' },
+  { id: 'standard-road', name: 'Transportadora Standard', countries: ['Brasil', 'Portugal', 'Angola', 'Moçambique', 'Cabo Verde'], type: 'ROAD', estimatedDays: '2-5 dias' },
+  { id: 'terceiros-ligeiros', name: 'Terceiros Ligeiros', countries: ['Brasil', 'Portugal', 'Angola', 'Moçambique', 'Cabo Verde'], type: 'ROAD', estimatedDays: 'Mesmo dia/24h' },
+  // Internacional / Remessas Rápidas
+  { id: 'dhl', name: 'DHL Express', countries: ['Brasil', 'Portugal', 'Moçambique', 'Cabo Verde', 'Guiné-Bissau', 'São Tomé e Príncipe', 'Timor-Leste', 'EUA', 'China', 'Angola'], type: 'AIR', estimatedDays: '3-7 dias' },
+  { id: 'fedex', name: 'FedEx', countries: ['EUA', 'Brasil', 'Portugal', 'Espanha', 'Reino Unido', 'Angola'], type: 'AIR', estimatedDays: '3-5 dias' },
+  { id: 'ctt', name: 'Correios Associados', countries: ['Portugal'], type: 'LOCAL', estimatedDays: '1-3 dias' },
+  { id: 'correios-br', name: 'Empresa de Correios', countries: ['Brasil'], type: 'LOCAL', estimatedDays: '2-10 dias' },
   { id: 'ups', name: 'UPS', countries: ['Mundial'], type: 'AIR', estimatedDays: '3-7 dias' }
 ];
 

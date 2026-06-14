@@ -13,7 +13,10 @@ import {
   deletePost,
   incrementWatchTime,
   isUserOnline,
-  updatePost
+  updatePost,
+  addPostComment,
+  updateUser,
+  generateUUID
 } from '../services/storageService';
 import { translateText } from '../services/translationService';
 import { useTranslation } from 'react-i18next';
@@ -83,6 +86,76 @@ const PostCard: React.FC<PostCardProps> = ({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showIndicateModal, setShowIndicateModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showSuperModal, setShowSuperModal] = useState(false);
+
+  // States and handler for Super Chats
+  const [submittingSuper, setSubmittingSuper] = useState(false);
+  const [superAmount, setSuperAmount] = useState(500);
+  const [superMessage, setSuperMessage] = useState('');
+
+  const handleSendSuper = async () => {
+    if (!postAuthor) return;
+    if (currentUser.id === post.userId) {
+      showAlert("Não podes apoiar a tua própria publicação!", { type: 'error' });
+      return;
+    }
+    const minAmount = postAuthor.monetizationFeatures?.supersMinAmount || 100;
+    if (superAmount < minAmount) {
+      showAlert(`O valor mínimo para Super Chat é de ${minAmount} AOA.`, { type: 'error' });
+      return;
+    }
+    if ((currentUser.balance || 0) < superAmount) {
+      showAlert("Saldo insuficiente na carteira do FacePhone. Por favor, adicione fundos na sua carteira.", { type: 'error' });
+      return;
+    }
+
+    setSubmittingSuper(true);
+    try {
+      // 1. Deduct balance from currentUser
+      const updatedCurrentUser: User = {
+        ...currentUser,
+        balance: (currentUser.balance || 0) - superAmount
+      };
+
+      // 2. Add balance to postAuthor (creator)
+      const updatedAuthor: User = {
+        ...postAuthor,
+        balance: (postAuthor.balance || 0) + superAmount
+      };
+
+      // 3. Persist private user accounts in Firestore
+      await updateUser(updatedCurrentUser);
+      await updateUser(updatedAuthor);
+
+      // 4. Create highlighted Comment and persist in post comments
+      const commentId = generateUUID();
+      const newComment = {
+        id: commentId,
+        userId: currentUser.id,
+        userName: `${currentUser.firstName} ${currentUser.lastName}`,
+        profilePic: currentUser.profilePicture,
+        text: superMessage.trim() || `Enviou um Super Chat de ${superAmount} AOA! 🌟`,
+        timestamp: Date.now(),
+        isSuperChat: true,
+        superChatAmount: superAmount
+      };
+
+      await addPostComment(post.id, newComment);
+
+      // 5. Update local states
+      showSuccess(`Apoio de ${superAmount} AOA enviado com sucesso para ${postAuthor.firstName}! 🎉`);
+      setSuperMessage('');
+      setSuperAmount(500);
+      setShowSuperModal(false);
+      refreshUser();
+      onPostUpdatedOrDeleted();
+    } catch (err) {
+      console.error("Erro ao enviar Super Chat:", err);
+      showAlert("Erro ao processar o seu Super Chat. Tente novamente.", { type: 'error' });
+    } finally {
+      setSubmittingSuper(false);
+    }
+  };
 
   // Optimistic UI states
   const [localLikes, setLocalLikes] = useState<string[]>(post.likes || []);
@@ -646,6 +719,22 @@ const PostCard: React.FC<PostCardProps> = ({
                       {isSaved ? <BookmarkIconSolid className="h-[18px] w-[18px]" /> : <BookmarkIconOutline className="h-[18px] w-[18px]" />}
                     </div>
                 </button>
+
+                {!isAuthor && postAuthor && (postAuthor.isMonetized || postAuthor.monetizationFeatures?.supersEnabled || postAuthor.userType === 'CREATOR') && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSuperModal(true);
+                    }}
+                    className="flex items-center gap-1 group text-amber-500 hover:text-amber-600 transition-colors"
+                    title="Apoiar com Super Chat"
+                  >
+                    <div className="p-2 rounded-full group-hover:bg-amber-500/10 transition-colors">
+                      <BoltIcon className="h-[18px] w-[18px]" />
+                    </div>
+                    <span className="text-[13px] hidden md:inline font-bold uppercase tracking-tight">Apoiar</span>
+                  </button>
+                )}
               </div>
             )}
       </div>
@@ -719,6 +808,117 @@ const PostCard: React.FC<PostCardProps> = ({
             mediaType: post.imageUrl ? 'image' : (post.reel?.videoUrl ? 'video' : undefined)
           }}
         />
+      )}
+
+      {showSuperModal && postAuthor && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-scale-up font-sans text-left">
+            
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500/10 to-yellow-500/10 p-6 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-550 flex items-center justify-center text-black font-black text-sm">
+                  ⚡
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-wider">Apoiar Criador</h3>
+                  <p className="text-[10px] text-zinc-500 uppercase font-bold">Enviar Super Chat para {postAuthor.firstName}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSuperModal(false)}
+                className="h-8 w-8 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 flex items-center justify-center hover:scale-105 transition-all font-bold text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-5">
+              {/* Info Creator */}
+              <div className="flex items-center gap-3 bg-zinc-50 dark:bg-zinc-800/20 p-3 rounded-2xl border border-zinc-100 dark:border-zinc-800/40">
+                <img src={postAuthor.profilePicture || DEFAULT_PROFILE_PIC} className="w-8 h-8 rounded-full object-cover border" referrerPolicy="no-referrer" />
+                <div>
+                  <p className="text-xs font-black text-zinc-900 dark:text-white uppercase">{postAuthor.firstName} {postAuthor.lastName}</p>
+                  <p className="text-[9px] text-zinc-400 uppercase font-bold">Criador de Conteúdo</p>
+                </div>
+              </div>
+
+              {/* Quick selects */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-zinc-400">Escolha o valor de apoio (AOA)</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[200, 500, 1000, 2500].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setSuperAmount(amt)}
+                      className={`py-2 rounded-xl text-xs font-black uppercase transition-all ${
+                        superAmount === amt
+                          ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/10'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 hover:dark:bg-zinc-700'
+                      }`}
+                    >
+                      {amt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom amount or typing info */}
+              <div className="space-y-2">
+                <input
+                  type="number"
+                  value={superAmount}
+                  onChange={(e) => setSuperAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                  min={postAuthor.monetizationFeatures?.supersMinAmount || 100}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 text-center text-lg font-black text-amber-550 p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 focus:border-amber-500 outline-none"
+                  placeholder="Valor personalizado"
+                />
+                <div className="flex justify-between items-center text-[9px] text-zinc-400 uppercase font-bold px-1">
+                  <span>Mínimo: {postAuthor.monetizationFeatures?.supersMinAmount || 100} AOA</span>
+                  <span>Saldo: {currentUser.balance || 0} AOA</span>
+                </div>
+              </div>
+
+              {/* Message */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-zinc-400">Mensagem de Destaque (Super Chat)</label>
+                <textarea
+                  value={superMessage}
+                  onChange={(e) => setSuperMessage(e.target.value)}
+                  maxLength={150}
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 text-xs font-semibold p-3.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 focus:border-amber-500 outline-none min-h-[70px] resize-none"
+                  placeholder="O que quer dizer ao criador? A sua mensagem ficará destacada!"
+                />
+                <p className="text-[8px] text-zinc-400 text-right uppercase font-bold">{superMessage.length}/150 caracteres</p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSuperModal(false)}
+                  className="flex-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 hover:dark:bg-zinc-700 text-zinc-900 dark:text-white py-3 px-4 rounded-xl text-xs font-black uppercase transition-all duration-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={submittingSuper || (currentUser.balance || 0) < superAmount || superAmount < (postAuthor.monetizationFeatures?.supersMinAmount || 100)}
+                  onClick={handleSendSuper}
+                  className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase transition-all duration-300 ${
+                    !submittingSuper && (currentUser.balance || 0) >= superAmount && superAmount >= (postAuthor.monetizationFeatures?.supersMinAmount || 100)
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-550 text-black hover:brightness-110 shadow-lg shadow-amber-500/20'
+                      : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed'
+                  }`}
+                >
+                  {submittingSuper ? 'Enviando...' : 'Enviar Apoio'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

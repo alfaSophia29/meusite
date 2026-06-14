@@ -104,6 +104,8 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
         return;
       }
 
+      const isMember = currentUser.clubSubscriptions && postOwnerId && currentUser.clubSubscriptions[postOwnerId];
+
       const comment: Comment = {
         id: generateUUID(),
         userId: currentUser.id,
@@ -111,7 +113,9 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
         profilePic: isAnonymous ? ANONYMOUS_MASK_PIC : currentUser.profilePicture,
         text: newComment,
         timestamp: Date.now(),
-        isAnonymous: isAnonymous
+        isAnonymous: isAnonymous,
+        isChannelMember: !isAnonymous && !!isMember,
+        channelMemberTier: !isAnonymous && isMember ? isMember.tierName : undefined
       };
 
       if (replyingTo) {
@@ -160,9 +164,27 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
       >
         <img src={displayPic} className="w-8 h-8 rounded-full object-cover shrink-0 border border-gray-200 dark:border-white/10" alt={displayName} />
         <div className="flex-1">
-          <div className="bg-white dark:bg-zinc-800 p-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 dark:border-white/5 relative">
-            <div className="flex justify-between items-start mb-1 h-4">
-              <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight">{displayName}</p>
+          <div className={`p-3 rounded-2xl rounded-tl-none shadow-sm border relative ${
+            c.isSuperChat 
+              ? 'bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border-amber-500/35 dark:border-amber-500/20' 
+              : c.isChannelMember
+                ? 'bg-gradient-to-r from-emerald-500/5 to-teal-500/5 border-emerald-500/25 dark:border-emerald-500/15'
+                : 'bg-white dark:bg-zinc-850 border-gray-100 dark:border-white/5'
+          }`}>
+            <div className="flex justify-between items-start mb-1 gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight">{displayName}</p>
+                {c.isChannelMember && (
+                  <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[8px] font-mono font-black uppercase px-2 py-0.5 rounded-md flex items-center gap-0.5 border border-emerald-500/20" title={`Membro: ${c.channelMemberTier || 'Clube'}`}>
+                    ★ Membro ({c.channelMemberTier || 'Clube'})
+                  </span>
+                )}
+                {c.isSuperChat && (
+                  <span className="bg-amber-500 text-black text-[8px] font-mono font-black uppercase px-2 py-0.5 rounded-md flex items-center gap-0.5 shadow-sm" title={`Apoio: ${c.superChatAmount || 0} AOA`}>
+                    ⚡ SUPER SUPPORT ({c.superChatAmount} AOA)
+                  </span>
+                )}
+              </div>
               
               {/* Actions for edit/delete */}
               <div className="flex items-center gap-1 opacity-70 hover:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">

@@ -41,7 +41,9 @@ import {
   BanknotesIcon,
   ChartBarIcon,
   BookmarkIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  CheckIcon,
+  TrashIcon
 } from '@heroicons/react/24/solid';
 import PostCard from './PostCard';
 import AdCard from './AdCard';
@@ -67,6 +69,71 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
   const [loading, setLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [exchangeRate, setExchangeRate] = useState(930);
+
+  // States for Clubes de Canais (Membros)
+  const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [joiningTier, setJoiningTier] = useState<{name: string, price: number, perk: string} | null>(null);
+  const [showSuccessMembership, setShowSuccessMembership] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [joinedTierName, setJoinedTierName] = useState<string>('');
+
+  const isMember = profile && currentUser.clubSubscriptions && currentUser.clubSubscriptions[profile.id];
+
+  const handleJoinClub = async (tier: { name: string; price: number; perk: string }) => {
+    if (!profile) return;
+    if (currentUser.id === profile.id) {
+      setToastMessage("Não podes assinar o teu próprio clube!");
+      return;
+    }
+    
+    if ((currentUser.balance || 0) < tier.price) {
+      setToastMessage("Saldo insuficiente na carteira do FacePhone. Por favor, adicione fundos na carteira.");
+      return;
+    }
+
+    try {
+      // Deduct balance and register subscription on the viewer
+      const updatedCurrentUser: User = {
+        ...currentUser,
+        balance: (currentUser.balance || 0) - tier.price,
+        clubSubscriptions: {
+          ...(currentUser.clubSubscriptions || {}),
+          [profile.id]: {
+            tierName: tier.name,
+            price: tier.price,
+            joinedAt: Date.now()
+          }
+        }
+      };
+
+      // Add balance to the content creator
+      const updatedProfile: User = {
+        ...profile,
+        balance: (profile.balance || 0) + tier.price
+      };
+
+      // Persist in Firestore
+      await updateUser(updatedCurrentUser);
+      await updateUser(updatedProfile);
+
+      // Save locally
+      setProfile(updatedProfile);
+      setJoinedTierName(tier.name);
+      setShowSuccessMembership(true);
+      setToastMessage(`Parabéns! Tornaste-te membro do clube "${tier.name}"! 🎉`);
+      refreshUser(); // Sync with App.tsx global state
+    } catch (e) {
+      console.error("Erro ao assinar clube:", e);
+      setToastMessage("Erro ao salvar assinatura do clube. Tente novamente.");
+    }
+  };
+
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
   
   useEffect(() => {
     const fetchRate = async () => {
@@ -201,7 +268,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                   <div>
                      <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Portal Administrativo</h3>
                      <p className="text-[10px] text-red-500 font-black uppercase tracking-[0.2em] mt-1 flex items-center gap-2">
-                        Painel de Controle Global <span className="w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
+                        Painel de Controle Geral <span className="w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
                      </p>
                   </div>
                </div>
@@ -318,6 +385,21 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                             >
                                 <EnvelopeIcon className="h-4 w-4" /> Msg
                             </button>
+                            
+                            {/* Botão Seja Membro */}
+                            {(profile.monetizationFeatures?.clubEnabled || profile.isMonetized || profile.userType === 'CREATOR') && (
+                              <button 
+                                  onClick={() => setIsMemberModalOpen(true)}
+                                  className={`flex-1 md:flex-none px-6 py-3 rounded-2xl font-black uppercase text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-transparent ${
+                                      isMember 
+                                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 shadow-md' 
+                                      : 'bg-gradient-to-r from-yellow-500 to-amber-500 text-black hover:brightness-110 shadow-lg shadow-amber-500/20'
+                                  }`}
+                              >
+                                  <SparklesIcon className="h-4 w-4 shrink-0" />
+                                  {isMember ? 'Membro Ativo' : 'Seja Membro'}
+                                </button>
+                            )}
                             </>
                         )}
                     </div>
@@ -461,7 +543,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                             </li>
                             <li className="flex items-center gap-3 text-sm font-bold dark:text-white">
                                <MapPinIcon className="h-5 w-5 text-red-500" />
-                               Global / Online
+                               {profile.country || 'Ativo'} / Online
                             </li>
                          </ul>
                       </div>
@@ -700,6 +782,240 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                    </div>
                 </div>
              )}
+              {/* Toast Notification */}
+              {toastMessage && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900 border border-neutral-700/50 text-white rounded-2xl px-6 py-4 shadow-2xl flex items-center gap-3 animate-slide-up font-sans text-xs font-black uppercase tracking-wider backdrop-blur-md">
+                  <div className="w-2 h-2 rounded-full bg-yellow-400 animate-ping items-center"></div>
+                  {toastMessage}
+                </div>
+              )}
+
+              {/* Modal Clube de Canais (Seja Membro) */}
+              {isMemberModalOpen && profile && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-scale-up font-sans">
+                    
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-yellow-500/10 to-amber-500/10 p-6 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-9 w-9 rounded-xl bg-gradient-to-r from-yellow-500 to-amber-500 flex items-center justify-center text-black font-black text-sm">
+                          ★
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-xs font-black text-zinc-900 dark:text-white uppercase tracking-wider">Clube de Canais</h3>
+                          <p className="text-[10px] text-zinc-500 uppercase font-bold">Apoie {profile.firstName} {profile.lastName}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setIsMemberModalOpen(false);
+                          setJoiningTier(null);
+                          setShowSuccessMembership(false);
+                        }}
+                        className="h-8 w-8 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 flex items-center justify-center hover:scale-105 transition-all font-black text-xs"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-6">
+                      {isMember ? (
+                        /* Case: User is already a Member */
+                        <div className="space-y-6">
+                          <div className="bg-emerald-500/10 border border-emerald-500/25 p-6 rounded-3xl text-center">
+                            <span className="text-3xl">🥳</span>
+                            <h4 className="text-sm font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mt-3">Você é Membro Ativo!</h4>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Obrigado por apoiar nosso canal e projetos independentes com {profile.firstName}.</p>
+                          </div>
+
+                          <div className="bg-zinc-50 dark:bg-zinc-800/40 p-5 rounded-2xl space-y-3 border border-zinc-100 dark:border-zinc-805">
+                            <div className="flex justify-between items-center text-xs text-zinc-600 dark:text-zinc-400 font-bold">
+                              <span>Nível de Apoio:</span>
+                              <span className="text-zinc-950 dark:text-white font-black text-sm uppercase text-yellow-500 flex items-center gap-1">
+                                👑 {isMember.tierName}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-zinc-600 dark:text-zinc-400 font-bold">
+                              <span>Contribuição Mensal:</span>
+                              <span className="text-zinc-950 dark:text-white font-black">
+                                {isMember.price} AOA
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-zinc-600 dark:text-zinc-400 font-bold">
+                              <span>Membro Desde:</span>
+                              <span className="text-zinc-950 dark:text-white font-black">
+                                {new Date(isMember.joinedAt).toLocaleDateString('pt-AO')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Member Perks Playground (Simulated Chat / Room) */}
+                          <div className="border border-zinc-200 dark:border-zinc-800 rounded-3xl overflow-hidden shadow-inner">
+                            <div className="bg-zinc-100 dark:bg-zinc-800/80 px-4 py-2 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800">
+                              <span className="text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div> Chat Exclusivo de Membros
+                              </span>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase">Perk Ativo</span>
+                            </div>
+                            <div className="p-4 bg-zinc-50/50 dark:bg-zinc-950/20 h-36 overflow-y-auto space-y-2.5 scrollbar-thin text-left">
+                              <div className="flex items-start gap-2">
+                                <img src={profile.profilePicture || DEFAULT_PROFILE_PIC} className="w-5 h-5 rounded-full object-cover border" referrerPolicy="no-referrer" />
+                                <div className="bg-white dark:bg-zinc-800/60 p-2 rounded-2xl rounded-tl-none text-[11px] font-medium text-zinc-800 dark:text-zinc-200 shadow-sm border border-zinc-100 dark:border-zinc-850">
+                                  <span className="font-black text-yellow-500 text-[9px] block uppercase">Criador • {profile.firstName}</span>
+                                  Olá pessoal! Sejam bem-vindos ao chat de membros vip! É aqui que decido o rumo do canal. ✌️
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-2 justify-end">
+                                <div className="bg-emerald-500/10 border border-emerald-500/25 p-2 rounded-2xl rounded-tr-none text-[11px] font-medium text-zinc-800 dark:text-zinc-200 shadow-sm max-w-[80%]">
+                                  <span className="font-black text-emerald-500 text-[9px] block uppercase">Tu • {currentUser.firstName}</span>
+                                  Incrível fazer parte deste clube de mentores!
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => {
+                                setIsMemberModalOpen(false);
+                                setToastMessage("Para gerenciar as assinaturas ativas acesse os detalhes da carteira.");
+                              }}
+                              className="flex-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 hover:dark:bg-zinc-700 text-zinc-900 dark:text-white py-3 px-4 rounded-xl text-xs font-black uppercase transition-all duration-300"
+                            >
+                              Ok, Entendido
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const updatedUser = { ...currentUser };
+                                  if (updatedUser.clubSubscriptions) {
+                                    delete updatedUser.clubSubscriptions[profile.id];
+                                  }
+                                  await updateUser(updatedUser);
+                                  refreshUser();
+                                  const refetchedProfile = await findUserById(profile.id);
+                                  if (refetchedProfile) {
+                                    setProfile(refetchedProfile);
+                                  }
+                                  setIsMemberModalOpen(false);
+                                  setToastMessage("Assinatura cancelada com sucesso.");
+                                } catch (err) {
+                                  setToastMessage("Erro ao cancelar candidatura.");
+                                }
+                              }}
+                              className="px-4 py-3 border border-red-500/25 text-red-500 hover:bg-red-50/50 dark:hover:bg-red-950/15 rounded-xl text-xs font-black uppercase transition-all duration-300"
+                            >
+                              Cancelar Apoio
+                            </button>
+                          </div>
+                        </div>
+                      ) : joiningTier ? (
+                        /* Case: Confirming purchase */
+                        <div className="space-y-6 text-left">
+                          <button 
+                            onClick={() => setJoiningTier(null)}
+                            className="text-xs text-zinc-500 hover:text-zinc-700 flex items-center gap-1 uppercase font-black"
+                          >
+                            ← Voltar aos níveis
+                          </button>
+
+                          <div className="bg-zinc-50 dark:bg-white/5 p-6 rounded-3xl space-y-4 border border-zinc-100 dark:border-zinc-800">
+                            <h4 className="text-xs font-black uppercase text-zinc-400">Resumo da Assinatura</h4>
+                            <div className="flex justify-between items-center py-2 border-b border-dashed border-zinc-205">
+                              <span className="text-sm font-bold text-zinc-900 dark:text-white">Plano {joiningTier.name}</span>
+                              <span className="text-sm font-black text-yellow-500">{joiningTier.price} AOA/mês</span>
+                            </div>
+                            <div className="flex justify-between items-center pt-2 border-t border-zinc-100 dark:border-zinc-800/50 mt-1">
+                              <span className="text-xs font-bold text-zinc-505">Seu saldo atual:</span>
+                              <span className="text-xs font-black text-zinc-900 dark:text-white">{currentUser.balance || 0} AOA</span>
+                            </div>
+                            <div className="flex justify-between items-center py-2">
+                              <span className="text-xs font-bold text-zinc-505">Saldo após assinatura:</span>
+                              <span className={`text-xs font-black ${(currentUser.balance || 0) - joiningTier.price >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                {(currentUser.balance || 0) - joiningTier.price} AOA
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="bg-yellow-500/5 border border-yellow-500/20 p-4 rounded-xl.5 flex gap-2.5 items-start">
+                            <span className="text-sm">💡</span>
+                            <p className="text-[10px] text-yellow-600 dark:text-yellow-400 leading-relaxed font-bold">
+                              Ao apoiar o canal, o criador recebe o valor diretamente na conta e você desbloqueia perks e badges instantaneamente.
+                            </p>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => setJoiningTier(null)}
+                              className="flex-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 hover:dark:bg-zinc-700 text-zinc-900 dark:text-white py-3.5 px-4 rounded-xl text-xs font-black uppercase transition-all duration-300"
+                            >
+                              Voltar
+                            </button>
+                            <button
+                              disabled={(currentUser.balance || 0) < joiningTier.price}
+                              onClick={() => {
+                                handleJoinClub(joiningTier);
+                                setIsMemberModalOpen(false);
+                                setJoiningTier(null);
+                              }}
+                              className={`flex-1 py-3.5 px-4 rounded-xl text-xs font-black uppercase transition-all duration-300 ${
+                                (currentUser.balance || 0) >= joiningTier.price
+                                  ? 'bg-gradient-to-r from-yellow-500 to-amber-500 text-black hover:brightness-110 shadow-lg shadow-amber-500/20'
+                                  : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed'
+                              }`}
+                            >
+                              Confirmar Apoio (Pagar)
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Case: List of Tiers */
+                        <div className="space-y-4">
+                          <p className="text-xs text-zinc-500 text-center leading-relaxed font-semibold">
+                            Apoie mensalmente para dar continuidade operacional ao canal de {profile.firstName} e obtenha benefícios e selos em tempo real!
+                          </p>
+
+                          <div className="space-y-3 py-2 text-left">
+                            {(profile?.monetizationFeatures?.clubTiers && profile.monetizationFeatures.clubTiers.length > 0
+                              ? profile.monetizationFeatures.clubTiers
+                              : [
+                                  { name: 'Bronze Clube', price: 1000, perk: 'Selo de membro exclusivo nos comentários, posts e lives' },
+                                  { name: 'Prata Clube', price: 3000, perk: 'Acesso às postagens exclusivas e selo vip prata' },
+                                  { name: 'Ouro Clube', price: 7500, perk: 'Acesso VIP completo ao chat de membros com criador' }
+                                ]
+                            ).map((tier, idx) => (
+                              <div 
+                                key={idx}
+                                className="group/tier p-5 rounded-3xl border border-zinc-200 dark:border-zinc-800 hover:border-yellow-500/40 dark:hover:border-yellow-500/30 bg-zinc-50/50 dark:bg-zinc-800/20 hover:bg-white dark:hover:bg-zinc-800/40 transition-all duration-300 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-fade-in"
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="font-black text-xs uppercase text-zinc-900 dark:text-white">{tier.name}</h5>
+                                    <span className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 text-[8px] font-mono font-black lowercase px-2 py-0.5 rounded-full">
+                                      Nível {idx + 1}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-zinc-600 dark:text-zinc-350 leading-relaxed font-bold uppercase tracking-tighter">Perk: {tier.perk}</p>
+                                </div>
+                                <div className="flex flex-col items-end shrink-0 w-full md:w-auto mt-2 md:mt-0 gap-1">
+                                  <span className="text-sm font-black text-yellow-500">{tier.price} AOA/mês</span>
+                                  <button
+                                    onClick={() => setJoiningTier(tier)}
+                                    className="w-full md:w-auto px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-black font-black uppercase text-[9px] rounded-xl hover:bg-yellow-500 hover:text-black hover:dark:bg-yellow-500 transition-all duration-300"
+                                  >
+                                    Assinar
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
           </div>
        </div>
     </div>

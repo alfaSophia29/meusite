@@ -18,7 +18,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import { motion } from 'motion/react';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, DEFAULT_PRODUCT_IMG } from '../data/constants';
 
 interface ProductDetailContentProps {
   currentUser: User;
@@ -37,14 +37,28 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
 }) => {
   const [isAdded, setIsAdded] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(0);
   const [selectedColor, setSelectedColor] = useState<string | undefined>(
     product.colors && product.colors.length > 0 ? product.colors[0] : undefined
   );
   const [selectedVariation, setSelectedVariation] = useState<{id: string; name: string; price?: number; stock: number; imageUrl?: string} | undefined>(
-    product.variations && product.variations.length > 0 ? product.variations.find(v => v.imageUrl === product.imageUrls[0]) || product.variations[0] : undefined
+    product.variations && product.variations.length > 0 ? product.variations.find(v => v.imageUrl === (product.imageUrls && product.imageUrls[0])) || product.variations[0] : undefined
   );
+  const [activeImageSrc, setActiveImageSrc] = useState<string>(() => {
+    const initialVar = product.variations && product.variations.length > 0 
+      ? product.variations.find(v => v.imageUrl === (product.imageUrls && product.imageUrls[0])) || product.variations[0] 
+      : undefined;
+    return initialVar?.imageUrl || (product.imageUrls && product.imageUrls[0]) || DEFAULT_PRODUCT_IMG;
+  });
   const [storeOwner, setStoreOwner] = useState<User | null>(null);
+
+  useEffect(() => {
+    setSelectedColor(product.colors && product.colors.length > 0 ? product.colors[0] : undefined);
+    const initialVar = product.variations && product.variations.length > 0 
+      ? product.variations.find(v => v.imageUrl === (product.imageUrls && product.imageUrls[0])) || product.variations[0] 
+      : undefined;
+    setSelectedVariation(initialVar);
+    setActiveImageSrc(initialVar?.imageUrl || (product.imageUrls && product.imageUrls[0]) || DEFAULT_PRODUCT_IMG);
+  }, [product]);
 
   useEffect(() => {
     const fetchOwner = async () => {
@@ -63,12 +77,9 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
 
   useEffect(() => {
     if (selectedVariation?.imageUrl) {
-      const idx = product.imageUrls.indexOf(selectedVariation.imageUrl);
-      if (idx !== -1) {
-        setSelectedImage(idx);
-      }
+      setActiveImageSrc(selectedVariation.imageUrl);
     }
-  }, [selectedVariation, product.imageUrls]);
+  }, [selectedVariation]);
 
   const handleAddToCart = () => {
     onAddToCart(product.id, 1, selectedColor, undefined, product, selectedVariation?.id);
@@ -95,12 +106,13 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
       <div className="space-y-4">
         <div className="relative aspect-square rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-gray-100 dark:bg-white/5 border border-gray-100 dark:border-white/10 group">
           <motion.img 
-            key={selectedImage}
+            key={activeImageSrc}
             initial={{ opacity: 0, scale: 1.05 }}
             animate={{ opacity: 1, scale: 1 }}
-            src={product.imageUrls[selectedImage]} 
+            src={activeImageSrc} 
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
             alt={product.name} 
+            onError={(e) => { e.currentTarget.src = DEFAULT_PRODUCT_IMG; }}
           />
           <div className="absolute top-4 left-4">
              <span className="bg-white/90 dark:bg-darkcard/90 backdrop-blur-md px-3 py-1 rounded-xl text-[10px] font-black text-gray-900 dark:text-white uppercase shadow-sm border border-black/5 dark:border-white/5">
@@ -113,29 +125,32 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
                <span className="bg-red-500 px-3 py-1 rounded-xl text-[10px] font-black text-white uppercase shadow-lg">
                  -{product.discountPercentage}% OFF
                </span>
-            </div>
+             </div>
           )}
         </div>
         
-        {product.imageUrls.length > 1 && (
+        {product.imageUrls && product.imageUrls.length > 1 && (
           <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide py-1">
-            {product.imageUrls.map((url, index) => (
-              <button 
-                key={index}
-                onClick={() => {
-                  setSelectedImage(index);
-                  if (product.variations) {
-                    const matchedVar = product.variations.find(v => v.imageUrl === url);
-                    if (matchedVar) {
-                      setSelectedVariation(matchedVar);
+            {product.imageUrls.map((url, index) => {
+              const isActive = activeImageSrc === url;
+              return (
+                <button 
+                  key={index}
+                  onClick={() => {
+                    setActiveImageSrc(url);
+                    if (product.variations) {
+                      const matchedVar = product.variations.find(v => v.imageUrl === url);
+                      if (matchedVar) {
+                        setSelectedVariation(matchedVar);
+                      }
                     }
-                  }
-                }}
-                className={`relative w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${selectedImage === index ? 'border-blue-600 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
-              >
-                <img src={url} className="w-full h-full object-cover" alt={`${product.name} ${index}`} />
-              </button>
-            ))}
+                  }}
+                  className={`relative w-16 h-16 md:w-20 md:h-20 flex-shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${isActive ? 'border-blue-600 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                >
+                  <img src={url} className="w-full h-full object-cover" alt={`${product.name} ${index}`} onError={(e) => { e.currentTarget.src = DEFAULT_PRODUCT_IMG; }} />
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -185,18 +200,14 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
                 {product.variations.map((v) => {
                   const isSelected = selectedVariation?.id === v.id;
                   const vPrice = v.price ?? product.price;
+                  const displayImage = v.imageUrl || (product.imageUrls && product.imageUrls[0]) || DEFAULT_PRODUCT_IMG;
                   return (
                     <button
                       key={v.id}
                       type="button"
                       onClick={() => {
                         setSelectedVariation(v);
-                        if (v.imageUrl) {
-                          const idx = product.imageUrls.indexOf(v.imageUrl);
-                          if (idx !== -1) {
-                            setSelectedImage(idx);
-                          }
-                        }
+                        setActiveImageSrc(v.imageUrl || (product.imageUrls && product.imageUrls[0]) || DEFAULT_PRODUCT_IMG);
                       }}
                       className={`text-left p-4 rounded-2xl border-2 transition-all flex items-center gap-3 relative overflow-hidden group ${
                         isSelected 
@@ -204,9 +215,7 @@ const ProductDetailContent: React.FC<ProductDetailContentProps> = ({
                           : 'border-transparent bg-white dark:bg-[#131724] hover:bg-gray-100 dark:hover:bg-white/5'
                       }`}
                     >
-                      {v.imageUrl && (
-                        <img src={v.imageUrl} className="w-12 h-12 rounded-xl object-cover border dark:border-white/10" alt={v.name} />
-                      )}
+                      <img src={displayImage} className="w-12 h-12 rounded-xl object-cover border dark:border-white/10 flex-shrink-0" alt={v.name} onError={(e) => { e.currentTarget.src = DEFAULT_PRODUCT_IMG; }} />
                       <div className="flex-1 min-w-0">
                         <span className="block text-xs font-black text-gray-900 dark:text-white uppercase truncate">{v.name || 'Padrão'}</span>
                         <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase mt-0.5">Estoque: {v.stock} un.</span>

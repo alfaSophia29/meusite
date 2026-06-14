@@ -147,10 +147,11 @@ const ReelItem: React.FC<{
 
   useEffect(() => {
     // Incrementar a contagem real de visualizações do criador do Reel no banco de dados Firestore
-    if (reel.userId) {
+    // Regra FacePhone: Visualizações do próprio dono do conteúdo não devem contar para a monetização
+    if (reel.userId && reel.userId !== currentUser.id) {
       incrementShortsView(reel.userId);
     }
-  }, [reel.userId, reel.id]);
+  }, [reel.userId, reel.id, currentUser.id]);
 
   const fetchCommentsCount = async () => {
     const freshPost = await getPostById(reel.id);

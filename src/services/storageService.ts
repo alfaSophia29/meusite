@@ -222,7 +222,9 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
         },
         address: dbData?.address || undefined,
         blockedUserIds: dbData?.blockedUserIds || [],
-        country: dbData?.country || ''
+        country: dbData?.country || '',
+        monetizationFeatures: dbData?.monetizationFeatures || undefined,
+        clubSubscriptions: dbData?.clubSubscriptions || undefined
     } as User;
 };
 
@@ -1019,8 +1021,15 @@ export const incrementPostViews = async (pid: string) => {
         const currentViews = postData.views || 0;
         await updateDoc(ref, { views: currentViews + 1 });
         
-        // Atualizar metas de monetização do autor
+        // Regra FacePhone: As visualizações do dono do conteúdo não podem contar para a monetização
         const authorId = postData.userId;
+        const viewerId = auth?.currentUser?.uid;
+        if (viewerId === authorId) {
+            console.log("Visualização do próprio dono detectada. Ignorando incremento para fins de monetização.");
+            return;
+        }
+
+        // Atualizar metas de monetização do autor
         const authorRef = doc(db, 'public_profiles', authorId);
         const authorDoc = await getDoc(authorRef);
         if (authorDoc.exists()) {
@@ -1569,9 +1578,9 @@ export const findStoreById = async (id: string) => {
 export const updateUserProfile = async (uid: string, data: Partial<User>) => {
     if (!db) return;
     try {
-        await updateDoc(doc(db, 'users', uid), data);
+        await updateDoc(doc(db, 'profiles', uid), data);
     } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+        handleFirestoreError(error, OperationType.UPDATE, `profiles/${uid}`);
     }
 };
 
@@ -2304,6 +2313,13 @@ export const getUnreadMessagesCount = async (userId: string): Promise<number> =>
  */
 export const incrementWatchTime = async (userId: string, seconds: number, isPremiumViewer: boolean = false) => {
     if (!db || !userId || !auth?.currentUser) return;
+    
+    // Regra FacePhone: As visualizações do próprio dono do conteúdo não podem contar para a monetização
+    if (auth.currentUser.uid === userId) {
+        console.log("Visualização própria de watch time detectada. Ignorando incremento de monetização.");
+        return;
+    }
+
     try {
         const userRef = doc(db, 'public_profiles', userId);
         const userSnap = await getDoc(userRef);
@@ -2350,6 +2366,13 @@ export const incrementWatchTime = async (userId: string, seconds: number, isPrem
 
 export const incrementShortsView = async (userId: string) => {
     if (!db || !userId) return;
+    
+    // Regra FacePhone: As visualizações do próprio dono do conteúdo não podem contar para a monetização
+    if (auth?.currentUser && auth.currentUser.uid === userId) {
+        console.log("Visualização própria de Reels / Shorts detectada. Ignorando incremento de monetização.");
+        return;
+    }
+
     try {
         const userRef = doc(db, 'public_profiles', userId);
         const userSnap = await getDoc(userRef);
@@ -3255,6 +3278,14 @@ export const createProduct = async (p: Product) => {
         soldCount: 0,
         timestamp: Date.now()
     });
+
+    try {
+        const localCache = JSON.parse(localStorage.getItem('cyber_product_cache') || '{}');
+        delete localCache[p.id];
+        localStorage.setItem('cyber_product_cache', safeJsonStringify(localCache));
+    } catch (e) {
+        console.warn("⚠️ [Cache] Erro ao limpar cache do produto:", e);
+    }
 };
 
 export const updateProduct = async (id: string, p: Partial<Product>) => {
@@ -3284,6 +3315,14 @@ export const updateProduct = async (id: string, p: Partial<Product>) => {
         ...p,
         updatedAt: Date.now()
     });
+
+    try {
+        const localCache = JSON.parse(localStorage.getItem('cyber_product_cache') || '{}');
+        delete localCache[id];
+        localStorage.setItem('cyber_product_cache', safeJsonStringify(localCache));
+    } catch (e) {
+        console.warn("⚠️ [Cache] Erro ao limpar cache do produto pós-update:", e);
+    }
 };
 
 export const getAffiliateSales = async (filters?: { affiliateUserId?: string, storeId?: string, buyerId?: string, sellerId?: string }) => {

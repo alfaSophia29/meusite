@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { User } from '../types';
+import { User, TransactionType, Transaction } from '../types';
 import { db } from '../services/firebaseClient';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { generateUUID } from '../services/storageService';
+import { generateUUID, createTransaction } from '../services/storageService';
 
 interface UnitelMoneyFormProps {
   currentUser: User;
@@ -24,43 +23,26 @@ const UnitelMoneyForm: React.FC<UnitelMoneyFormProps> = ({ currentUser, onSucces
     setLoading(true);
     try {
       const val = parseFloat(amount);
-      const userRef = doc(db, 'users', currentUser.id);
-      
-      const transaction = {
-        id: generateUUID(),
-        userId: currentUser.id,
-        amount: val,
-        currency: 'KZ',
-        type: mode === 'purchase' ? 'payment' : mode,
-        method: 'unitel_money',
-        status: mode === 'deposit' ? 'completed' : 'pending',
-        timestamp: Date.now(),
-        details: `${mode === 'deposit' ? 'Deposit' : 'Withdraw'} via Unitel Money: ${phone}`
-      };
+      const txAmt = mode === 'deposit' ? val : (mode === 'withdraw' ? -val : 0);
 
-      // Conversion rate logic could be here if needed, for now assume balance is in one unit
-      // If balance is USD, we need a rate. Let's assume balance is internal currency.
-      
-      const balanceChange = val; // Apply currency conversion logic if multi-currency is enabled
-
-      if (mode === 'deposit') {
-        await updateDoc(userRef, {
-          balance: (currentUser.balance || 0) + balanceChange,
-        });
-      } else {
-        if ((currentUser.balance || 0) < balanceChange) {
-          alert('Saldo insuficiente');
-          return;
-        }
-        await updateDoc(userRef, {
-          balance: (currentUser.balance || 0) - balanceChange,
-        });
+      if (mode !== 'deposit' && (currentUser.balance || 0) < val) {
+        alert('Saldo insuficiente');
+        setLoading(false);
+        return;
       }
 
-      await updateDoc(userRef, {
-        transactions: arrayUnion(transaction.id)
-      });
+      const tx: Transaction = {
+        id: generateUUID(),
+        userId: currentUser.id,
+        amount: txAmt,
+        type: mode === 'deposit' ? TransactionType.DEPOSIT : 
+              (mode === 'withdraw' ? TransactionType.WITHDRAWAL : TransactionType.PURCHASE),
+        description: `${mode === 'deposit' ? 'Depósito' : 'Saque'} via Unitel Money: ${phone}`,
+        timestamp: Date.now(),
+        status: mode === 'deposit' ? 'COMPLETED' : 'PENDING'
+      };
 
+      await createTransaction(tx);
       onSuccess();
     } catch (error) {
       console.error('Payment error:', error);
