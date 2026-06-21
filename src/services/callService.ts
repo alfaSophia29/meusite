@@ -176,6 +176,8 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
         onCall({ id: change.doc.id, ...data } as Call);
       }
     });
+  }, (error) => {
+    console.warn("[CALLS] unsubIncoming snapshot listener restricted or offline:", error.message);
   });
 
   const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
@@ -185,6 +187,8 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
         onCall({ id: change.doc.id, ...data } as Call);
       }
     });
+  }, (error) => {
+    console.warn("[CALLS] unsubOutgoing snapshot listener restricted or offline:", error.message);
   });
 
   return () => {

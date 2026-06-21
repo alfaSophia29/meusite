@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, getDocFromServer, getDoc, doc, enableNetwork, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
+import { initializeFirestore, getDocFromServer, getDoc, doc, enableNetwork, disableNetwork, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from '../../firebase-applet-config.json';
 import { safeJsonStringify } from "../lib/utils";
@@ -55,7 +55,7 @@ try {
 
 const db = app ? initializeFirestore(app, {
   // @ts-ignore
-  experimentalAutoDetectLongPolling: true,
+  experimentalForceLongPolling: true,
   // @ts-ignore
   ignoreUndefinedProperties: true,
   localCache: localCacheOption
@@ -102,6 +102,63 @@ if (isFirebaseConfigured && app && db) {
   };
   testConnection();
 }
+
+// Automatic network listeners to keep Firestore network connected in real-time
+if (typeof window !== "undefined") {
+  window.addEventListener("online", async () => {
+    console.log("🌐 [Firestore] Browser detected back online! Activating Firestore network...");
+    if (db) {
+      try {
+        await enableNetwork(db);
+        console.log("✅ [Firestore] Network enabled on browser online event");
+      } catch (err: any) {
+        console.warn("⚠️ [Firestore] Failed to run enableNetwork on online event:", err.message);
+      }
+    }
+  });
+
+  window.addEventListener("offline", () => {
+    console.warn("🌐 [Firestore] Browser went offline! Firestore was set to offline mode");
+  });
+}
+
+// Manual helper to hard reconnect the database
+export const reconnectFirestore = async (): Promise<boolean> => {
+  if (!db) {
+    console.error("❌ [Firestore-Reconnect] Database instance not initialized");
+    return false;
+  }
+  try {
+    console.log("🔄 [Firestore-Reconnect] Initializing force reconnection...");
+    // Force disable first to flush pending bad states and reset sockets cleanly
+    await disableNetwork(db).catch(e => console.warn("[Firestore-Reconnect] disableNetwork ignored:", e.message));
+    
+    // Tiny delay to allow network pools to reset safely
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Enable network again
+    await enableNetwork(db);
+    console.log("🚀 [Firestore-Reconnect] Firestore network re-enabled successfully!");
+
+    // Live verification call to guarantee we are talking to the server
+    const testDocRef = doc(db, 'test', 'connection');
+    try {
+      await getDocFromServer(testDocRef);
+      console.log("✅ [Firestore-Reconnect] Server contact established and verified!");
+      return true;
+    } catch (serverError: any) {
+      // Permission denied or missing schema means we actually did talk to the Firestore servers!
+      if (serverError.code === 'permission-denied' || serverError.code === 'not-found') {
+        console.log("✅ [Firestore-Reconnect] Server is responsive and fully online!");
+        return true;
+      }
+      throw serverError;
+    }
+  } catch (err: any) {
+    console.error("❌ [Firestore-Reconnect] Failed to complete reconnection:", err.message);
+    return false;
+  }
+};
 
 export { auth, db, storage };
 export default app;

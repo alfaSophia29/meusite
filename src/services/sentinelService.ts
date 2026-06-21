@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { safeJsonStringify } from "../lib/utils";
 
 let aiInstance: GoogleGenAI | null = null;
@@ -11,7 +10,14 @@ const getAI = () => {
             console.warn("GEMINI_API_KEY não definida para Sentinel.");
             return null;
         }
-        aiInstance = new GoogleGenAI({ apiKey: key });
+        aiInstance = new GoogleGenAI({
+            apiKey: key,
+            httpOptions: {
+                headers: {
+                    'User-Agent': 'aistudio-build'
+                }
+            }
+        });
     }
     return aiInstance;
 };
@@ -38,23 +44,19 @@ export const checkContentSecurity = async (
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: [{
-                parts: [{
-                    text: `Analise o seguinte conteúdo de um(a) ${type} em uma rede social educacional e verifique se ele viola as diretrizes de segurança. 
-            Categorias proibidas: Nudez/Pornografia, Drogas, Armas, Ódio/Violência, Golpes/Fraudes (incluindo pedir pagamentos fora da plataforma), Contatos Externos (compartilhar WhatsApp, Telefone, Email, Instagram para negociar fora).
-            
-            CONTEÚDO: "${content}"
-            
-            Responda apenas em JSON com o seguinte formato:
-            {
-              "allowed": boolean,
-              "reason": "motivo em português se for bloqueado",
-              "detectedCategories": ["categoria1", "categoria2"],
-              "isFraud": boolean (defina como true se for tentativa de golpe, fraude ou levar cliente para fora da plataforma)
-            }`
-                }]
-            }],
+            model: "gemini-3.5-flash",
+            contents: `Analise o seguinte conteúdo de um(a) ${type} em uma rede social educacional e verifique se ele viola as diretrizes de segurança. 
+Categorias proibidas: Nudez/Pornografia, Drogas, Armas, Ódio/Violência, Golpes/Fraudes (incluindo pedir pagamentos fora da plataforma), Contatos Externos (compartilhar WhatsApp, Telefone, Email, Instagram para negociar fora).
+
+CONTEÚDO: "${content}"
+
+Responda apenas em JSON com o seguinte formato:
+{
+  "allowed": boolean,
+  "reason": "motivo em português se for bloqueado",
+  "detectedCategories": ["categoria1", "categoria2"],
+  "isFraud": boolean (defina como true se for tentativa de golpe, fraude ou levar cliente para fora da plataforma)
+}`,
             config: {
                 responseMimeType: "application/json",
             }
@@ -64,7 +66,7 @@ export const checkContentSecurity = async (
         const result = JSON.parse(text || '{"allowed": true}');
         return {
             ...result,
-            isSafe: result.allowed,
+            isSafe: result.allowed ?? true,
             category: result.detectedCategories?.[0]
         };
     } catch (error) {
@@ -85,23 +87,18 @@ export const checkImageSecurity = async (
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: [{
-                parts: [
-                    {
-                        inlineData: {
-                            data: base64Image.split(',')[1] || base64Image,
-                            mimeType: mimeType
-                        }
-                    },
-                    {
-                        text: `Analise esta imagem e verifique se ela contém conteúdo impróprio (nudez, drogas, armas, violência explícita).
-                        Responda apenas em JSON: { "allowed": boolean, "reason": "motivo em português se bloqueado" }`
+            model: "gemini-3.5-flash",
+            contents: [
+                {
+                    inlineData: {
+                        data: base64Image.split(',')[1] || base64Image,
+                        mimeType: mimeType
                     }
-                ]
-            }],
+                },
+                "Analise esta imagem e verifique se ela contém conteúdo impróprio (nudez, drogas, armas, violência explícita). Responda apenas em JSON: { \"allowed\": boolean, \"reason\": \"motivo em português se bloqueado\" }"
+            ],
             config: {
-                responseMimeType: "application/json",
+                responseMimeType: "application/json"
             }
         });
 

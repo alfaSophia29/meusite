@@ -72,6 +72,8 @@ export enum OperationType {
   WRITE = 'write',
 }
 
+export let isQuotaExceededGlobal = false;
+
 export interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
@@ -125,7 +127,19 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     const isQuietPath = ['notifications', 'sales', 'ads', 'profiles'].includes(path || '');
     const isAnonymous = authInfo.userId === 'anonymous';
     
-    if (isQuietPath && isAnonymous && errMessage.toLowerCase().includes('permissions')) {
+    // Check for Firebase Firestore write quota exhausted / resource exhausted error
+    const lowerMessage = errMessage.toLowerCase();
+    if (lowerMessage.includes('resource-exhausted') || lowerMessage.includes('quota exceeded') || lowerMessage.includes('quota limits')) {
+        isQuotaExceededGlobal = true;
+        console.warn("⚠️ [COTA] Limite diário de escrita gratuita do Firestore atingido.");
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('firestore-quota-exceeded'));
+        }
+        // Instead of throwing massive serialized JSON, throw a user friendly message
+        throw new Error("COTA_EXCEDIDA: O bando de dados gratuito da demonstração atingiu o limite de gravações por hoje. Novas interações podem não persistir temporariamente.");
+    }
+    
+    if (isQuietPath && isAnonymous && lowerMessage.includes('permissions')) {
        // Silently ignore quiet errors for anonymous users
        return;
     }
@@ -268,26 +282,6 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
     
     if (data) {
       return mapUserData(userId, data, currentAuth);
-    } else if (currentAuth && isOwner) {
-      // Se for o dono e não existir em lugar nenhum, cria o perfil básico
-      const newUser = mapUserData(userId, null, currentAuth);
-      
-      try {
-        await setDoc(doc(db, 'profiles', userId), {
-            ...newUser,
-            timestamp: Date.now()
-        });
-
-        const { email, phone, documentId, birthDate, balance, ...publicData } = newUser;
-        await setDoc(doc(db, 'public_profiles', userId), {
-            ...publicData,
-            timestamp: Date.now()
-        });
-      } catch (err) {
-        console.error("[STORAGE] Erro ao criar perfil inicial:", err);
-      }
-      
-      return newUser;
     }
   } catch (e: any) { 
     if (e.message && e.message.includes('offline')) {
@@ -466,6 +460,24 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
           userId: uid,
           timestamp: Date.now()
         });
+
+        // Registrar unicidade do telefone se houver
+        const phoneClean = (userData.phone || '').toString().trim();
+        if (phoneClean) {
+          await setDoc(doc(db, 'uniqueness_registry', `phone_${phoneClean.toLowerCase()}`), {
+            userId: uid,
+            timestamp: Date.now()
+          });
+        }
+
+        // Registrar unicidade do documento se houver
+        const docClean = (userData.documentId || '').toString().trim();
+        if (docClean) {
+          await setDoc(doc(db, 'uniqueness_registry', `documentId_${docClean.toLowerCase()}`), {
+            userId: uid,
+            timestamp: Date.now()
+          });
+        }
       }
     } catch (err) {
       console.error("Erro ao criar perfil privado ou registrar e-mail:", err);
@@ -1242,8 +1254,8 @@ export const generateUUID = () => {
 };
 export const saveUserAddress = async (uid: string, address: ShippingAddress) => {
     if (!db) return;
-    await updateDoc(doc(db, 'profiles', uid), { address });
-    await updateDoc(doc(db, 'public_profiles', uid), { address });
+    await setDoc(doc(db, 'profiles', uid), { address }, { merge: true });
+    await setDoc(doc(db, 'public_profiles', uid), { address }, { merge: true });
 };
 
 export const getCurrentUserId = (): string | null => localStorage.getItem(CURRENT_USER_KEY);
@@ -1251,10 +1263,11 @@ export const saveCurrentUser = (id: string | null) => id ? localStorage.setItem(
 export const getAppTheme = (): GroupTheme => (localStorage.getItem('cyber_app_theme') as GroupTheme) || 'blue';
 export const saveAppTheme = (t: GroupTheme) => localStorage.setItem('cyber_app_theme', t);
 export const updateUserStatus = async (id: string, online: boolean) => {
+  if (isQuotaExceededGlobal) return;
   if (isFirebaseConfigured && auth?.currentUser && db) {
     const data = { isOnline: online, lastSeen: Date.now() };
-    await updateDoc(doc(db, 'profiles', id), data).catch(() => {});
-    await updateDoc(doc(db, 'public_profiles', id), data).catch(() => {});
+    await setDoc(doc(db, 'profiles', id), data, { merge: true }).catch(() => {});
+    await setDoc(doc(db, 'public_profiles', id), data, { merge: true }).catch(() => {});
   }
 };
 
@@ -1519,6 +1532,30 @@ export const getUsers = async (currentUser?: User) => {
         try {
             console.log(`[STORAGE] Buscando membros em: ${path} (Admin: ${isAdmin})`);
             snap = await getDocs(collection(db, path));
+            
+            // Auto-cleanup for orphans: If the logged-in user is an admin and we successfully read 'profiles',
+            // let's check for any orphan records in 'public_profiles' and clean them up
+            if (isAdmin && path === 'profiles') {
+                try {
+                    const publicSnap = await getDocs(collection(db, 'public_profiles'));
+                    const profileIds = new Set(snap.docs.map(d => d.id));
+                    const orphanDocs = publicSnap.docs.filter(d => !profileIds.has(d.id));
+                    
+                    if (orphanDocs.length > 0) {
+                        console.log(`[STORAGE-CLEANUP] Encontrados ${orphanDocs.length} usuários órfãos em public_profiles. Efetuando purge...`);
+                        await Promise.all(orphanDocs.map(async (orphan) => {
+                            try {
+                                await deleteDoc(doc(db!, 'public_profiles', orphan.id));
+                                console.log(`[STORAGE-CLEANUP] Órfão deletado de public_profiles: ${orphan.id}`);
+                            } catch (cleanErr: any) {
+                                console.warn(`[STORAGE-CLEANUP] Erro ao deletar órfão ${orphan.id}:`, cleanErr.message);
+                            }
+                        }));
+                    }
+                } catch (cleanupErr: any) {
+                    console.warn("[STORAGE-CLEANUP] Erro no processo de auditoria de órfãos:", cleanupErr.message);
+                }
+            }
         } catch (initialError: any) {
             if (isAdmin && path === 'profiles') {
                 console.warn("⚠️ Permissão insuficiente para 'profiles'. Tentando 'public_profiles' como fallback de emergência. Dados de e-mail/telefone podem não aparecer.");
@@ -1537,6 +1574,19 @@ export const getUsers = async (currentUser?: User) => {
                 ...mapUserData(d.id, data),
                 _isPartial: isPartial
             };
+        });
+
+        // Deduplicate users in local view by email to guarantee beautiful and pristine rendering
+        const seenEmails = new Set<string>();
+        users = users.filter(u => {
+            if (!u.email) return true;
+            const cleanEmail = u.email.toLowerCase().trim();
+            if (seenEmails.has(cleanEmail)) {
+                console.warn(`[STORAGE] Remoção de duplicidade por e-mail detectada na visualização para ${u.id} (${u.email})`);
+                return false;
+            }
+            seenEmails.add(cleanEmail);
+            return true;
         });
 
         // Mutual Blocking Filter
@@ -1578,7 +1628,7 @@ export const findStoreById = async (id: string) => {
 export const updateUserProfile = async (uid: string, data: Partial<User>) => {
     if (!db) return;
     try {
-        await updateDoc(doc(db, 'profiles', uid), data);
+        await setDoc(doc(db, 'profiles', uid), data, { merge: true });
     } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, `profiles/${uid}`);
     }
@@ -1743,7 +1793,9 @@ export const shareToGroup = async (groupId: string, senderId: string, content: s
 
 export const subscribeToLivePost = (id: string, cb: any) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'posts', id), (d) => cb(d.data()));
+    return onSnapshot(doc(db, 'posts', id), (d) => cb(d.data()), (err) => {
+        console.warn("[STORAGE] subscribeToLivePost subscription restricted or offline:", err.message);
+    });
 };
 export const sendLiveMessage = async (id: string, msg: any) => {
     if (!db) return;
@@ -1752,22 +1804,43 @@ export const sendLiveMessage = async (id: string, msg: any) => {
         await updateDoc(doc(db, 'posts', id), { liveChat: [...(d.data().liveChat || []), msg] });
     }
 };
-export const manageLiveViewers = (id: string, action: string) => {
+export const manageLiveViewers = (id: string, action: string, userId?: string) => {
     if (!db) return;
     const ref = doc(db, 'posts', id);
     getDoc(ref).then(d => {
         if(d.exists()) {
-            const cur = d.data().liveViewerCount || 0;
+            const data = d.data();
+            // Se o usuário que está abrindo/saindo da live for o próprio anfitrião, não altera o contador de espectadores
+            if (userId && data.userId === userId) {
+                return;
+            }
+            const cur = data.liveViewerCount || 0;
             updateDoc(ref, { liveViewerCount: Math.max(0, action === 'join' ? cur + 1 : cur - 1) });
         }
     });
 };
-export const pulseLiveHeart = (id: string) => {
+export const pulseLiveHeart = (id: string, userId?: string) => {
     if (!db) return;
     const ref = doc(db, 'posts', id);
     getDoc(ref).then(d => {
         if(d.exists()) {
-            updateDoc(ref, { liveHeartCount: (d.data().liveHeartCount || 0) + 1 });
+            const data = d.data();
+            if (userId) {
+                const liveHeartUsers = data.liveHeartUsers || [];
+                const alreadyLiked = liveHeartUsers.includes(userId);
+                let newUsersList: string[];
+                if (alreadyLiked) {
+                    newUsersList = liveHeartUsers.filter((uId: string) => uId !== userId);
+                } else {
+                    newUsersList = [...liveHeartUsers, userId];
+                }
+                updateDoc(ref, { 
+                    liveHeartUsers: newUsersList,
+                    liveHeartCount: newUsersList.length
+                });
+            } else {
+                updateDoc(ref, { liveHeartCount: (data.liveHeartCount || 0) + 1 });
+            }
         }
     });
 };
@@ -1845,15 +1918,47 @@ export const updateSaleTracking = async (id: string, c: string, sid?: string) =>
 
 export const processUserUpgrade = async (uid: string, u: User, f: File, c: string) => {
     if (!db) return;
-    await updateDoc(doc(db, 'profiles', uid), { isVerified: true });
+    await setDoc(doc(db, 'profiles', uid), { isVerified: true }, { merge: true });
 };
 export const updateUserData = async (userId: string, data: Partial<User>) => {
     if (!db) return;
     try {
-        await updateDoc(doc(db, 'profiles', userId), {
+        // Enforce uniqueness validation on critical fields to prevent duplicate accounts/identities
+        if (data.documentId) {
+            const isUnique = await checkFieldUniqueness('documentId', data.documentId);
+            if (!isUnique) {
+                const registryId = `documentId_${data.documentId.toLowerCase().trim()}`;
+                const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+                if (docSnap.exists() && docSnap.data().userId !== userId) {
+                    throw new Error("Este número de documento já está vinculado a outra conta.");
+                }
+            }
+        }
+        if (data.email) {
+            const isUnique = await checkFieldUniqueness('email', data.email);
+            if (!isUnique) {
+                const registryId = `email_${data.email.toLowerCase().trim()}`;
+                const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+                if (docSnap.exists() && docSnap.data().userId !== userId) {
+                    throw new Error("Este e-mail já está em uso por outra conta.");
+                }
+            }
+        }
+        if (data.phone) {
+            const isUnique = await checkFieldUniqueness('phone', data.phone);
+            if (!isUnique) {
+                const registryId = `phone_${data.phone.toLowerCase().trim()}`;
+                const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+                if (docSnap.exists() && docSnap.data().userId !== userId) {
+                    throw new Error("Este número de celular já está em uso por outra conta.");
+                }
+            }
+        }
+
+        await setDoc(doc(db, 'profiles', userId), {
             ...data,
             updatedAt: Date.now()
-        });
+        }, { merge: true });
         
         // Se documentId foi atualizado (e aprovado/verificado), registra no registry
         if (data.documentId) {
@@ -1879,7 +1984,7 @@ export const updateUserData = async (userId: string, data: Partial<User>) => {
         });
         
         if (hasPublicChange) {
-            await updateDoc(doc(db, 'public_profiles', userId), publicUpdate);
+            await setDoc(doc(db, 'public_profiles', userId), publicUpdate, { merge: true });
         }
     } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, 'profiles/' + userId);
@@ -1891,12 +1996,35 @@ export const updateUser = async (u: User) => {
     const publicPath = 'public_profiles';
     if (!db) return;
     try {
+        // Enforce uniqueness validation on critical fields to prevent duplicate accounts/identities
+        if (u.documentId) {
+            const registryId = `documentId_${u.documentId.toLowerCase().trim()}`;
+            const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+            if (docSnap.exists() && docSnap.data().userId !== u.id) {
+                throw new Error("Este número de documento já está vinculado a outra conta.");
+            }
+        }
+        if (u.email) {
+            const registryId = `email_${u.email.toLowerCase().trim()}`;
+            const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+            if (docSnap.exists() && docSnap.data().userId !== u.id) {
+                throw new Error("Este e-mail já está em uso por outra conta.");
+            }
+        }
+        if (u.phone) {
+            const registryId = `phone_${u.phone.toLowerCase().trim()}`;
+            const docSnap = await getDoc(doc(db, 'uniqueness_registry', registryId));
+            if (docSnap.exists() && docSnap.data().userId !== u.id) {
+                throw new Error("Este número de celular já está em uso por outra conta.");
+            }
+        }
+
         // Update private profile
         const { email, phone, documentId, birthDate, balance, ...publicData } = u;
-        await updateDoc(doc(db, path, u.id), u as any);
+        await setDoc(doc(db, path, u.id), u as any, { merge: true });
 
         // Update public profile (only public fields)
-        await updateDoc(doc(db, publicPath, u.id), publicData as any);
+        await setDoc(doc(db, publicPath, u.id), publicData as any, { merge: true });
 
         // Update Firebase Auth profile if it's the current user
         if (auth?.currentUser && auth.currentUser.uid === u.id) {
@@ -1914,6 +2042,22 @@ export const deleteUser = async (id: string) => {
 
     try {
         console.log(`[STORAGE] Iniciando exclusão em cascata profunda para o usuário: ${id}`);
+
+        // Try to fetch the user's email first to purge any duplicates from profiles/public_profiles
+        let userEmail: string | null = null;
+        try {
+            const userDoc = await getDoc(doc(db, 'profiles', id));
+            if (userDoc.exists()) {
+                userEmail = userDoc.data()?.email || null;
+            } else {
+                const pubDoc = await getDoc(doc(db, 'public_profiles', id));
+                if (pubDoc.exists()) {
+                    userEmail = pubDoc.data()?.email || null;
+                }
+            }
+        } catch (fetchErr: any) {
+            console.warn("[STORAGE] Não foi possível encontrar dados do perfil antes de deletar:", fetchErr.message);
+        }
         
         // 1. Deletar os perfis principais IMEDIATAMENTE (mais crítico)
         const profileRef = doc(db!, 'profiles', id);
@@ -1925,6 +2069,39 @@ export const deleteUser = async (id: string) => {
             deleteDoc(publicProfileRef).catch(e => console.warn("Erro ao deletar public_profiles/", id, e)),
             deleteDoc(adminRef).catch(e => console.warn("Erro ao deletar admins/", id, e))
         ]);
+
+        // Cleanup duplicate records by email if email was found
+        const duplicateCleanup = (async () => {
+            if (!userEmail) return;
+            const emailClean = userEmail.toLowerCase().trim();
+            if (!emailClean) return;
+            try {
+                console.log(`[STORAGE] Escaneando por registros duplicados com o e-mail: ${emailClean}`);
+                const [pSnap, ppSnap] = await Promise.all([
+                    getDocs(query(collection(db!, 'profiles'), where('email', '==', emailClean))),
+                    getDocs(query(collection(db!, 'public_profiles'), where('email', '==', emailClean)))
+                ]);
+                
+                const deletePromises: any[] = [];
+                pSnap.docs.forEach(d => {
+                    if (d.id !== id) {
+                        console.log(`[STORAGE] Removendo perfil duplicado órfão "${d.id}" em profiles para ${emailClean}`);
+                        deletePromises.push(deleteDoc(d.ref).catch(() => {}));
+                    }
+                });
+                ppSnap.docs.forEach(d => {
+                    if (d.id !== id) {
+                        console.log(`[STORAGE] Removendo perfil público duplicado órfão "${d.id}" em public_profiles para ${emailClean}`);
+                        deletePromises.push(deleteDoc(d.ref).catch(() => {}));
+                    }
+                });
+                if (deletePromises.length > 0) {
+                    await Promise.all(deletePromises);
+                }
+            } catch (err: any) {
+                console.warn("[STORAGE] Erro ao limpar duplicados por e-mail:", err.message);
+            }
+        })();
 
         // 2. Limpeza de coleções de conteúdo (paralelo)
         const collectionsToClean = [
@@ -2078,7 +2255,18 @@ export const deleteUser = async (id: string) => {
         })();
 
         // Rodar tudo e limpar cache no fim
-        await Promise.all([...deletePromises, chatPromises, registryCleanup, socialCleanup, postInteractions, commentCleanup]);
+        await Promise.all([...deletePromises, chatPromises, registryCleanup, socialCleanup, postInteractions, commentCleanup, duplicateCleanup]);
+        
+        // Deletar o usuário do Firebase Auth se for a própria conta
+        if (auth?.currentUser && auth.currentUser.uid === id) {
+            try {
+                await auth.currentUser.delete();
+                console.log("[STORAGE] Usuário excluído com sucesso do Firebase Auth.");
+            } catch (authErr) {
+                console.warn("[STORAGE] Erro ao deletar do Firebase Auth (reautenticação exigida), efetuando signOut:", authErr);
+                await auth.signOut().catch(() => {});
+            }
+        }
         
         localStorage.removeItem('cyber_product_cache');
         localStorage.removeItem('cyberphone_current_user_id');
@@ -3886,8 +4074,8 @@ export const updateUserVerificationDocs = async (userId: string, docs: User['idV
         if (extraData) {
             Object.assign(updateObj, extraData);
         }
-        await updateDoc(doc(db, 'profiles', userId), updateObj);
-        await updateDoc(doc(db, 'public_profiles', userId), updateObj);
+        await setDoc(doc(db, 'profiles', userId), updateObj, { merge: true });
+        await setDoc(doc(db, 'public_profiles', userId), updateObj, { merge: true });
     } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, 'profiles/' + userId);
     }
@@ -3896,8 +4084,8 @@ export const updateUserVerificationDocs = async (userId: string, docs: User['idV
 export const updateUserVerificationStatus = async (userId: string, status: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED') => {
     if (!db) return;
     try {
-        await updateDoc(doc(db, 'profiles', userId), { idVerificationStatus: status });
-        await updateDoc(doc(db, 'public_profiles', userId), { idVerificationStatus: status });
+        await setDoc(doc(db, 'profiles', userId), { idVerificationStatus: status }, { merge: true });
+        await setDoc(doc(db, 'public_profiles', userId), { idVerificationStatus: status }, { merge: true });
     } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, 'profiles/' + userId);
     }

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { User } from '../types';
 import { UserIcon, ShieldCheckIcon, IdentificationIcon, CameraIcon, ArrowRightOnRectangleIcon, CheckBadgeIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { updateUserVerificationDocs, checkFieldUniqueness, registerUniqueness, uploadFile } from '../services/storageService';
-import { extractIDInfo } from '../services/geminiService';
+import { extractIDInfo, verifyUserIdentityWithAI } from '../services/geminiService';
 
 interface IDVerificationProps {
   user: User;
@@ -12,7 +12,7 @@ interface IDVerificationProps {
   forceUpdate?: boolean;
 }
 
-type VerificationStep = 'intro' | 'front' | 'back' | 'selfie' | 'processing' | 'confirm' | 'pending' | 'error';
+type VerificationStep = 'intro' | 'front' | 'back' | 'selfie' | 'processing' | 'confirm' | 'pending' | 'error' | 'approved';
 
 const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLogout, forceUpdate }) => {
   const [step, setStep] = useState<VerificationStep>(() => {
@@ -112,6 +112,14 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         throw new Error("Este documento já está vinculado a outra conta da FacePhone.");
       }
 
+      // Convert images to base64 for IA KYC comparison
+      const frontB64 = await toBase64(frontImage);
+      const backB64 = await toBase64(backImage);
+      const selfieB64 = await toBase64(selfieImage);
+
+      // Perform AI verification
+      const aiResult = await verifyUserIdentityWithAI(frontB64, backB64, selfieB64);
+
       // 4. Upload images
       const frontUrl = await uploadFile(frontImage, 'verifications/front');
       const backUrl = await uploadFile(backImage, 'verifications/back');
@@ -123,20 +131,44 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
       const birthDateTimestamp = extractedInfo.birthDate ? new Date(extractedInfo.birthDate).getTime() : Date.now();
       const twoYearsInMs = 2 * 365 * 24 * 60 * 60 * 1000;
 
-      await updateUserVerificationDocs(user.id, {
-        frontUrl,
-        backUrl,
-        selfieUrl,
-        submittedAt: Date.now(),
-        expiresAt: Date.now() + twoYearsInMs
-      }, {
-        firstName: extractedInfo.firstName || user.firstName,
-        lastName: extractedInfo.lastName || user.lastName,
-        documentId: extractedInfo.documentId,
-        birthDate: birthDateTimestamp
-      });
+      if (aiResult.approved) {
+        await updateUserVerificationDocs(user.id, {
+          frontUrl,
+          backUrl,
+          selfieUrl,
+          submittedAt: Date.now(),
+          expiresAt: Date.now() + twoYearsInMs,
+          rejectionReason: ""
+        }, {
+          firstName: extractedInfo.firstName || user.firstName,
+          lastName: extractedInfo.lastName || user.lastName,
+          documentId: extractedInfo.documentId,
+          birthDate: birthDateTimestamp,
+          idVerificationStatus: 'APPROVED',
+          isVerified: true
+        });
 
-      setStep('pending');
+        setStep('approved');
+      } else {
+        await updateUserVerificationDocs(user.id, {
+          frontUrl,
+          backUrl,
+          selfieUrl,
+          submittedAt: Date.now(),
+          expiresAt: Date.now() + twoYearsInMs,
+          rejectionReason: aiResult.reason
+        }, {
+          firstName: extractedInfo.firstName || user.firstName,
+          lastName: extractedInfo.lastName || user.lastName,
+          documentId: extractedInfo.documentId,
+          birthDate: birthDateTimestamp,
+          idVerificationStatus: 'REJECTED',
+          isVerified: false
+        });
+
+        setError(aiResult.reason || "Seu documento foi rejeitado pela nossa IA.");
+        setStep('error');
+      }
     } catch (err: any) {
       setError(err.message || "Ocorreu um erro ao salvar os dados.");
       setStep('error');
@@ -150,11 +182,11 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
       <div className="h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-[#0a0c10] p-6 animate-fade-in text-center">
         <div className="bg-white dark:bg-darkcard p-8 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-white/5 max-w-md w-full">
            <div className="h-20 w-20 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mx-auto mb-8"></div>
-           <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-4">Processando Dados</h2>
+           <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-4">Análise em Andamento</h2>
            <p className="text-gray-500 text-sm font-medium mb-4">
-             Nossa IA está lendo seu documento e verificando a autenticidade das fotos...
+             Nossa Inteligência Artificial está analisando suas fotos, validando as informações do documento e efetuando a comparação facial da selfie...
            </p>
-           <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest animate-pulse">Não feche esta página</p>
+           <p className="text-blue-600 text-[10px] font-black uppercase tracking-widest animate-pulse">Este processo leva alguns segundos</p>
         </div>
       </div>
     );
@@ -165,11 +197,11 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         <div className="h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-[#0a0c10] p-6 animate-fade-in text-center">
           <div className="bg-white dark:bg-darkcard p-8 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-white/5 max-w-md w-full">
              <div className="bg-red-50 dark:bg-red-900/20 text-red-600 p-4 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-6">
-               <ExclamationTriangleIcon className="h-10 w-10" />
+                <ExclamationTriangleIcon className="h-10 w-10" />
              </div>
-             <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-4">Erro na Verificação</h2>
+             <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-4">Não Aprovado pela IA</h2>
              <p className="text-gray-500 text-sm font-medium mb-8 bg-red-50 dark:bg-red-900/10 p-4 rounded-2xl border border-red-100 dark:border-red-900/20">
-               {error || "Ocorreu um erro desconhecido."}
+               {error || "Seus documentos foram rejeitados pela nossa Inteligência Artificial."}
              </p>
              <button onClick={() => setStep('front')} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all mb-4">
                Tentar Novamente
@@ -178,6 +210,25 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
           </div>
         </div>
       );
+  }
+
+  if (step === 'approved') {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-[#0a0c10] p-6 animate-fade-in text-center">
+        <div className="bg-white dark:bg-darkcard p-8 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-white/5 max-w-md w-full">
+          <div className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 p-4 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-6">
+            <CheckBadgeIcon className="h-10 w-10 text-emerald-500" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-4">Aprovado pela IA!</h2>
+          <p className="text-gray-500 text-sm font-medium mb-8">
+            Nossa Inteligência Artificial autenticou com sucesso seus documentos e confirmou a compatibilidade da selfie. Sua conta está agora totalmente verificada!
+          </p>
+          <button onClick={onComplete} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all mb-4">
+            Acessar Plataforma
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (step === 'pending') {

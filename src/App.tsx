@@ -115,6 +115,7 @@ const App: React.FC = () => {
     const [initError, setInitError] = useState<string | null>(null);
     const [isOnline, setIsOnline] = useState(true); 
     const [isOfflineModeEnabled, setIsOfflineModeEnabled] = useState(true); 
+    const [quotaExceeded, setQuotaExceeded] = useState(false);
     const [guestView, setGuestView] = useState<'landing' | 'auth'>(() => {
         const hasVisited = localStorage.getItem('cp_has_visited');
         return hasVisited ? 'auth' : 'landing';
@@ -207,6 +208,17 @@ const App: React.FC = () => {
     useEffect(() => {
         currentUserRef.current = currentUser;
     }, [currentUser]);
+
+    // Escuta evento de quota do firestore excedida
+    useEffect(() => {
+        const handleQuotaExceeded = () => {
+            setQuotaExceeded(true);
+        };
+        window.addEventListener('firestore-quota-exceeded', handleQuotaExceeded);
+        return () => {
+            window.removeEventListener('firestore-quota-exceeded', handleQuotaExceeded);
+        };
+    }, []);
 
     // --- LÓGICA DE AFILIAÇÃO (RASTREAMENTO) ---
     useEffect(() => {
@@ -694,6 +706,30 @@ const App: React.FC = () => {
               <span>Modo Offline: Usando dados locais de cache</span>
             </div>
             <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">Reconectar</button>
+          </div>
+        )}
+        {quotaExceeded && (
+          <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 z-[2500] max-w-md bg-white/95 dark:bg-[#141822]/95 backdrop-blur-md border border-amber-500/30 dark:border-amber-500/25 rounded-2xl shadow-2xl p-4 pr-12 transition-all duration-300 animate-slide-in flex items-start gap-3.5 text-left">
+            <div className="bg-amber-100 dark:bg-amber-500/10 p-2 rounded-xl text-amber-600 dark:text-amber-400 shrink-0">
+              <ExclamationTriangleIcon className="h-6 w-6 animate-pulse" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-1 flex items-center gap-1.5 leading-tight">
+                Instabilidade Temporária no Servidor
+              </h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium leading-relaxed">
+                Estamos enfrentando uma instabilidade temporária devido a uma alta demanda de requisições. Algumas de suas ações (como curtir, postar, enviar mensagens) podem falhar ou demorar para ser salvas. Por favor, tente novamente em instantes.
+              </p>
+            </div>
+            <button 
+              onClick={() => setQuotaExceeded(false)} 
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors cursor-pointer"
+              title="Fechar"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
         {currentUser && currentPage !== 'admin' && !isFullPage && (

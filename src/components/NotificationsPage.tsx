@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Notification, User, Post, NotificationType, Page, CallType } from '../types';
-import { getNotificationsForUser, findUserById, getPosts, toggleFollowUser } from '../services/storageService';
+import { getNotificationsForUser, findUserById, getPosts, toggleFollowUser, deleteNotification, clearAllNotifications } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
-import { HeartIcon, ChatBubbleOvalLeftIcon, UserPlusIcon, CurrencyDollarIcon, StarIcon, EnvelopeIcon, RocketLaunchIcon, ShareIcon, UserGroupIcon, PhoneXMarkIcon, TrophyIcon } from '@heroicons/react/24/solid';
+import { HeartIcon, ChatBubbleOvalLeftIcon, UserPlusIcon, CurrencyDollarIcon, StarIcon, EnvelopeIcon, RocketLaunchIcon, ShareIcon, UserGroupIcon, PhoneXMarkIcon, TrophyIcon, TrashIcon } from '@heroicons/react/24/solid';
 
 interface NotificationsPageProps {
   currentUser: User;
@@ -22,7 +22,7 @@ const timeAgo = (timestamp: number): string => {
   return new Date(timestamp).toLocaleDateString();
 };
 
-const NotificationItem: React.FC<{ notification: Notification; onNavigate: Function; refreshUser: Function; currentUser: User; allPosts: Post[] }> = ({ notification, onNavigate, refreshUser, currentUser, allPosts }) => {
+const NotificationItem: React.FC<{ notification: Notification; onNavigate: Function; refreshUser: Function; currentUser: User; allPosts: Post[]; onDelete: (id: string) => void }> = ({ notification, onNavigate, refreshUser, currentUser, allPosts, onDelete }) => {
   const [actor, setActor] = useState<User | null>(null);
   
   useEffect(() => {
@@ -42,6 +42,11 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
     e.stopPropagation();
     toggleFollowUser(currentUser.id, actor.id);
     refreshUser();
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete(notification.id);
   };
 
   const handleNavigation = () => {
@@ -113,6 +118,13 @@ const NotificationItem: React.FC<{ notification: Notification; onNavigate: Funct
           {isFollowingActor ? 'Seguindo' : 'Seguir de volta'}
         </button>
       )}
+      <button 
+        onClick={handleDelete} 
+        className="p-1.5 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-white/10 transition-colors duration-200 cursor-pointer shrink-0"
+        title="Eliminar Notificação"
+      >
+        <TrashIcon className="h-5 w-5" />
+      </button>
     </div>
   );
 };
@@ -124,6 +136,28 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ currentUser, onNa
   const [loadingMore, setLoadingMore] = useState(false);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+
+  const handleDeleteNotification = async (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    try {
+      await deleteNotification(id);
+    } catch (err) {
+      console.error("Erro ao eliminar notificação:", err);
+    }
+  };
+
+  const handleClearAllNotifications = async () => {
+    const originalNotifications = [...notifications];
+    setNotifications([]);
+    setIsConfirmingClear(false);
+    try {
+      await clearAllNotifications(currentUser.id);
+    } catch (err) {
+      console.error("Erro ao limpar notificações:", err);
+      setNotifications(originalNotifications);
+    }
+  };
   
   const observerTarget = React.useRef<HTMLDivElement>(null);
 
@@ -207,17 +241,49 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ currentUser, onNa
 
   return (
     <div className="container mx-auto p-4 md:p-8 pt-16 pb-20 md:pb-8">
-      <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6 border-b pb-3 border-gray-200 dark:border-white/10">Notificações</h2>
+      <div className="flex items-center justify-between mb-6 border-b pb-3 border-gray-200 dark:border-white/10 flex-wrap gap-4">
+        <h2 className="text-3xl font-bold text-gray-800 dark:text-white">Notificações</h2>
+        {notifications.length > 0 && (
+          <div className="flex items-center gap-2">
+            {isConfirmingClear ? (
+              <div className="flex items-center gap-2 bg-red-500/10 dark:bg-red-500/5 border border-red-500/20 px-3 py-1.5 rounded-xl animate-fade-in shrink-0">
+                <span className="text-xs text-red-600 dark:text-red-400 font-semibold select-none font-sans">Tem certeza?</span>
+                <button 
+                  onClick={handleClearAllNotifications} 
+                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-red-500 hover:bg-red-650 rounded-lg transition-all shadow-sm cursor-pointer font-sans"
+                >
+                  Confirmar Limpar
+                </button>
+                <button 
+                  onClick={() => setIsConfirmingClear(false)} 
+                  className="px-2.5 py-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 border border-gray-205 dark:border-white/10 rounded-lg transition-all cursor-pointer font-sans"
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <button 
+                onClick={() => setIsConfirmingClear(true)} 
+                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-gray-700 dark:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 border border-gray-200 dark:border-white/10 rounded-xl transition-all shadow-sm shrink-0 cursor-pointer font-sans"
+                title="Limpar todas as notificações"
+              >
+                <TrashIcon className="h-4 w-4 text-red-500" />
+                Limpar Tudo
+              </button>
+            )}
+          </div>
+        )}
+      </div>
       {notifications.length === 0 ? (
         <div className="text-center p-10 bg-white dark:bg-darkcard rounded-2xl shadow-sm border border-gray-200 dark:border-white/10">
-          <p className="text-xl text-gray-600 dark:text-gray-400">Você não tem notificações.</p>
+          <p className="text-xl text-gray-600 dark:text-gray-400 font-sans">Você não tem notificações.</p>
         </div>
       ) : (
         <div className="bg-white dark:bg-darkcard rounded-2xl shadow-xl p-4 md:p-6 border border-gray-100 dark:border-white/5 space-y-6">
           {Object.entries(groupedNotifications).map(([groupName, groupNotifications]: [string, Notification[]]) =>
             groupNotifications.length > 0 && (
               <div key={groupName}>
-                <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-3 px-2">{groupName}</h3>
+                <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-3 px-2 font-sans">{groupName}</h3>
                 <div className="space-y-2">
                   {groupNotifications.map(notification => (
                     <NotificationItem
@@ -227,6 +293,7 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ currentUser, onNa
                       refreshUser={refreshUser}
                       currentUser={currentUser}
                       allPosts={allPosts}
+                      onDelete={handleDeleteNotification}
                     />
                   ))}
                 </div>

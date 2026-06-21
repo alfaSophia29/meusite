@@ -24,7 +24,7 @@ import {
   getUsers,
   db
 } from '../services/storageService';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, collection, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import WalletModal from './WalletModal';
 import { 
@@ -126,10 +126,116 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [activeDonationAlert, setActiveDonationAlert] = useState<{ userName: string; profilePic: string; amount: number; message: string } | null>(null);
   const [lastProcessedDonationId, setLastProcessedDonationId] = useState<string | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<'chat' | 'ranking'>('chat');
+  const [sidebarTab, setSidebarTab] = useState<'chat' | 'ranking' | 'spectators'>('chat');
   const [showGoalConfig, setShowGoalConfig] = useState(false);
   const [goalTargetInput, setGoalTargetInput] = useState<number>(1000);
   const [goalDescInput, setGoalDescInput] = useState<string>('Comprar Microfone Profissional 🎙️');
+  const [spectatorSearch, setSpectatorSearch] = useState('');
+
+  // Spectator/audience invitation & request functions
+  const handleRequestEntry = async () => {
+    if (!postId || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.requestedViewerIds': arrayUnion(currentUser.id)
+      });
+    } catch (err) {
+      console.error("Error requesting entry to live:", err);
+    }
+  };
+
+  const handleApproveSpectator = async (viewerId: string) => {
+    if (!postId || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.requestedViewerIds': arrayRemove(viewerId),
+        'liveStream.invitedViewerIds': arrayUnion(viewerId)
+      });
+      
+      const requestedUser = allUsers.find(u => u.id === viewerId);
+      const name = requestedUser ? `${requestedUser.firstName} ${requestedUser.lastName || ''}`.trim() : viewerId;
+      const systemNotice: Comment = {
+        id: 'approved_spectator_' + Date.now() + Math.random().toString(36).substr(2, 4),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `🎟️ O apresentador liberou a entrada de @${name} na live.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Error approving spectator:", err);
+    }
+  };
+
+  const handleDeclineSpectator = async (viewerId: string) => {
+    if (!postId || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.requestedViewerIds': arrayRemove(viewerId)
+      });
+    } catch (err) {
+      console.error("Error declining spectator:", err);
+    }
+  };
+
+  const handleInviteSpectatorDirectly = async (viewerId: string) => {
+    if (!postId || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedViewerIds': arrayUnion(viewerId),
+        'liveStream.requestedViewerIds': arrayRemove(viewerId)
+      });
+      
+      const requestedUser = allUsers.find(u => u.id === viewerId);
+      const name = requestedUser ? `${requestedUser.firstName} ${requestedUser.lastName || ''}`.trim() : viewerId;
+      const systemNotice: Comment = {
+        id: 'invited_spectator_' + Date.now() + Math.random().toString(36).substr(2, 4),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `🎟️ O apresentador convidou @${name} para assistir.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Error inviting spectator directly:", err);
+    }
+  };
+
+  const handleRemoveSpectatorAccess = async (viewerId: string) => {
+    if (!postId || !db) return;
+    try {
+      const postRef = doc(db as any, 'posts', postId);
+      await updateDoc(postRef, {
+        'liveStream.invitedViewerIds': arrayRemove(viewerId)
+      });
+      
+      const requestedUser = allUsers.find(u => u.id === viewerId);
+      const name = requestedUser ? `${requestedUser.firstName} ${requestedUser.lastName || ''}`.trim() : viewerId;
+      const systemNotice: Comment = {
+        id: 'removed_spectator_' + Date.now() + Math.random().toString(36).substr(2, 4),
+        userId: 'system',
+        userName: 'Sistema',
+        profilePic: '',
+        text: `🚪 Acesso de @${name} foi revogado pelo apresentador.`,
+        timestamp: Date.now(),
+        replies: [],
+        isAnonymous: false
+      };
+      await sendLiveMessage(postId, systemNotice);
+    } catch (err) {
+      console.error("Error revoking spectator access:", err);
+    }
+  };
 
   // WebRTC Live Peer Stream States
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -218,11 +324,16 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                     : (ZegoUIKitPrebuilt as any).Audience),
             },
           },
+          showPreJoinView: false, // YouTube style: bypasses the device test screen and joins directly
+          showRequestToCohostButton: false, // Spectators cannot request or join the broadcast screen without a direct invitation code
+          showAudioVideoSettingsButton: isHost || isCurrentGuest, // Spectators don't need audio/video devices setup
+          showMyCameraToggleButton: isHost || isCurrentGuest, // Hide camera toggle for general viewers so they can't accidentally show themselves
+          showMyMicrophoneToggleButton: isHost || isCurrentGuest, // Hide mic toggle for general viewers
+          showNonVideoUser: false, // CRITICAL: prevent non-camera users from spawning blank boxes/windows on the live stream screen!
           showUserList: false,
           showMyChat: false,
           showRoomDetails: false,
           showInviteButton: false,
-          showAudioVideoSettingsButton: true,
           showScreenSharingButton: isHost,
           turnOnCameraWhenJoining: isHost || isCurrentGuest,
           turnOnMicrophoneWhenJoining: isHost || isCurrentGuest,
@@ -267,28 +378,118 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }
   }, [post?.liveStream?.status, isHost, isCurrentGuest, postId, currentUser.id]);
 
-  // 1. Subscribe to Live stream updates, join and sync viewers count
+  // 1A. Subscribe to Live stream updates and sync comments and hearts
   useEffect(() => {
     if (!postId) return;
-
-    // Join room
-    manageLiveViewers(postId, 'join');
 
     // Subscribe to real-time events
     const unsubscribe = subscribeToLivePost(postId, (updatedData: any) => {
       if (updatedData) {
         setPost(updatedData);
         setLiveComments(updatedData.liveChat || []);
-        setViewerCount(updatedData.liveViewerCount || 0);
+        // Note: we do NOT sync viewerCount from liveViewerCount here, we use the real-time presence subcollection instead!
         setHearts(updatedData.liveHeartCount || 0);
       }
     });
 
     return () => {
-      manageLiveViewers(postId, 'leave');
       unsubscribe();
     };
   }, [postId]);
+
+  // 1B. Real-time Presence System for Viewers (tracks actual active viewers in a subcollection)
+  useEffect(() => {
+    if (!postId || !currentUser?.id || !db) return;
+
+    // Wait until post is loaded to verify if we are the host
+    if (!post) return;
+
+    const hostId = post.userId;
+    const isCurrentUserHost = hostId === currentUser.id;
+
+    // If I'm the host, I shouldn't be counted as a viewer, and should remove my viewer document if it exists
+    const myPresenceRef = doc(db as any, 'posts', postId, 'activeViewers', currentUser.id);
+
+    if (isCurrentUserHost) {
+      deleteDoc(myPresenceRef).catch(err => console.log("Host removed presence:", err));
+      return;
+    }
+
+    // Register/update our presence document
+    const setPresence = async () => {
+      try {
+        await setDoc(myPresenceRef, {
+          userId: currentUser.id,
+          userName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
+          profilePic: currentUser.profilePicture || '',
+          lastSeen: Date.now()
+        }, { merge: true });
+      } catch (err) {
+        console.error("Error updating activeViewer presence:", err);
+      }
+    };
+
+    setPresence();
+
+    // Ping every 5 seconds to stay alive
+    const interval = setInterval(() => {
+      setPresence();
+    }, 5000);
+
+    // Clean up when leaving/unmounting
+    const removePresence = async () => {
+      try {
+        await deleteDoc(myPresenceRef);
+      } catch (err) {
+        console.error("Error removing activeViewer presence:", err);
+      }
+    };
+
+    const handleUnload = () => {
+      removePresence();
+    };
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnload);
+      removePresence();
+    };
+  }, [postId, currentUser?.id, post?.userId, db]);
+
+  // 1C. Real-time active viewer presence snapshot listener
+  useEffect(() => {
+    if (!postId || !db) return;
+
+    const viewersColRef = collection(db as any, 'posts', postId, 'activeViewers');
+    
+    const unsubscribe = onSnapshot(viewersColRef, (snapshot) => {
+      const now = Date.now();
+      let activeCount = 0;
+      
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        // A document is considered active if seen in the last 15 seconds
+        if (d.lastSeen && now - d.lastSeen < 15000) {
+          activeCount++;
+          
+          // Self-heal/garbage-collect extremely stale presence documents (> 45 seconds old)
+          if (now - d.lastSeen > 45000) {
+            deleteDoc(doc(db as any, 'posts', postId, 'activeViewers', docSnap.id))
+              .catch(e => console.log("Garbage collect stale presence error:", e));
+          }
+        }
+      });
+
+      setViewerCount(activeCount);
+    }, (error) => {
+      console.warn("Active viewers subscription restricted or offline:", error.message);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [postId, db]);
 
   // 2. Load Creator Profile
   useEffect(() => {
@@ -888,8 +1089,11 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   // Pulse database heart count
   const handleLikeClick = () => {
     if (!post) return;
-    spawnLocalHeart(); 
-    pulseLiveHeart(postId);
+    const hasLiked = post?.liveHeartUsers?.includes(currentUser.id) || false;
+    if (!hasLiked) {
+      spawnLocalHeart(); 
+    }
+    pulseLiveHeart(postId, currentUser.id);
   };
 
   // Subscribe state toggle (with following database integration)
@@ -1358,7 +1562,126 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-[#0f0f0f] text-[#f1f1f1] flex flex-col overflow-hidden font-sans select-none">
       
-      {/* 1. YouTube top visual bar header */}
+      {/* Custom Styles for ZEGO Cloud overrides and border corrections */}
+      <style>{`
+        /* Force Zego containers to match our page dark theme color #0f0f0f to remove borders/rails */
+        .zego-custom-override,
+        .zego-custom-override * {
+          background-color: #0f0f0f !important;
+          background: #0f0f0f !important;
+          color: #f1f1f1 !important;
+          border-color: transparent !important;
+          box-shadow: none !important;
+          border: none !important;
+        }
+        
+        /* Make sure the main element has rounded corners and stays extremely clean */
+        .zego-custom-override {
+          border-radius: 16px !important;
+          overflow: hidden !important;
+          background-color: #0f0f0f !important;
+          background: #0f0f0f !important;
+        }
+ 
+        /* Cover layout for streaming with zero borders */
+        .zego-custom-override video,
+        .zego-custom-override iframe,
+        .zego-custom-override canvas,
+        .zego-custom-override [class*="video"],
+        .zego-custom-override [class*="player"],
+        .zego-custom-override [class*="view"],
+        .zego-custom-override [class*="View"],
+        .zego-custom-override [class*="container"],
+        .zego-custom-override [class*="wrapper"],
+        .zego-custom-override [class*="cell"],
+        .zego-custom-override [class*="grid"],
+        .zego-custom-override [class*="layout"] {
+          width: 100% !important;
+          height: 100% !important;
+          min-width: 100% !important;
+          min-height: 100% !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          object-fit: cover !important; /* Forces edge-to-edge full screen stream coverage with zero white/black bars */
+          margin: 0 !important;
+          padding: 0 !important;
+          border: none !important;
+          background: #0f0f0f !important;
+          background-color: #0f0f0f !important;
+          border-radius: 16px !important;
+          overflow: hidden !important;
+        }
+ 
+        /* Special override for actual video tag */
+        .zego-custom-override video {
+          background-color: #0f0f0f !important;
+          border-radius: 16px !important;
+          object-fit: cover !important;
+        }
+
+        /* Enforce zero borders and zero rounded corners on screens under 786px */
+        @media (max-width: 786px) {
+          .zego-custom-override,
+          .zego-custom-override *,
+          .zego-custom-override video,
+          .zego-custom-override iframe,
+          .zego-custom-override canvas,
+          .zego-custom-override [class*="video"],
+          .zego-custom-override [class*="player"] {
+            border-radius: 0px !important;
+          }
+        }
+
+        /* Override Zego's default internal padding or margin borders */
+        .zego-custom-override div[class*="wrap"] {
+          border: none !important;
+          box-shadow: none !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background-color: #0f0f0f !important;
+        }
+ 
+        /* Ensure specific controls and buttons DO NOT stretch or lose their layout and retain distinct dark colors */
+        .zego-custom-override button,
+        .zego-custom-override [class*="button"],
+        .zego-custom-override [class*="btn"],
+        .zego-custom-override [class*="control"],
+        .zego-custom-override [class*="bar"],
+        .zego-custom-override [class*="toolbar"],
+        .zego-custom-override [class*="menu"],
+        .zego-custom-override [class*="icon"],
+        .zego-custom-override [class*="Action"],
+        .zego-custom-override [class*="action"],
+        .zego-custom-override [class*="Tip"],
+        .zego-custom-override [class*="tip"],
+        .zego-custom-override [class*="Toast"],
+        .zego-custom-override [class*="toast"] {
+          width: auto !important;
+          height: auto !important;
+          min-width: unset !important;
+          min-height: unset !important;
+          max-width: unset !important;
+          max-height: unset !important;
+          object-fit: initial !important;
+          border-radius: 9999px !important;
+          background-color: rgba(30, 30, 31, 0.85) !important;
+          background: rgba(30, 30, 31, 0.85) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          color: #ffffff !important;
+          margin: 4px !important;
+          padding: 8px 16px !important;
+        }
+        
+        .zego-custom-override button:hover,
+        .zego-custom-override [class*="button"]:hover,
+        .zego-custom-override [class*="btn"]:hover {
+          background-color: rgba(50, 50, 51, 0.95) !important;
+          background: rgba(50, 50, 51, 0.95) !important;
+          color: #ffffff !important;
+        }
+      `}</style>
+      
+      {/* 1. Top visual bar header - clean of brands */}
       <header className="bg-[#0f0f0f] border-b border-zinc-800 px-4 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <button 
@@ -1368,11 +1691,6 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="flex items-center gap-1.5 text-white">
-            <Youtube className="h-6 w-6 text-red-600 fill-current" />
-            <span className="font-black tracking-tighter text-lg">FaceTube</span>
-            <span className="text-[9px] bg-red-600 text-white px-1 ml-1 rounded font-black uppercase tracking-wide animate-pulse">AO VIVO</span>
-          </div>
         </div>
 
         {/* Top bar host controllers */}
@@ -1387,14 +1705,14 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       </header>
 
       {/* 2. Main content Grid container */}
-      <div className="flex-1 w-full max-w-[1780px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-5 p-4 overflow-y-auto lg:overflow-hidden h-[calc(100vh-56px)]">
+      <div className="flex-1 w-full max-w-[1780px] mx-auto grid grid-cols-1 lg:grid-cols-12 md:gap-5 gap-0 md:p-4 p-0 overflow-y-auto lg:overflow-hidden h-[calc(100vh-56px)]">
         
         {/* LEFT COLUMN: video element & title and descriptions (collapsible) */}
-        <main className={`col-span-12 ${isCinemaMode ? 'lg:col-span-12' : isCommentsClosed ? 'lg:col-span-12' : 'lg:col-span-9'} flex flex-col h-full overflow-y-auto pr-0 lg:pr-1 pb-32 scrollbar-none`}>
+        <main className={`col-span-12 ${isCinemaMode ? 'lg:col-span-12' : isCommentsClosed ? 'lg:col-span-11' : 'lg:col-span-9'} flex flex-col h-full overflow-y-auto pr-0 lg:pr-1 pb-32 scrollbar-none`}>
           
           {isEnded ? (
             /* Live Stream is finished layout */
-            <div className="aspect-[4/3] xs:aspect-[1.5] sm:aspect-video w-full max-w-4xl mx-auto bg-zinc-950 rounded-2xl flex flex-col items-center justify-center p-8 text-center border border-zinc-800 shadow-2xl">
+            <div className="aspect-[16/10] w-full max-w-5xl mx-auto bg-zinc-950 rounded-2xl flex flex-col items-center justify-center p-8 text-center border border-zinc-800 shadow-2xl">
               <div className="w-20 h-20 bg-zinc-900 border border-zinc-700 rounded-full flex items-center justify-center mb-5 text-zinc-500 shadow-2xl">
                 <VideoCameraSlashIcon className="h-10 w-10 text-red-600" />
               </div>
@@ -1430,12 +1748,12 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                     setVideoMuted(false);
                   }
                 }}
-                className={`relative aspect-[4/3] xs:aspect-[1.5] sm:aspect-video w-full bg-black rounded-2xl overflow-hidden border border-zinc-800/60 shadow-xl group/player ${!isHost && remoteStream && videoMuted ? 'cursor-pointer' : ''}`}
+                className={`relative aspect-[3/4] md:aspect-[16/9] w-full bg-[#0f0f0f] rounded-none md:rounded-2xl overflow-hidden group/player ${!isHost && remoteStream && videoMuted ? 'cursor-pointer' : ''}`}
               >
                 
                 {post.liveStream?.status === 'LIVE' ? (
                   /* 1. ZEGO Cloud Video Streaming container */
-                  <div ref={zegoContainerRef} className="w-full h-full relative bg-zinc-950" />
+                  <div ref={zegoContainerRef} className="w-full h-full relative bg-[#0f0f0f] zego-custom-override" />
                 ) : (
                   /* 2. Fully Polished Studio Live Standby/Loading Overlay (NO placeholder cartoon videos!) */
                   <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-950 via-[#121214] to-zinc-950 text-center p-6 relative">
@@ -1507,51 +1825,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                   )}
                 </AnimatePresence>
 
-                {/* Blinking Live Badge on screen */}
-                <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-md border border-white/10">
-                  <div className="h-2 w-2 rounded-full bg-red-600 animate-ping" />
-                  <span className="text-[9px] font-black text-white tracking-wider uppercase">AO VIVO</span>
-                  {!isHost && webrtcStatus === 'connected' && remoteStream && (
-                    <>
-                      <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
-                      <span className="text-[9px] font-black text-emerald-400 tracking-wider uppercase flex items-center gap-1.5 animate-pulse">
-                        <span className="h-2 w-2 bg-emerald-500 rounded-full" />
-                        Webcam Real
-                      </span>
-                    </>
-                  )}
-                  {!isHost && webrtcStatus === 'connecting' && (
-                    <>
-                      <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
-                      <span className="text-[9px] font-black text-amber-500 tracking-wider uppercase flex items-center gap-1.5 animate-pulse">
-                        <span className="h-2 w-2 bg-amber-500 rounded-full" />
-                        Sintonizando Canal...
-                      </span>
-                    </>
-                  )}
-                  {!isHost && webrtcStatus === 'offering' && (
-                    <>
-                      <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
-                      <span className="text-[9px] font-black text-zinc-400 tracking-wider uppercase flex items-center gap-1.5 animate-pulse">
-                        <span className="h-2 w-2 bg-zinc-500 rounded-full" />
-                        Conectando...
-                      </span>
-                    </>
-                  )}
-                  <span className="text-zinc-400 text-[10px] font-bold shrink-0">|</span>
-                  <div className="flex items-center gap-1 text-[10px] font-black text-zinc-100">
-                    <Users className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                    <span>{viewerCount}</span>
-                  </div>
-                </div>
 
-                {/* Host specific hardware HUD inside the player */}
-                {isHost && cameraStream && (
-                  <div className="absolute top-4 right-4 z-20 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-red-650/40 text-[10px] font-black text-red-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping" />
-                    <span>TRANSMISSÃO ACTIVA</span>
-                  </div>
-                )}
 
                 {/* Float Render Flying Hearts overlay (Bottom right corner of Player) */}
                 <div className="absolute bottom-16 right-4 z-25 w-[140px] h-[200px] overflow-hidden pointer-events-none flex items-end justify-center">
@@ -1671,7 +1945,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               </div>
 
               {/* 4. Stream Metadata (Title, Creator bar, Actions, collapsable descriptions) */}
-              <div className="mt-4 text-left">
+              <div className="mt-4 px-4 md:px-0 text-left">
                 {/* Title */}
                 <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-snug">
                   {post.liveStream?.title || 'Transmissão ao vivo do FacePhone'}
@@ -1688,13 +1962,19 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                       className="w-11 h-11 rounded-full object-cover border-2 border-red-600 shadow-md shrink-0" 
                     />
                     <div className="text-left leading-snug">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-bold text-zinc-100 text-sm hover:text-red-500 duration-150 cursor-pointer">
                           {creatorProfile ? `${creatorProfile.firstName} ${creatorProfile.lastName}` : 'Canal do Criador'}
                         </span>
                         <span className="bg-zinc-800 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider text-zinc-400 flex items-center gap-0.5">
                           ⭐ VERIFICADO
                         </span>
+                        
+                        {/* Live active spectators badge cleanly located outside the main stream box */}
+                        <div className="bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 uppercase tracking-wider animate-pulse ml-1.5 shrink-0">
+                          <Users className="h-2.5 w-2.5" />
+                          <span>{viewerCount} Assistindo</span>
+                        </div>
                       </div>
                       <p className="text-[11px] text-zinc-400 mt-0.5">{getSubscribersText()}</p>
                     </div>
@@ -1713,16 +1993,21 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                   {/* Right hand buttons */}
                   <div className="flex items-center flex-wrap gap-2">
                     {/* Thumbs up Likes block */}
-                    <div className="flex items-center bg-[#272727] hover:bg-[#3f3f3f] rounded-full shrink-0">
-                      <button 
-                        onClick={handleLikeClick}
-                        className="flex items-center gap-2 px-4 py-2.5 text-xs font-black text-white hover:text-red-500 duration-150 rounded-full"
-                        title="Marcar Gostei"
-                      >
-                        <ThumbsUp className={`h-4 w-4 ${hearts > 0 ? 'text-red-500 shrink-0 fill-current' : ''}`} />
-                        <span>{hearts}</span>
-                      </button>
-                    </div>
+                    {(() => {
+                      const hasLiked = post?.liveHeartUsers?.includes(currentUser.id) || false;
+                      return (
+                        <div className={`flex items-center rounded-full shrink-0 transition-all duration-200 ${hasLiked ? 'bg-red-600 hover:bg-red-500 shadow-md ring-1 ring-red-500/20 active:scale-95' : 'bg-[#272727] hover:bg-[#3f3f3f]'}`}>
+                          <button 
+                            onClick={handleLikeClick}
+                            className="flex items-center gap-2 px-4 py-2.5 text-xs font-black text-white duration-150 rounded-full"
+                            title={hasLiked ? "Remover Gostei" : "Marcar Gostei"}
+                          >
+                            <ThumbsUp className={`h-4 w-4 shrink-0 transition-transform ${hasLiked ? 'text-white fill-current' : 'text-zinc-300'}`} />
+                            <span>{hearts}</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {/* FaceCoins Donation Trigger (Viewer side) */}
                     {!isHost && (
@@ -1902,20 +2187,42 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               </div>
 
               {/* Tabs buttons row */}
-              <div className="grid grid-cols-2 border-t border-zinc-800/80">
+              <div className={`grid ${isHost ? 'grid-cols-3' : 'grid-cols-2'} border-t border-zinc-850 bg-[#1f1f1f]`}>
                 <button 
                   onClick={() => setSidebarTab('chat')}
                   className={`py-2 px-1 text-[10px] font-black uppercase tracking-widest transition-all truncate ${sidebarTab === 'chat' ? 'bg-[#181818] text-white border-b-2 border-red-650' : 'bg-[#1f1f1f] text-zinc-500 hover:text-zinc-300'}`}
                 >
-                  💬 Chat ao Vivo
+                  💬 Chat
                 </button>
                 <button 
                   onClick={() => setSidebarTab('ranking')}
                   className={`py-2 px-1 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shrink-0 truncate ${sidebarTab === 'ranking' ? 'bg-[#181818] text-white border-b-2 border-red-650' : 'bg-[#1f1f1f] text-zinc-500 hover:text-zinc-300'}`}
                 >
                   <Trophy className="h-3 w-3 text-amber-500 shrink-0" />
-                  <span>Doadores 🏆</span>
+                  <span>Apoio 🏆</span>
                 </button>
+                {isHost && (
+                  <button 
+                    onClick={() => setSidebarTab('spectators')}
+                    className={`py-2 px-1 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shrink-0 truncate ${sidebarTab === 'spectators' ? 'bg-[#181818] text-white border-b-2 border-red-650' : 'bg-[#1f1f1f] text-zinc-500 hover:text-zinc-300'}`}
+                  >
+                    <Users className="h-3.5 w-3.5 text-sky-400 shrink-5" />
+                    <span className="relative flex items-center gap-0.5">
+                      <span>Convites</span>
+                      {(() => {
+                        const count = post.liveStream?.requestedViewerIds?.length || 0;
+                        if (count > 0) {
+                          return (
+                            <span className="w-3.5 h-3.5 bg-red-600 text-white rounded-full flex items-center justify-center text-[7.5px] font-black animate-pulse">
+                              {count}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2039,6 +2346,148 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                     })}
                   </div>
                 )}
+              </div>
+            ) : sidebarTab === 'spectators' ? (
+              /* Spectators & Invitations management tab (for host only) */
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 scrollbar-thin scrollbar-thumb-zinc-800 text-left">
+                {/* 1. Solicitações de entrada */}
+                <div className="space-y-2">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                    <span>Lobby: Solicitações ({post.liveStream?.requestedViewerIds?.length || 0})</span>
+                  </h4>
+                  
+                  {(!post.liveStream?.requestedViewerIds || post.liveStream.requestedViewerIds.length === 0) ? (
+                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider py-2.5 bg-zinc-900/40 rounded-xl text-center border border-zinc-850">
+                      Nenhuma solicitação pendente.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {post.liveStream.requestedViewerIds.map(uid => {
+                        const userObj = allUsers.find(u => u.id === uid);
+                        const name = userObj ? `${userObj.firstName} ${userObj.lastName || ''}`.trim() : `Usuário ${uid.substring(0, 6)}`;
+                        const pic = userObj?.profilePicture || '/default-avatar.png';
+                        
+                        return (
+                          <div key={uid} className="flex items-center justify-between p-2 rounded-xl bg-zinc-900 border border-zinc-800">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <img src={pic} className="w-7 h-7 rounded-full object-cover border border-zinc-700 shrink-0" referrerPolicy="no-referrer" />
+                              <div className="min-w-0 leading-tight">
+                                <p className="text-xs font-black text-white truncate max-w-[100px]">{name}</p>
+                                <span className="text-[8px] font-mono text-zinc-500">ID: ...{uid.substring(uid.length - 6)}</span>
+                              </div>
+                            </div>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button
+                                onClick={() => handleApproveSpectator(uid)}
+                                className="px-2 py-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black uppercase text-[8.5px] rounded tracking-wider cursor-pointer"
+                              >
+                                Aceitar
+                              </button>
+                              <button
+                                onClick={() => handleDeclineSpectator(uid)}
+                                className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold uppercase text-[8.5px] rounded tracking-wider cursor-pointer"
+                              >
+                                Recusar
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Convidar Proativamente */}
+                <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-[#a8a8a8]">Convidar Espectadores</h4>
+                  <input
+                    type="text"
+                    value={spectatorSearch}
+                    onChange={e => setSpectatorSearch(e.target.value)}
+                    placeholder="Buscar participante por nome..."
+                    className="w-full bg-zinc-900 focus:ring-1 focus:ring-sky-500 border border-zinc-800 rounded-lg px-3 py-2 text-[10.5px] text-white placeholder-zinc-500 outline-none"
+                  />
+                  
+                  {spectatorSearch.trim() === '' ? (
+                    <p className="text-[9px] font-semibold text-zinc-500 uppercase tracking-widest text-center py-2">
+                      Digite um nome para buscar voluntários.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {allUsers
+                        .filter(u => {
+                          const fullName = `${u.firstName} ${u.lastName || ''}`.toLowerCase();
+                          return u.id !== currentUser.id && fullName.includes(spectatorSearch.toLowerCase());
+                        })
+                        .slice(0, 5)
+                        .map(u => {
+                          const isAlreadyInvited = post.liveStream?.invitedViewerIds?.includes(u.id);
+                          const isAlreadyRequested = post.liveStream?.requestedViewerIds?.includes(u.id);
+                          
+                          return (
+                            <div key={u.id} className="flex items-center justify-between p-1.5 bg-zinc-900/60 rounded-lg border border-zinc-850 hover:bg-zinc-900">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <img src={u.profilePicture || '/default-avatar.png'} className="w-6 h-6 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+                                <span className="text-xs font-black text-white truncate max-w-[125px]">{u.firstName} {u.lastName}</span>
+                              </div>
+                              {isAlreadyInvited ? (
+                                <span className="text-[8px] font-black text-emerald-500 uppercase tracking-wider">Permitido</span>
+                              ) : isAlreadyRequested ? (
+                                <button
+                                  onClick={() => handleApproveSpectator(u.id)}
+                                  className="px-2 py-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black uppercase text-[8.5px] rounded cursor-pointer"
+                                >
+                                  Liberar
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleInviteSpectatorDirectly(u.id)}
+                                  className="px-2 py-1 bg-sky-500 hover:bg-sky-400 text-[#0c0f17] font-black uppercase text-[8.5px] rounded cursor-pointer"
+                                >
+                                  Convidar
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Lista de Autorizados */}
+                <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-[#a8a8a8]">Acessos Permitidos ({post.liveStream?.invitedViewerIds?.length || 0})</h4>
+                  
+                  {(!post.liveStream?.invitedViewerIds || post.liveStream.invitedViewerIds.length === 0) ? (
+                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider py-2 bg-zinc-900/20 rounded-lg text-center">
+                      Nenhum visualizador convidado.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {post.liveStream.invitedViewerIds.map(uid => {
+                        const userObj = allUsers.find(u => u.id === uid);
+                        const name = userObj ? `${userObj.firstName} ${userObj.lastName || ''}`.trim() : `Usuário ${uid.substring(0, 6)}`;
+                        const pic = userObj?.profilePicture || '/default-avatar.png';
+                        
+                        return (
+                          <div key={uid} className="flex items-center justify-between p-1.5 bg-zinc-900/40 rounded-lg border border-zinc-850">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <img src={pic} className="w-5.5 h-5.5 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+                              <span className="text-xs font-black text-white truncate max-w-[130px]">{name}</span>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveSpectatorAccess(uid)}
+                              className="px-2 py-0.5 bg-red-950/40 hover:bg-red-950 border border-red-900 hover:text-red-300 text-red-500 text-[8.5px] font-black uppercase rounded transition-all cursor-pointer"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               /* Comments List flow container (Chat tab) */
@@ -2169,7 +2618,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               <div>
                 <h3 className="text-base font-black uppercase text-white tracking-tight flex items-center gap-1.5 animate-pulse">
                   <DollarSign className="h-5 w-5 text-amber-500 shrink-0" />
-                  <span>Apoiar Canal (FaceTube Super Chat)</span>
+                  <span>Enviar um Super Chat</span>
                 </h3>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Saldo em conta: {currentUser.balance || 0} FaceCoins</span>

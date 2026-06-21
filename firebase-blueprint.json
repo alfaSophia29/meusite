@@ -415,6 +415,18 @@
         "endedAt": { "type": "number" }
       },
       "required": ["callerId", "receiverId", "type", "status", "timestamp"]
+    },
+    "LiveActiveViewer": {
+      "title": "LiveActiveViewer",
+      "description": "Information about a user active in a live stream",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "profilePic": { "type": "string" },
+        "lastSeen": { "type": "number" }
+      },
+      "required": ["userId", "userName", "lastSeen"]
     }
   },
   "firestore": {
@@ -445,6 +457,10 @@
     "/posts/{postId}": {
       "schema": "Post",
       "description": "Social media posts"
+    },
+    "/posts/{postId}/activeViewers/{viewerId}": {
+      "schema": "LiveActiveViewer",
+      "description": "Active real-time viewers presence inside a live post"
     },
     "/chats/{chatId}": {
       "schema": "ChatConversation",

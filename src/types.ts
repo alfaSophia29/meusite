@@ -253,6 +253,7 @@ export interface Post {
   boostBid?: number; // Valor do lance para o leilão de visibilidade
   disableComments?: boolean; // NOVO: Controle do professor
   likes: string[];
+  liveHeartUsers?: string[];
   comments: Comment[];
   shares: string[];
   saves: string[];
@@ -283,6 +284,8 @@ export interface Post {
     donationGoal?: number;
     donationGoalMsg?: string;
     donationCurrent?: number;
+    invitedViewerIds?: string[];
+    requestedViewerIds?: string[];
   };
   // Dados persistentes da Live
   liveChat?: Comment[];

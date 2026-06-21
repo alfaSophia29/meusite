@@ -5,7 +5,7 @@ import { updateUser, uploadFile, deleteUser, updateUserPassword, saveCurrentUser
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { checkContent } from '../services/sentinelService';
 import { COUNTRIES } from '../data/countries';
-import { isFirebaseConfigured } from '../services/firebaseClient';
+import { isFirebaseConfigured, reconnectFirestore } from '../services/firebaseClient';
 import { useDialog } from '../services/DialogContext';
 import { Github } from 'lucide-react';
 import { requestNotificationPermission, showNotification } from '../services/notificationService';
@@ -73,6 +73,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const { t, i18n } = useTranslation();
   const { showAlert } = useDialog();
   const [view, setView] = useState<'main' | 'edit-profile' | 'appearance' | 'language'>('main');
+  
+  const [isReconnecting, setIsReconnecting] = useState(false);
+
+  const handleReconnectDB = async () => {
+    setIsReconnecting(true);
+    try {
+      const success = await reconnectFirestore();
+      if (success) {
+        showAlert("Banco de dados reconectado e ressincronizado com os servidores em tempo real com sucesso!", { type: 'success', title: 'Conexão Restaurada' });
+      } else {
+        showAlert("Não foi possível estabelecer contato direto com os servidores no momento. O app continuará funcionando offline.", { type: 'error', title: 'Modo Offline' });
+      }
+    } catch (err: any) {
+      showAlert(`Falha ao reconectar: ${err.message}`, { type: 'error' });
+    } finally {
+      setIsReconnecting(false);
+    }
+  };
   
   const [firstName, setFirstName] = useState(currentUser.firstName);
   const [lastName, setLastName] = useState(currentUser.lastName);
@@ -475,7 +493,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   const systemItems = [
-    { label: 'Ajuda e Suporte', desc: 'Abrir tickets e resolver problemas', icon: LifebuoyIcon, onClick: () => onNavigate('support') }
+    { label: 'Ajuda e Suporte', desc: 'Abrir tickets e resolver problemas', icon: LifebuoyIcon, onClick: () => onNavigate('support') },
+    { 
+      label: isReconnecting ? 'Reconectando...' : 'Reconectar Banco de Dados', 
+      desc: isReconnecting ? 'Sincronizando soquetes do Firebase...' : 'Forçar re-sincronização ativa com o banco', 
+      icon: GlobeAltIcon, 
+      onClick: handleReconnectDB 
+    }
   ];
 
   systemItems.push({ label: 'Sair da Conta', desc: 'Desconectar dispositivo', icon: ArrowRightOnRectangleIcon, onClick: onLogout });
